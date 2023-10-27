@@ -51,7 +51,7 @@ logging.config.dictConfig(
                 "class": "logging.FileHandler",
                 "formatter": "simple",
                 "level": "DEBUG",
-                "filename": HERE.joinpath('build-dist.log'),
+                "filename": HERE.joinpath('build.log'),
                 "mode": "w"
             }
         },
@@ -88,6 +88,7 @@ def get_file_sha256(p):
             else:
                 sha256.update(data)
     return sha256.hexdigest()
+
 platform = sys.platform
 if platform.startswith('linux'):
     platform = 'linux'
@@ -147,10 +148,11 @@ elif platform == 'macos':
     release_names = [name for name in release_names if 'apple-darwin' in name]
 
 # Filter to only bitness that we are interested in
-if sys.maxsize > 2**32:
-    release_names = [name for name in release_names if 'x86_64' in name]
-else:
-    release_names = [name for name in release_names if 'i686' in name]
+if platform == "windows":
+    if sys.maxsize > 2**32:
+        release_names = [name for name in release_names if 'x86_64' in name]
+    else:
+        release_names = [name for name in release_names if 'i686' in name]
 
 # There should be two: one for the hash and one for the actual release
 if len(release_names) > 2:
@@ -190,7 +192,7 @@ hash_file_path = BUILD_DIRECTORY.joinpath(hash_file)
 with hash_file_path.open('wb') as fp:
     fp.write(hash_file_response.content)
 hash_hex = hash_file_path.read_text().strip()
-print(hash_hex)
+log.debug(hash_hex)
 
 # Fifth Download Release file
 release_file_response = requests.get(
