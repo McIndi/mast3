@@ -12,3 +12,4 @@ colorama
 pyOpenSSL
 requests
 wheel
+mock

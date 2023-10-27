@@ -14,3 +14,4 @@ pyreadline3
 pywin32
 requests
 wheel
+mock
