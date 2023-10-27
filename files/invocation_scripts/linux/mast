@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export MAST_HOME=<%MAST_HOME%>
+
+cd $MAST_HOME
+source ./set-env
+
+miniconda/bin/python "$@"

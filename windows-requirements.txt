@@ -1,0 +1,16 @@
+commandr
+cherrypy
+paramiko
+markdown
+ecdsa
+python-dateutil
+flask
+openpyxl
+lxml
+pygments
+colorama
+pyOpenSSL
+pyreadline3
+pywin32
+requests
+wheel
