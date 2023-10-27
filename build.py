@@ -22,6 +22,10 @@ BUILD_DIRECTORY = HERE.joinpath('build')
 shutil.rmtree(BUILD_DIRECTORY, ignore_errors=True)
 BUILD_DIRECTORY.mkdir()
 
+ASSEMBLE_DIRECTORY = BUILD_DIRECTORY.joinpath('assemble')
+shutil.rmtree(ASSEMBLE_DIRECTORY, ignore_errors=True)
+ASSEMBLE_DIRECTORY.mkdir()
+
 DIST_DIRECTORY = HERE.joinpath('dist')
 shutil.rmtree(DIST_DIRECTORY, ignore_errors=True)
 DIST_DIRECTORY.mkdir()
@@ -210,17 +214,17 @@ else:
 # Extract the release file into the dist directory
 shutil.unpack_archive(
     release_file_path,
-    DIST_DIRECTORY,
+    ASSEMBLE_DIRECTORY,
 )
 
 # Move everything under python directory into subdirectory based on python version
-src_dir = DIST_DIRECTORY.joinpath('python')
+src_dir = ASSEMBLE_DIRECTORY.joinpath('python')
 dst_dir = src_dir.joinpath(TARGET_PYTHON_VERSION)
 for item in src_dir.iterdir():
     if item != dst_dir:
         shutil.move(item, dst_dir.joinpath(item.name))
 
-python_executable = DIST_DIRECTORY.joinpath('python').joinpath(TARGET_PYTHON_VERSION).joinpath('python')
+python_executable = ASSEMBLE_DIRECTORY.joinpath('python').joinpath(TARGET_PYTHON_VERSION).joinpath('python')
 
 # Upgrade pip
 command = f'{python_executable} -m pip install --upgrade pip'
@@ -241,7 +245,7 @@ for item in mast_home_directory.iterdir():
     if item.is_dir():
         shutil.copytree(
             item,
-            DIST_DIRECTORY.joinpath(item.name)
+            ASSEMBLE_DIRECTORY.joinpath(item.name)
         )
     else:
         log.critical("Non-directory item in files/mast_home")
@@ -253,6 +257,15 @@ for item in script_dir.iterdir():
     if item.name.startswith('set-env'):
         contents = item.read_text()
         contents = contents.replace('{PYTHON_VERSION}', TARGET_PYTHON_VERSION)
-        DIST_DIRECTORY.joinpath(item.name).write_text(contents)
+        ASSEMBLE_DIRECTORY.joinpath(item.name).write_text(contents)
     else:
-        shutil.copy(item, DIST_DIRECTORY.joinpath(item.name))
+        shutil.copy(item, ASSEMBLE_DIRECTORY.joinpath(item.name))
+
+shutil.make_archive(
+    DIST_DIRECTORY.joinpath(
+        f'MAST-{TARGET_PYTHON_VERSION}_{platform}',
+    ),
+    format='zip',
+    root_dir=ASSEMBLE_DIRECTORY,
+    base_dir='.',
+)
