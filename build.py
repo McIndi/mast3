@@ -153,6 +153,14 @@ if platform == "windows":
         release_names = [name for name in release_names if 'x86_64' in name]
     else:
         release_names = [name for name in release_names if 'i686' in name]
+elif platform == "linux":
+    if sys.maxsize > 2**32:
+        release_names = [name for name in release_names if 'x86_64' in name]
+        release_names = [name for name in release_names if 'x86_64_v2' not in name]
+        release_names = [name for name in release_names if 'x86_64_v3' not in name]
+        release_names = [name for name in release_names if 'x86_64_v4' not in name]
+    else:
+        release_names = [name for name in release_names if 'i686' in name]
 
 # There should be two: one for the hash and one for the actual release
 if len(release_names) > 2:
@@ -226,19 +234,22 @@ for item in src_dir.iterdir():
     if item != dst_dir:
         shutil.move(item, dst_dir.joinpath(item.name))
 
-python_executable = ASSEMBLE_DIRECTORY.joinpath('python').joinpath(TARGET_PYTHON_VERSION).joinpath('python')
+if platform == "windows":
+    python_executable = ASSEMBLE_DIRECTORY.joinpath('python').joinpath(TARGET_PYTHON_VERSION).joinpath('python')
+else:
+    python_executable = ASSEMBLE_DIRECTORY.joinpath('python').joinpath(TARGET_PYTHON_VERSION).joinpath('bin').joinpath('python3')
 
 # Upgrade pip
 command = f'{python_executable} -m pip install --upgrade pip'
-subprocess.run(command)
+subprocess.run(command, shell=True)
 
 # Install dependencies
 command = f'{python_executable} -m pip install -r {requirements_file}'
-subprocess.run(command)
+subprocess.run(command, shell=True)
 
 # Install mast package
 command = f'{python_executable} -m pip install {HERE}'
-subprocess.run(command)
+subprocess.run(command, shell=True)
 
 # Copy all files from files/mast_home
 files_directory = HERE.joinpath('files')

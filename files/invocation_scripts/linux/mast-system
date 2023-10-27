@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export MAST_HOME=<%MAST_HOME%>
+export MAST_HOME=$(dirname $0)
 
 cd $MAST_HOME
 
