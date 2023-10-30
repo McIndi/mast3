@@ -39,7 +39,7 @@ if "Windows" in platform.system():
 
         win32serviceutil.HandleCommandLine(MASTd)
 
-elif "Linux" in platform.system():
+else:
 
     def main():
         from .mast_daemon import MASTd

@@ -403,7 +403,7 @@ class Plugin(threading.Thread):
                                         stdin=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
                                         startupinfo=si)
-                                elif "Linux" in platform.system():
+                                else:
                                     out = subprocess.check_output(
                                         job.comment.strip(),
                                         shell=True,

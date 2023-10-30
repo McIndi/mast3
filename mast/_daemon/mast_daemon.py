@@ -53,7 +53,7 @@ if "Windows" in platform.system():
         os.environ["MAST_HOME"] = mast_home
     else:
         mast_home = os.environ["MAST_HOME"]
-elif "Linux" in platform.system():
+else:
     mast_home = os.environ["MAST_HOME"]
 
 anaconda_dir = os.path.join(mast_home, "anaconda")
@@ -211,7 +211,7 @@ if "Windows" in platform.system():
                     "An uhhandled exception occurred during execution")
                 raise
 
-elif "Linux" in platform.system():
+else:
     class MASTd(Daemon):
         """
         _class_: `mast.daemon.MASTd(daemon)`
