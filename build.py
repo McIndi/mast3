@@ -3,6 +3,7 @@ import json
 import shutil
 import hashlib
 import logging
+import platform as _platform
 import subprocess
 import logging.config
 from pathlib import Path
@@ -95,7 +96,7 @@ if platform.startswith('linux'):
 elif platform.startswith('win32'):
     platform = 'windows'
 elif platform.startswith('darwin'):
-    platform = 'macos'
+    platform = 'darwin'
 # The elifs here are strictly here for documentation if we need to
 # support these platforms in the future
 elif platform.startswith('freebsd'):
@@ -144,7 +145,7 @@ if platform == 'windows':
     release_names = [name for name in release_names if 'windows-msvc-shared' in name]
 elif platform == 'linux':
     release_names = [name for name in release_names if 'unknown-linux-gnu' in name]
-elif platform == 'macos':
+elif platform == 'darwin':
     release_names = [name for name in release_names if 'apple-darwin' in name]
 
 # Filter to only bitness that we are interested in
@@ -161,6 +162,11 @@ elif platform == "linux":
         release_names = [name for name in release_names if 'x86_64_v4' not in name]
     else:
         release_names = [name for name in release_names if 'i686' in name]
+elif platform == "darwin":
+    if _platform.machine() == "x86_64":
+        release_names = [name for name in release_names if 'x86_64' in name]
+    elif _platform.machine() == "arm64":
+        release_names = [name for name in release_names if 'aarch64' in name]
 
 # There should be two: one for the hash and one for the actual release
 if len(release_names) > 2:

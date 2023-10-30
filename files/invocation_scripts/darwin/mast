@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export MAST_HOME=$(dirname $0)
+
+cd $MAST_HOME
+source ./set-env
+
+python/$PYTHON_VERSION/bin/python3 "$@"
