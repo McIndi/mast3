@@ -282,10 +282,10 @@ for item in script_dir.iterdir():
         file_path = ASSEMBLE_DIRECTORY.joinpath(item.name)
         shutil.copy(item, file_path)
     if platform.lower() != "windows":
-        file_path.chmod(0o770)
+        file_path.chmod(0o750)
 command = f'{python_executable} -c "import mast; print(mast.__version__)"'
 output = subprocess.check_output(command, shell=True)
-mast_version = output.strip()
+mast_version = output.strip().decode()
 
 shutil.make_archive(
     DIST_DIRECTORY.joinpath(
