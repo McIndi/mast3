@@ -4,6 +4,7 @@
 from mast.datapower import datapower
 from mast.logging import make_logger
 from mast.pprint import pprint_xml_str, pprint_xml
+from mast.util import _b
 from collections import defaultdict
 from mast.cli import Cli
 from fnmatch import fnmatch
@@ -50,8 +51,9 @@ def main(appliances=[],
                             domain=domain,
                             Dir=directory.get("name"),
                         )
-                        resp = etree.fromstring(resp.text)
-                        msg = " ".join(resp.itertext())
+                        # print(resp)
+                        # resp = etree.fromstring(resp.text)
+                        msg = " ".join(resp.xml.itertext())
                         print(("\t\t\t{}".format(msg)))
                         continue
                     for node in directory.xpath("./file"):
