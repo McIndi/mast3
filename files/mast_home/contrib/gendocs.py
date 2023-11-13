@@ -275,25 +275,36 @@ def generate_cli_reference():
         if err:
             err = err.decode()
         out = out.replace("  -", "    -")
+
         # Put all subcommand into an unordered list
-        out = re.sub(r"^  (\w)", r"* \1", out, flags=re.MULTILINE)
+        subcommands = re.search(r"  \{.*?\}", out)
+        if subcommands is None:
+            subcommands = []
+        else:
+            subcommands = subcommands[0].strip().replace('{', '').replace('}', '')
+            subcommands = subcommands.split(",")
+        # print(subcommands)
+        # import sys; sys.exit()
+        # out = re.sub(r"\{.*?\}", r"\1", out, flags=re.MULTILINE)
+        # out = re.sub(r",", r"\n", out, flags=re.MULTILINE)
         # Put subcommand name in backticks
-        out = re.sub(r"^\* (.*?)\s-\s", r"* `\1` - ", out, flags=re.MULTILINE)
+        # out = re.sub(r"^\* (.*?)\s-\s", r"* `\1` - ", out, flags=re.MULTILINE)
         # isolate sub-command categories into section headers
-        out = re.sub(r"^(.*?Commands:)", r"\n\n\1\n\n", out, flags=re.MULTILINE)
+        # out = re.sub(r"^(.*?Commands:)", r"\n\n\1\n\n", out, flags=re.MULTILINE)
         # Special case mast-ssh because it has no subcommands
         if "mast-ssh" in _script:
             out = out.replace("arguments:", "arguments:\n\n")
         out = out.replace("----------------------------------------", "")
         ret += "{}\n\n".format(textwrap.dedent(out))
         if "mast-ssh" not in _script:
-            subcommands = [l for l in out.splitlines() if l.startswith("* ")]
-            subcommands = [x.split(" - ")[0].strip().replace("* ", "").replace("`", "") for x in subcommands]
+            # subcommands = [l for l in out.splitlines() if l.startswith("* ")]
+            # subcommands = [x.split(" - ")[0].strip().replace("* ", "").replace("`", "") for x in subcommands]
             for subcommand in subcommands:
                 if subcommand == "help":
                     continue
                 command = [_script, subcommand, "--help"]
                 out, err = system_call(command)
+                out, err = out.decode(), err.decode() if err else ''
                 out = out.replace("  -", "    -")
                 out = out.replace("Options:", "Options:\n\n")
                 out = out.replace("----------------------------------------", "")
