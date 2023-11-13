@@ -329,23 +329,23 @@ def main(out_dir="doc"):
             md_file = os.path.join(out_dir, filename)
 
             with open(in_file, "rb") as fin:
-                md = str(fin.read())
+                md = fin.read().decode()
 
             md = md.format(os.environ["MAST_VERSION"])
             html = markdown.markdown(
-                str(md),
+                md,
                 extensions=[
                     TocExtension(title="Table of Contents"),
                     CodeHiliteExtension(guess_lang=False)])
             html = tpl.replace("<%content%>", html)
 
             print(("Output: {}".format(html_file)))
-            with open(html_file, "wb") as fout:
-                fout.write(html.encode())
+            with open(html_file, "w") as fout:
+                fout.write(html)
 
             print(("Output: {}".format(md_file)))
-            with open(md_file, "wb") as fout:
-                fout.write(md.encode())
+            with open(md_file, "w") as fout:
+                fout.write(md)
 
     api_objects = get_objects(api_modules)
     api_md = generate_markdown(api_objects)
