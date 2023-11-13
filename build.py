@@ -276,13 +276,20 @@ for item in script_dir.iterdir():
     if item.name.startswith('set-env'):
         contents = item.read_text()
         contents = contents.replace('{PYTHON_VERSION}', TARGET_PYTHON_VERSION)
-        ASSEMBLE_DIRECTORY.joinpath(item.name).write_text(contents)
+        file_path = ASSEMBLE_DIRECTORY.joinpath(item.name)
+        file_path.write_text(contents)
     else:
-        shutil.copy(item, ASSEMBLE_DIRECTORY.joinpath(item.name))
+        file_path = ASSEMBLE_DIRECTORY.joinpath(item.name)
+        shutil.copy(item, file_path)
+    if platform.lower() != "windows":
+        file_path.chmod(0o770)
+command = f'{python_executable} -c "import mast; print(mast.__version__)"'
+output = subprocess.check_output(command, shell=True)
+mast_version = output.strip()
 
 shutil.make_archive(
     DIST_DIRECTORY.joinpath(
-        f'MAST-{TARGET_PYTHON_VERSION}_{platform}',
+        f'MAST-{mast_version}_py{TARGET_PYTHON_VERSION}_{platform}',
     ),
     format='zip',
     root_dir=ASSEMBLE_DIRECTORY,
