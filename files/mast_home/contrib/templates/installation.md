@@ -11,17 +11,19 @@ possible. Let's first review the requirements:
 
 # Requirements
 
+* 4 CPUs
+* 8 GB RAM
+* 64 GB storage
+
+The following platforms are supported:
+
 * Linux
 * Windows
-* OS X (coming soon)
-* That's it (Although we do suggest a machine with at least 4 CPUs and 8GB RAM,
-but this is not a hard requirement)
+* OS X
 
 ## Security concerns
 
-It is important to replace the key and cert in $MAST_HOME/etc/crypto with
-trusted certificates and to update the key and cert configuration in
-$MAST_HOME/etc/server.conf.
+It is important to place a key and cert in `$MAST_HOME/etc/crypto`.
 
 For those with serious concerns over security, it may be a good idea to configure
 the appliance's management interface to listen only to the IP Address of the MAST
@@ -31,20 +33,8 @@ there is the option to install MAST on your team's workstation.
 
 # Installing MAST
 
-The server install is powered by [miniconda](http://conda.pydata.org/miniconda.html)
-
-The easiest way to install MAST for IBM DataPower is to place the executable
-in the directory you want your MAST installation and run it. If run this way,
-it will create a subdirectory called mast and install there. There are other
-options available for installation as well.
-
-If you wish to install into a specific directory, you can simply pass a
-`--prefix` option to the installer and provide the directory you would like mast to be
-installed to it will be installed in this directory directly (ie it will not
-create a mast subdirectory).
-
-If you would like more details on the options provided by the installer please
-execute the installer and pass in a `--help` flag.
+The easiest way to install MAST for IBM DataPower is to place the installation zip file
+in the directory you want your MAST installation and extract it.
 
 # Installing mastd
 

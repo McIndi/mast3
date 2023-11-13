@@ -19,13 +19,15 @@ that this will refer to the directory into which MAST was installed
 # First thing first
 
 While there are a few different ways in which MAST can be secured, the most
-obvious one and the most necessary one is to replace the default key-pair
-which comes with MAST. While you can go with a signed certificate, it is not
-necessary, but what is absolutely necessary is to replace the pair that comes
-with MAST. This is because this is the same key-pair which ships with all MAST
-products. We include it so that MAST can be up and running over TLS upon
-installation, but anyone remotely familiar with MAST will be able to easily
-decrypt your traffic if you do not change the default key pair.
+obvious one and the most necessary one is to use https for the mast-web ui.
+
+MAST comes with a script to generate a keypair for use with TLS.
+
+Use the script like below. Please note that, by default, this script will
+put the key and cert files under `$MAST_HOME/etc/crypto` where the default
+server.conf will be expecting it.
+
+`mast contrib\gen-cert.py --emailAddress admin@localhost.localdomain --commonName 127.0.0.1 --countryName US --localityName CITY --stateOrProvinceName STATE --organizationName ORG --organizationUnitName UNIT --serialNumber 1234`
 
 # Configuring your hosts
 

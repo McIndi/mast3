@@ -51,3 +51,31 @@ mast-backups.bat normal-backup -a lab -c %MAST_CREDS% -n -D all-domains -C "Dail
 # Restore a normal backup
 mast-backups restore-normal-backup -a lab -c %MAST_CREDS% -n -f tmp\dp1\NormalBackup\20231113103737\20231113103737-dp1-all-domains.zip -D default --timeout 1200
 
+# Generate docs
+mast contrib/gendocs.py
+
+# List users
+./mast-accounts list-users -a all -c %MAST_CREDS%
+
+# Add a group defined user
+./mast-accounts add-user -a dev -c username:password -u new_user -p pa55word -g developer -s
+
+# Add a priviledged user
+./mast-accounts add-user -a dev -c username:password -u new_user -p pa55word -g developer -s
+
+# Force change password
+./mast-accounts force-change-password -a dev -c username:password -U new_user
+
+# List domains
+./mast-system show-domains -a dev -c username:password
+
+# Add domain
+./mast-system add-domain -a dev -c username:password -d new_domain -s
+
+# Import configuration
+./mast-developer import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip
+
+# Save a domain
+./mast-system save -a dev -c username:password -D new_domain
+
+

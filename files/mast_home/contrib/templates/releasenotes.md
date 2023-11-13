@@ -4,6 +4,19 @@
 
 [TOC]
 
+# MAST Version 3.11.6.post2
+
+## Bug Fixes
+
+* Fix multiple string encoding issues
+* Fix CLI argument handling with respect to negative flags (ie `--no-backup`)
+* Fix multiple issues in gendocs
+* Documentation updates
+
+## Features
+
+* gen-cert.py now, by default, places the key and cert in the directory expected by mast-web
+
 # MAST Version 3.0.4
 
 ## Bug Fixes

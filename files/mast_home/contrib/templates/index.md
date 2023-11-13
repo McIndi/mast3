@@ -47,7 +47,7 @@ operations of your DataPower appliances, please contact us at
 
 If you would like to offer help in the form of bug reports or pull requests,
 work is currently being done on the
-[GitHub repository](https://github.com/mcindi/mast).
+[GitHub repository](https://github.com/mcindi/mast3).
 Please note that the upcoming version will be ironing out the development and
 contribution process, so it's all subject to change.
 
@@ -60,6 +60,6 @@ For your convenience, all links in the document above are all listed here:
 * [Getting Started Guide](./getting-started.html)
 * [The CLI Reference](./CLIReference.html)
 * [The API Reference](./APIReference.html)
-* [GitHub repository for the installer](https://github.com/mcindi/mast.installer)
+* [GitHub repository](https://github.com/mcindi/mast3)
 * [support@mcindi.com](mailto://support@mcindi.com)
 * [Road Map](./roadmap.html)
