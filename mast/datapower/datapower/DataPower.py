@@ -618,27 +618,27 @@ class DataPower(object):
         self.correlation_id = None
         self.check_hostname = check_hostname
         self._history = []
-        self.hostname = hostname
+        self.hostname = _s(hostname)
         if hosts_config.has_option("hosts", hostname):
-            self._hostname = hosts_config.get("hosts", hostname)
+            self._hostname = _s(hosts_config.get("hosts", hostname))
         else:
-            self._hostname = hostname
+            self._hostname = _s(hostname)
 
         if _s(':') not in _s(credentials):
-            credentials = xordecode(credentials).decode()
+            credentials = _s(xordecode(credentials).decode())
             if ':' not in credentials:
                 raise ValueError("Invalid credentials provided")
 
-        self.credentials = credentials
-        self.scheme = scheme
-        self.port = port
+        self.credentials = _s(credentials)
+        self.scheme = _s(scheme)
+        self.port = _s(port)
         self.web_port = web_port
         self.ssh_port = ssh_port
-        self.uri = uri
+        self.uri = _s(uri)
         self.test_case = test_case
         self.retry_interval = retry_interval
 
-        self.domain = domain
+        self.domain = _s(domain)
         self._environment = environment
 
         logger = logging.getLogger("DataPower.{}".format(hostname))
@@ -798,7 +798,7 @@ class DataPower(object):
             self.log_info("Attempting SSH connection")
             self.domain = domain
             self._ssh = paramiko.SSHClient()
-            username, password = self.credentials.split(':'.encode(), 1)
+            username, password = _s(self.credentials).split(':', 1)
 
             ssh_config = get_config("ssh.conf")
             if ssh_config.getboolean("ssh", "auto_add_keys"):
@@ -825,8 +825,8 @@ class DataPower(object):
             resp = ""
             while self._ssh_conn.recv_ready():
                 resp += self._ssh_conn.recv(1024).decode()
-            resp += self.ssh_issue_command("{}\n".format(username.decode()))
-            resp += self.ssh_issue_command("{}\n".format(password.decode()))
+            resp += self.ssh_issue_command("{}\n".format(_s(username)))
+            resp += self.ssh_issue_command("{}\n".format(_s(password)))
             if resp.strip().lower().endswith("login:"):
                 raise AuthenticationFailure(
                     "Invalid credentials provided, please ensure "
@@ -960,17 +960,17 @@ class DataPower(object):
         * `timeout`: The amount of time (in seconds) to wait for a
         response. Defaults to 120.
         """
-        username, password = self.credentials.split(":".encode(), 1)
+        username, password = _s(self.credentials).split(":", 1)
         # need to manually log in order to obfuscate credentials
         logger = make_logger("audit")
         logger.info(
             "Attempting to execute ssh_issue_command('{}', '{}')".format(
-                str(self), command.replace(password.decode(), "********").strip()
+                str(self), _s(command).replace(_s(password), "********").strip()
             ))
         if not self.ssh_is_connected():
             self.log_error(
                 'attempted command on a non-existant '
-                'ssh connection: {}'.format(command.replace(password,
+                'ssh connection: {}'.format(_s(command).replace(_s(password),
                                                             "********")))
             return None
         # I need resp.splitlines() to succeed
@@ -978,11 +978,11 @@ class DataPower(object):
 
         # The command needs to be suffixed with a newline in order for
         # the server to relize that it is a command.
-        command = command + '\n' if not command.endswith('\n') else command
+        command = _s(command) + '\n' if not _s(command).endswith('\n') else _s(command)
 
         self.log_info(
             "Attempting to send SSH command: "
-            "{}".format(command.strip().replace(password.decode(), "********")))
+            "{}".format(_s(command).strip().replace(_s(password), "********")))
         self._ssh_conn.sendall(command)
 
         # Wait for a response, but check for timeouts
@@ -1016,7 +1016,7 @@ class DataPower(object):
         #     resp = ' {}\n{}'.format(command.replace(password, "********"), resp)
         logger.info(
             "Finished execution of ssh_issue_command('{}', '{}'). Result: {}".format(
-                str(self), command.replace(password.decode(), "********").strip(), resp
+                str(self), command.replace(password, "********").strip(), resp
             ))
         return resp
 
