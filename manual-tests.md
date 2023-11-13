@@ -49,4 +49,5 @@ mast-backups.bat normal-backup -a lab -c %XOR_MAST_CREDS% -n -D all-domains -C "
 mast-backups.bat normal-backup -a lab -c %MAST_CREDS% -n -D all-domains -C "Daily Backup 20231113" -o tmp
 
 # Restore a normal backup
+mast-backups restore-normal-backup -a lab -c %MAST_CREDS% -n -f tmp\dp1\NormalBackup\20231113103737\20231113103737-dp1-all-domains.zip -D default --timeout 1200
 

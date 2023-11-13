@@ -19,5 +19,5 @@ print(("""
 McIndi's Automated Solutions Tool
 Version {}
 
-Copyright 2015-2019 McIndi Solutions, LLC
+Copyright 2015-2023 McIndi Solutions, LLC
 """.format(__version__)))
