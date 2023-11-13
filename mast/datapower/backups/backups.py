@@ -94,7 +94,7 @@ def restore_normal_backup(appliances=[],
                           rewrite_local_ip=True,
                           deployment_policy=None,
                           import_domain=True,
-                          reset_domain=True,
+                          reset_domain=False,
                           dry_run=False,
                           out_dir="tmp",
                           web=False):
@@ -871,13 +871,9 @@ DO NOT USE.__"""
         if not web:
             print(appliance.hostname)
         _domains = Domain
-        print(Domain)
-        print(_domains)
         if "all-domains" in _domains:
             _domains = appliance.domains
-        print(_domains)
         for domain in _domains:
-            print(domain)
             if not web:
                 print("\t", domain)
             name = '{0}-{1}-{2}'.format(comment, domain, t.timestamp)

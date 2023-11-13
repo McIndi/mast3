@@ -197,14 +197,14 @@ class Cli(object):
             elif isinstance(default, bool):
                 if default:
                     _parser.add_argument(
-                        *flag, action='store_false', default=default)
+                        '--no-{}'.format(_arg), dest=arg, action='store_false', default=default)
                 else:
                     _parser.add_argument(
-                        *flag, action='store_true', default=default)
+                        *flag, action='store_true', dest=arg, default=default)
             elif isinstance(default, int):
-                _parser.add_argument(*flag, type=int, default=default)
+                _parser.add_argument(*flag, type=int, dest=arg, default=default)
             elif isinstance(default, float):
-                _parser.add_argument(*flag, type=float, default=default)
+                _parser.add_argument(*flag, type=float, dest=arg, default=default)
 
     def command(self, name=None, category=None):
         """

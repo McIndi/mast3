@@ -3453,9 +3453,9 @@ class DataPower(object):
                 "There was an error retrieving a backup from {} {}".format(
                     self.hostname, domain))
             raise
-        print(type(_file))
+        # print(type(_file))
         _file = base64.decodebytes(_file.encode())
-        print(type(_file))
+        # print(type(_file))
         if format == "ZIP":
             bytesio = BytesIO(_file)
             # print(bytesio.read())
@@ -3480,7 +3480,9 @@ class DataPower(object):
 
         file_in = self._get_local_file(file_in)
         self.request.clear()
-        do_restore = self.request.request.do_restore
+        req = self.request.request
+        do_restore = etree.SubElement(req, f'{{{MGMT_NAMESPACE}}}do-restore')
+
         do_restore.set('source-type', source_type)
         do_restore.set('dry-run', str(dry_run).lower())
         do_restore.set('overwrite-files', str(overwrite_files).lower())
@@ -3488,8 +3490,10 @@ class DataPower(object):
         do_restore.set('rewrite-local-ip', str(rewrite_local_ip).lower())
         if deployment_policy is not None:
             do_restore.set('deployment-policy', deployment_policy)
-        do_restore.input_file(file_in)
-        dmn = do_restore.domain
+
+        input_file_node = etree.SubElement(do_restore, f'{{{MGMT_NAMESPACE}}}input-file')
+        input_file_node.text = file_in
+        dmn = etree.SubElement(do_restore, f'{{{MGMT_NAMESPACE}}}domain')
         dmn.set('name', domain)
         dmn.set('import-domain', str(import_domain).lower())
         dmn.set('reset-domain', str(reset_domain).lower())
