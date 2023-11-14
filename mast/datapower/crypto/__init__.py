@@ -161,72 +161,78 @@ DO NOT USE.__"""
                     print("\t\t", name)
                 row = [appliance.hostname, domain, name, password_alias, filename]
 
-                appliance.CryptoExport(
+                # try:
+                details = appliance.get_certificate_details(
                     domain=domain,
-                    ObjectType="cert",
-                    ObjectName=name,
-                    OutputFilename=_filename)
-                logger.info("Finished exporting cert {}".format(cert))
-                try:
-                    logger.info(
-                        "Retrieving file {}".format(
-                            "temporary:///{}".format(_filename)))
-                    cert = appliance.getfile(
-                        domain,
-                        "temporary:///{}".format(_filename))
-                    logger.info(
-                        "Finished retrieving file {}".format(
-                            "temporary:///{}".format(_filename)))
-                    logger.info(
-                        "Attempting to delete file {}".format(
-                            "temporary:///{}".format(_filename)))
-                    appliance.DeleteFile(
-                        domain=domain,
-                        File="temporary:///{}".format(_filename))
-                    logger.info(
-                        "Finished deleting file {}".format(
-                            "temporary:///{}".format(_filename)))
-                except:
-                    logger.exception("An unhandled exception has occurred")
-                    rows.append(row)
-                    if not web:
-                        print("SKIPPING CERT")
-                    continue
-                cert = etree.fromstring(cert)
-                _contents = insert_newlines(cert.find("certificate").text)
-                certificate = \
-                    "-----BEGIN CERTIFICATE-----\n" +\
-                    _contents +\
-                    "\n-----END CERTIFICATE-----\n"
-                _cert = OpenSSL.crypto.load_certificate(
-                    OpenSSL.crypto.FILETYPE_PEM,
-                    certificate)
-                subject = "'{}'".format(
-                    ";".join(
-                        ["=".join(y.decode() for y in x)
-                         for x in _cert.get_subject().get_components()]))
-                issuer = "'{}'".format(
-                    ";".join(
-                        ["=".join(y.decode() for y in x)
-                         for x in _cert.get_issuer().get_components()]))
-                serial_number = _cert.get_serial_number()
-                sans = []
-                ext_count = _cert.get_extension_count()
-                for i in range(0, ext_count):
-                    ext = _cert.get_extension(i)
-                    if 'subjectAltName' in str(ext.get_short_name()):
-                        sans.append(ext.__str__())
-                sans = "\n".join(sans)
-                try:
-                    signature_algorithm = _cert.get_signature_algorithm()
-                except AttributeError:
-                    signature_algorithm = ""
+                    certificate_name=name,
+                )
+                # except:
+                #     rows.append(row)
+                #     continue
+
+                # print("HERE")
+                # print(details)
+                # import sys; sys.exit()
+                # logger.info("Finished exporting cert {}".format(cert))
+                # try:
+                #     logger.info(
+                #         "Retrieving file {}".format(
+                #             "temporary:///{}".format(_filename)))
+                #     cert = appliance.getfile(
+                #         domain,
+                #         "temporary:///{}".format(_filename))
+                #     logger.info(
+                #         "Finished retrieving file {}".format(
+                #             "temporary:///{}".format(_filename)))
+                #     logger.info(
+                #         "Attempting to delete file {}".format(
+                #             "temporary:///{}".format(_filename)))
+                #     appliance.DeleteFile(
+                #         domain=domain,
+                #         File="temporary:///{}".format(_filename))
+                #     logger.info(
+                #         "Finished deleting file {}".format(
+                #             "temporary:///{}".format(_filename)))
+                # except:
+                #     logger.exception("An unhandled exception has occurred")
+                #     rows.append(row)
+                #     if not web:
+                #         print("SKIPPING CERT")
+                #     continue
+                # cert = etree.fromstring(cert)
+                # _contents = insert_newlines(cert.find("certificate").text)
+                # certificate = \
+                #     "-----BEGIN CERTIFICATE-----\n" +\
+                #     _contents +\
+                #     "\n-----END CERTIFICATE-----\n"
+                # _cert = OpenSSL.crypto.load_certificate(
+                #     OpenSSL.crypto.FILETYPE_PEM,
+                #     certificate)
+                subject = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Subject']/text()")[0]
+                issuer = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Issuer']/text()")[0]
+                serial_number = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SerialNumber']/text()")[0]
+                signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
+                notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
+                notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
+                sans = ', '.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
+                # print(f"SANs: {sans}")
+                # import sys; sys.exit()
+                # ext_count = _cert.get_extension_count()
+                # for i in range(0, ext_count):
+                #     ext = _cert.get_extension(i)
+                #     if 'subjectAltName' in str(ext.get_short_name()):
+                #         sans.append(ext.__str__())
+                # sans = "\n".join(sans)
+                # try:
+                #     signature_algorithm = _cert.get_signature_algorithm()
+                # except AttributeError:
+                #     signature_algorithm = ""
                 local_tz = tz.tzlocal()
                 utc_tz = tz.tzutc()
-                notBefore_utc = parser.parse(_cert.get_notBefore())
+                notBefore_utc = parser.parse(notBefore)
                 notBefore_local = notBefore_utc.astimezone(local_tz)
 
-                notAfter_utc = parser.parse(_cert.get_notAfter())
+                notAfter_utc = parser.parse(notAfter)
                 notAfter_local = notAfter_utc.astimezone(local_tz)
                 if localtime:
                     notAfter = notAfter_local.strftime(date_time_format)
@@ -235,7 +241,8 @@ DO NOT USE.__"""
                     notAfter = notAfter_utc.strftime(date_time_format)
                     notBefore = notBefore_utc.strftime(date_time_format)
 
-                if _cert.has_expired():
+                is_expired = notAfter_utc <= datetime.now().astimezone(utc_tz)
+                if is_expired:
                     time_since_expiration = datetime.utcnow().replace(tzinfo=utc_tz) - notAfter_utc
                     if days_only:
                         time_since_expiration = time_since_expiration.days
@@ -250,16 +257,19 @@ DO NOT USE.__"""
                         time_until_expiration = str(time_until_expiration)
                     time_since_expiration = 0
                 row.extend(
-                    [serial_number,
-                     subject,
-                     sans,
-                     signature_algorithm,
-                     notBefore,
-                     notAfter,
-                     issuer,
-                     str(_cert.has_expired()),
-                     time_since_expiration,
-                     time_until_expiration])
+                    [
+                        str(serial_number),
+                        subject,
+                        sans,
+                        signature_algorithm,
+                        notBefore,
+                        notAfter,
+                        issuer,
+                        str(is_expired),
+                        time_since_expiration,
+                        time_until_expiration
+                    ]
+                )
                 rows.append(row)
                 sleep(delay)
 

@@ -1903,6 +1903,29 @@ class DataPower(object):
 
     @correlate
     @logged("audit")
+    def get_certificate_details(
+            self,
+            domain,
+            certificate_name,
+        ):
+        """
+        _method_: `mast.datapower.datapower.DataPower.get_certificate_details(self, certificate_name)`
+
+        Retrieves the certificate details of the specified certificate
+        object from the appliance in the specified domain
+        """
+        self.request.clear()
+        req = self.request.request
+        req.set('domain', domain)
+        vcd = etree.SubElement(req, f'{{{MGMT_NAMESPACE}}}do-view-certificate-details')
+        cert_obj = etree.SubElement(vcd, f'{{{MGMT_NAMESPACE}}}certificate-object')
+        cert_obj.text = certificate_name
+        resp = self.send_request()
+        return resp
+
+
+    @correlate
+    @logged("audit")
     def add_user(
             self,
             username,
