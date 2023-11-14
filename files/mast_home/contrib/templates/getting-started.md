@@ -240,7 +240,7 @@ So probably the first thing we should do is look at which domains exist on
 our development appliances. We can do that with the following command:
 
     :::bash
-    $ ./mast-system show-domains -a dev -c username:password
+    $ ./mast-system list-domains -a dev -c username:password
     dev_dp_1
     ========
     default
@@ -272,7 +272,7 @@ configuration. Now all that is left to do is to list all the domains again,
 just to be sure that it was added.
 
     :::bash
-    `$ ./mast-system show-domains -a dev -c username:password`
+    `$ ./mast-system list-domains -a dev -c username:password`
     dev_dp_1
     ========
     default
