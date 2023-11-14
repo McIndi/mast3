@@ -153,7 +153,7 @@ DO NOT USE.__"""
                 logger.info("Exporting cert {}".format(cert))
                 filename = cert.find("Filename").text
                 name = cert.get("name")
-                _filename = name
+                # _filename = name
                 password_alias = cert.find("Alias")
                 if password_alias is not None:
                     password_alias = password_alias.text
