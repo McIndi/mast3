@@ -161,14 +161,14 @@ DO NOT USE.__"""
                     print("\t\t", name)
                 row = [appliance.hostname, domain, name, password_alias, filename]
 
-                # try:
-                details = appliance.get_certificate_details(
-                    domain=domain,
-                    certificate_name=name,
-                )
-                # except:
-                #     rows.append(row)
-                #     continue
+                try:
+                    details = appliance.get_certificate_details(
+                        domain=domain,
+                        certificate_name=name,
+                    )
+                except:
+                    rows.append(row)
+                    continue
 
                 # print("HERE")
                 # print(details)
@@ -214,7 +214,7 @@ DO NOT USE.__"""
                 signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
                 notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
                 notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
-                sans = ', '.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
+                sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
                 # print(f"SANs: {sans}")
                 # import sys; sys.exit()
                 # ext_count = _cert.get_extension_count()
