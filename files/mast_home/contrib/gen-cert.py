@@ -34,7 +34,7 @@ def main(
     cert.get_subject().CN = commonName
     cert.get_subject().emailAddress = emailAddress
     cert.set_serial_number(serialNumber)
-    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notBefore(validityStartInSeconds)
     cert.gmtime_adj_notAfter(validityEndInSeconds)
     cert.set_issuer(cert.get_subject())
     cert.set_pubkey(k)
