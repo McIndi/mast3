@@ -3,6 +3,7 @@ import json
 import shutil
 import hashlib
 import logging
+import argparse
 import platform as _platform
 import subprocess
 import logging.config
@@ -15,11 +16,44 @@ ERRORS = {
     'AMBIGUOUS_INSTALL': 2,
     'HASH_MISMATCH': 3,
 }
-TARGET_PYTHON_VERSION = '3.11.6'
-HASH_BUFF_SIZE = 65536
+
 HERE = Path(__file__).parent
 
-BUILD_DIRECTORY = HERE.joinpath('build')
+cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+cli.add_argument(
+    "-p",
+    "--python-version",
+    help="The version of cPython to target. (i.e. 3.12.0)",
+    default="3.12.0",
+)
+cli.add_argument(
+    "--hash-buff-size",
+    help="The buffer size for reads when calculating hashes",
+    default=65536,
+)
+cli.add_argument(
+    "--build-directory",
+    help="The directory to use for downloads and other file "
+         "operations, WARNING: This directory will be deleted",
+    default=HERE.joinpath("build"),
+)
+cli.add_argument(
+    "--dist-directory",
+    help="The directory to store the distributable artifacts "
+         "WARNING: This directory will be deleted",
+    default=HERE.joinpath("dist"),
+)
+cli.add_argument(
+    "--log-level",
+    help="The level (0-50) at which to filter log levels (lower is more verbose)",
+    default=30,
+)
+args = cli.parse_args()
+
+TARGET_PYTHON_VERSION = args.python_version
+HASH_BUFF_SIZE = args.hash_buff_size
+
+BUILD_DIRECTORY = args.build_directory
 shutil.rmtree(BUILD_DIRECTORY, ignore_errors=True)
 BUILD_DIRECTORY.mkdir()
 
@@ -27,10 +61,9 @@ ASSEMBLE_DIRECTORY = BUILD_DIRECTORY.joinpath('assemble')
 shutil.rmtree(ASSEMBLE_DIRECTORY, ignore_errors=True)
 ASSEMBLE_DIRECTORY.mkdir()
 
-DIST_DIRECTORY = HERE.joinpath('dist')
+DIST_DIRECTORY = args.dist_directory
 shutil.rmtree(DIST_DIRECTORY, ignore_errors=True)
 DIST_DIRECTORY.mkdir()
-
 
 logging.config.dictConfig(
     {
@@ -44,20 +77,20 @@ logging.config.dictConfig(
         "handlers": {
             "stdout": {
                 "class": "logging.StreamHandler",
-                "level": "DEBUG",
+                "level": args.log_level,
                 "formatter": "simple",
                 "stream": "ext://sys.stdout"
             },
             "file": {
                 "class": "logging.FileHandler",
                 "formatter": "simple",
-                "level": "DEBUG",
+                "level": args.log_level,
                 "filename": HERE.joinpath('build.log'),
                 "mode": "w"
             }
         },
         "root": {
-            "level": "DEBUG",
+            "level": args.log_level,
             "handlers": [
                 "stdout",
                 "file"
@@ -250,7 +283,7 @@ command = f'{python_executable} -m pip install --upgrade pip'
 subprocess.run(command, shell=True)
 
 # Install dependencies
-command = f'{python_executable} -m pip install -r {requirements_file}'
+command = f'{python_executable} -m pip install --no-warn-script-location -r {requirements_file}'
 subprocess.run(command, shell=True)
 
 # Install mast package
