@@ -73,7 +73,7 @@ mast-system list-domains -n -a lab -c %MAST_CREDS%
 mast-system add-domain -n -a lab -c %MAST_CREDS% -d new_domain -s
 
 # Import configuration
-./mast-developer import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip
+mast-developer import -a dev -c %MAST_CREDS% -D new_domain -f ~/Downloads/export.zip
 
 # Save a domain
 mast-system save -n -a lab -c %MAST_CREDS% -D new_domain
