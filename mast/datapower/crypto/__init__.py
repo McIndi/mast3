@@ -15,6 +15,7 @@
 # Copyright 2015-2019, McIndi Solutions, All rights reserved.
 import os
 import re
+import sys
 import flask
 import OpenSSL
 import openpyxl
@@ -162,17 +163,31 @@ DO NOT USE.__"""
                 row = [appliance.hostname, domain, name, password_alias, filename]
 
                 try:
+                    # appliance.CryptoExport(
+                    #     domain=domain,
+                    #     ObjectType="cert",
+                    #     ObjectName=name,
+                    #     OutputFilename=_filename
+                    # )
+                    # logger.info("Finished exporting cert {}".format(cert))
                     details = appliance.get_certificate_details(
-                        domain=domain,
-                        certificate_name=name,
-                    )
+                            domain=domain,
+                            certificate_name=name,
+                        )
                 except:
+                    logger.warn(f"Skipping Cert: {name}")
+                    if not web:
+                        print(f"Skipping Cert: {name}")
                     rows.append(row)
                     continue
+                subject = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Subject']/text()")[0]
+                issuer = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Issuer']/text()")[0]
+                serial_number = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SerialNumber']/text()")[0]
+                signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
+                notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
+                notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
+                sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
 
-                # print("HERE")
-                # print(details)
-                # import sys; sys.exit()
                 # logger.info("Finished exporting cert {}".format(cert))
                 # try:
                 #     logger.info(
@@ -208,15 +223,7 @@ DO NOT USE.__"""
                 # _cert = OpenSSL.crypto.load_certificate(
                 #     OpenSSL.crypto.FILETYPE_PEM,
                 #     certificate)
-                subject = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Subject']/text()")[0]
-                issuer = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Issuer']/text()")[0]
-                serial_number = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SerialNumber']/text()")[0]
-                signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
-                notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
-                notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
-                sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
-                # print(f"SANs: {sans}")
-                # import sys; sys.exit()
+
                 # ext_count = _cert.get_extension_count()
                 # for i in range(0, ext_count):
                 #     ext = _cert.get_extension(i)
@@ -281,7 +288,7 @@ DO NOT USE.__"""
         except:
             print("Error Adding certificate: '{}'".format(row))
     wb.save(out_file)
-    wb.save(out_file)
+    # wb.save(out_file)
     if not web:
         print("\n\nCertificate Report (available at {}):".format(os.path.abspath(out_file)))
         print_table(rows)
