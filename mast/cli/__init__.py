@@ -31,6 +31,8 @@ import sys
 import inspect
 import argparse
 from mast import __version__
+from mast.logging import make_logger
+
 from collections import defaultdict
 
 class Cli(object):
@@ -260,10 +262,23 @@ class Cli(object):
 
         This method accepts no arguments.
         """
+        log = make_logger("cli")
+        # Uncomment for debugging purposes only, will log credentials
+        # log.debug(f"In run, found sys.argv: {sys.argv}")
         args = self.parser.parse_args()
+        # Uncomment for debugging purposes only, will log credentials
+        # log.debug(f"Parsed args: {args}")
         func = args.func
+        log.debug(f"Found func: {func}")
         _args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(func)
+        log.debug(f"Found argspec: {_args}, {_}, {__}, {defaults}, {___}, {____}, {_____}")
         kwargs = {}
         for arg in _args:
             kwargs[arg] = getattr(args, arg)
-        func(**kwargs)
+        # Uncomment for debugging purposes only, will log credentials
+        # log.debug(f"Built kwargs: {kwargs}")
+        log.info(f"Attempting to execute func: {func}")
+        try:
+            func(**kwargs)
+        except Exception as e:
+            log.exception(f"Found exception: {e}")
