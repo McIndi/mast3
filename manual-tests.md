@@ -1,6 +1,22 @@
 These tests assume that you have two DataPowers, one at 192.168.0.10
 and one at 192.168.0.20. 
 
+# To do a fresh build
+
+#   First setup a venv to perform the build
+python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install requests
+
+#  Perform the build
+python build.py
+
+# Installation file will be in dist directory
+# For testing or review, the contents of the installation file can be found in build/assemble
+cd build\assemble
+
+cd ..\..\ && python build.py && cd build\assemble
+
 # Add to hosts.conf
 [hosts]
 dp1: 192.168.0.10
@@ -10,13 +26,12 @@ dp2: 192.168.0.20
 [lab]
 appliances: dp1 dp2
 
-
-# test that mast-ssh works on the command line
+# Setup creds (choose one)
 
 set MAST_CREDS=username:password
 set XOR_MAST_CREDS=<from mast-system xor>
 
-# Try ssh
+# Try ssh (choose one)
 mast-ssh -a lab -c %MAST_CREDS% -d default
 mast-ssh -a lab -c %XOR_MAST_CREDS% -d default
 
@@ -28,6 +43,8 @@ show web-mgmt
 
 # Create a directory
 mast-system create-dir -a lab -c %MAST_CREDS% -n -D default -d local:///20231113/
+
+# Set a file
 mast-system set-file -a lab -c %MAST_CREDS% -n -D default -f ..\..\README.md -d local:///20231113/
 
 # List the directory
