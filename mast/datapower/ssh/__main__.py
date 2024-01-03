@@ -14,6 +14,7 @@
 #
 # Copyright 2015-2019, McIndi Solutions, All rights reserved.
 from mast.datapower.datapower import Environment
+from mast.logging import make_logger
 from getpass import getpass
 from mast.cli import Cli
 import sys
@@ -164,34 +165,43 @@ each appliance
 an appliance for any single request. __NOTE__ Program execution may
 halt if a timeout is reached.
 """
+    log = make_logger("ssh")
     env = Environment(appliances, credentials)
     prompt = initialize_appliances(env, domain, timeout=timeout)
+    log.info(f"Found prompt: {prompt}")
     global _input
     _input = Input(prompt)
     if input_file:
+        log.info(f"Found input_file: {input_file}")
+        display_output(f"Found input_file: {input_file}")
         if not os.path.exists(input_file) and os.path.isfile(input_file):
-            print("input_file must be a file containing cli commands to issue")
+            display_output("input_file must be a file containing cli commands to issue")
             sys.exit(-1)
         with open(input_file, "r") as fin:
             for command in fin:
+                log.info(f"Found command: {command}")
                 output = issue_command(command, env, timeout=timeout)
                 output = format_output(output, env)
+                log.info(f"Found output: {output}")
                 prompt = output.splitlines()[-1:][0] + ' '
+                log.debug(f"Found prompt: {prompt}")
                 _input.prompt = prompt
                 # output = '\n'.join(output.splitlines()[:-1]) + '\n'
                 display_output(output)
                 if ('Goodbye' in prompt) or ('Goodbye' in output):
-                    print('Goodbye')
+                    display_output('Goodbye')
                     sys.exit(0)
     for command in _input:
+        log.info(f"Found command: {command}")
         output = issue_command(command, env, timeout=timeout)
         output = format_output(output, env)
+        log.info(f"Found output: {output}")
         prompt = output.splitlines()[-1:][0] + ' '
         _input.prompt = prompt
         output = '\n'.join(output.splitlines()[:-1]) + '\n'
         display_output(output)
         if ('Goodbye' in prompt) or ('Goodbye' in output):
-            print('Goodbye')
+            display_output('Goodbye')
             break
     raise SystemExit
 
@@ -201,5 +211,5 @@ if __name__ == '__main__':
         cli = Cli(main=main, description=main.__doc__)
         cli.run()
     except Exception as e:
-        # generic try...except just for future use
+        make_logger("ssh").exception(f"Exception occurred: {e}")
         raise
