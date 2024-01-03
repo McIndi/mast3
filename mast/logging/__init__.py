@@ -195,6 +195,7 @@ def make_logger(
     _handler.addFilter(RedactingFilter())
     _logger.addHandler(_handler)
     _logger.propagate = propagate
+    _logger.debug(f"Logger build complete: {_logger}")
     return _logger
 
 
