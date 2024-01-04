@@ -34,9 +34,6 @@ sales@mcindi.com.
 # links
 
 * [organization dashboard](https://github.com/orgs/McIndi/dashboard)
-* [current projects](https://github.com/McIndi/mast/projects)
-* [issue tracker](https://github.com/mcindi/mast/issues)
-* [main repository for code](https://github.com/mcindi/mast.installer)
-* [pull requests](https://github.com/mcindi/mast.installer/pulls)
-* [more detailed issues](https://github.com/mcindi/mast.installer/issues)
-* [wiki](https://github.com/mcindi/mast/wiki)
+* [current projects](https://github.com/McIndi/mast3/projects)
+* [issue tracker](https://github.com/McIndi/mast3/issues)
+* [pull requests](https://github.com/mcindi/mast3/pulls)
