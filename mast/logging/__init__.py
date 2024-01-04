@@ -102,6 +102,13 @@ class RedactingFilter(logging.Filter):
                msg = re.sub(pattern, "**REDACTED**", msg)
         return msg
 
+class DelayedDirCreatingRotatingFileHandler(RotatingFileHandler):
+    def _open(self):
+        directory = os.path.dirname(self.baseFilename)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return super()._open()
+
 def make_logger(
         name,
         level=level,
@@ -181,10 +188,9 @@ def make_logger(
         directory,
         "{}-{}.log".format(name, t.timestamp),
     )
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+
     # print(max_bytes)
-    _handler = RotatingFileHandler(
+    _handler = DelayedDirCreatingRotatingFileHandler(
         filename,
         maxBytes=max_bytes,
         backupCount=backup_count,
@@ -330,5 +336,5 @@ def logged(name="mast"):
         return _wrapper
     return _decorator
 
-logger = make_logger("mast")
-dp_logger = make_logger("DataPower")
+    # logger = `make_logger("mast")
+    # dp_logger = make`_logger("DataPower")
