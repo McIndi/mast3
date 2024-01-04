@@ -335,6 +335,3 @@ def logged(name="mast"):
             return result
         return _wrapper
     return _decorator
-
-    # logger = `make_logger("mast")
-    # dp_logger = make`_logger("DataPower")
