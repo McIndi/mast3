@@ -108,6 +108,12 @@ def get_config_dict(filename):
     for section in config.sections():
         _config[section] = {}
         for k, v in config.items(section):
+            if v.lower() in ['on', 'true', 't', 'yes', 'y']:
+                v = True
+            elif v.lower() in ['off', 'false', 'f', 'no', 'n']:
+                v = False
+            elif v.isdigit():
+                v = int(v)
             _config[section][k] = v
     return _config
 
