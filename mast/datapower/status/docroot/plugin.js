@@ -97,7 +97,7 @@ $.get("/config/status", function( data ){
 				},
 				// ShowGridLines : true,
 				// scaleGridLineColor : "rgba(0,0,0,.5)",
-				animation: (config.charts.animation.toLowerCase()=="true"),
+				animation: (config.charts.animation),
 				animationSteps: parseInt(config.charts.animationsteps),
 				// scaleFontColor: "#FFFFFF",
 				// "legendTemplate": "<div class=\"<%=name.toLowerCase()%>-legend\"><% for (var i=0; i<datasets.length; i++){%><span class=\"bordered\"><%if(datasets[i].label){%><%=datasets[i].label%><%}%><span style=\"color:<%=datasets[i].pointColor%>\"><b>___</b></span></span><%}%></div>"
@@ -245,7 +245,7 @@ $.get("/config/status", function( data ){
     // Check if startonload is set to true and if so set the toggle
     // so that as soon as you add an appliance mast web will start
     // to monitor it.
-    if ( config.charts.startonload.toLowerCase() == "true" ){
+    if ( config.charts.startonload ){
         var initialState = "Stop";
     } else {
         var initialState = "Start";
