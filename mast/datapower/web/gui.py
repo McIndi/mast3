@@ -330,18 +330,22 @@ def download():
         t = Timestamp()
         hostname = flask.request.form.get("hostname")
         filename = '%s-%s-ssh-transcript.txt' % (t.timestamp, hostname)
-        f = StringIO()
+        f = BytesIO()
         f.write(
             unquote(
-                flask.request.form.get("content")).replace(
-                    '\n',
-                    os.linesep).replace(
-                        "+",
-                        " "))
+                flask.request.form.get("content")
+            ).replace(
+                '\n',
+                os.linesep
+            ).replace(
+                "+",
+                " "
+            ).encode(),
+        )
         f.seek(0)
         return flask.send_file(
             f,
-            attachment_filename=filename,
+            download_name=filename,
             as_attachment=True)
 
 
