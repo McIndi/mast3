@@ -30,7 +30,7 @@ def main(appliances=[],
         if "all-domains" in _domains:
             _domains = appliance.domains
         print((appliance.hostname))
-        for domain in domains:
+        for domain in _domains:
             print(("\t{}".format(domain)))
             filestore_dict = defaultdict(list)
             for path in paths:
