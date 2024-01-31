@@ -152,7 +152,12 @@ DO NOT USE.__"""
 
             for cert in certs:
                 logger.info("Exporting cert {}".format(cert))
-                filename = cert.find("Filename").text
+                try:
+                    filename = cert.find("Filename").text
+                except:
+                    rows.append([appliance.hostname, domain, name])
+                    print(f"Skipping cert: {cert}")
+                    continue
                 name = cert.get("name")
                 # _filename = name
                 password_alias = cert.find("Alias")
@@ -163,13 +168,6 @@ DO NOT USE.__"""
                 row = [appliance.hostname, domain, name, password_alias, filename]
 
                 try:
-                    # appliance.CryptoExport(
-                    #     domain=domain,
-                    #     ObjectType="cert",
-                    #     ObjectName=name,
-                    #     OutputFilename=_filename
-                    # )
-                    # logger.info("Finished exporting cert {}".format(cert))
                     details = appliance.get_certificate_details(
                             domain=domain,
                             certificate_name=name,
