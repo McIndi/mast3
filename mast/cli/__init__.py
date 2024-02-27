@@ -282,3 +282,4 @@ class Cli(object):
             func(**kwargs)
         except Exception as e:
             log.exception(f"Found exception: {e}")
+            raise
