@@ -186,52 +186,6 @@ DO NOT USE.__"""
                 notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
                 sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
 
-                # logger.info("Finished exporting cert {}".format(cert))
-                # try:
-                #     logger.info(
-                #         "Retrieving file {}".format(
-                #             "temporary:///{}".format(_filename)))
-                #     cert = appliance.getfile(
-                #         domain,
-                #         "temporary:///{}".format(_filename))
-                #     logger.info(
-                #         "Finished retrieving file {}".format(
-                #             "temporary:///{}".format(_filename)))
-                #     logger.info(
-                #         "Attempting to delete file {}".format(
-                #             "temporary:///{}".format(_filename)))
-                #     appliance.DeleteFile(
-                #         domain=domain,
-                #         File="temporary:///{}".format(_filename))
-                #     logger.info(
-                #         "Finished deleting file {}".format(
-                #             "temporary:///{}".format(_filename)))
-                # except:
-                #     logger.exception("An unhandled exception has occurred")
-                #     rows.append(row)
-                #     if not web:
-                #         print("SKIPPING CERT")
-                #     continue
-                # cert = etree.fromstring(cert)
-                # _contents = insert_newlines(cert.find("certificate").text)
-                # certificate = \
-                #     "-----BEGIN CERTIFICATE-----\n" +\
-                #     _contents +\
-                #     "\n-----END CERTIFICATE-----\n"
-                # _cert = OpenSSL.crypto.load_certificate(
-                #     OpenSSL.crypto.FILETYPE_PEM,
-                #     certificate)
-
-                # ext_count = _cert.get_extension_count()
-                # for i in range(0, ext_count):
-                #     ext = _cert.get_extension(i)
-                #     if 'subjectAltName' in str(ext.get_short_name()):
-                #         sans.append(ext.__str__())
-                # sans = "\n".join(sans)
-                # try:
-                #     signature_algorithm = _cert.get_signature_algorithm()
-                # except AttributeError:
-                #     signature_algorithm = ""
                 local_tz = tz.tzlocal()
                 utc_tz = tz.tzutc()
                 notBefore_utc = parser.parse(notBefore)
