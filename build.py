@@ -23,8 +23,8 @@ cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpForma
 cli.add_argument(
     "-p",
     "--python-version",
-    help="The version of cPython to target. (i.e. 3.12.0)",
-    default="3.12.0",
+    help="The version of cPython to target. (i.e. 3.12.1)",
+    default="3.12.1",
 )
 cli.add_argument(
     "--hash-buff-size",
@@ -47,6 +47,7 @@ cli.add_argument(
     "--log-level",
     help="The level (0-50) at which to filter log levels (lower is more verbose)",
     default=30,
+    type=int,
 )
 args = cli.parse_args()
 
@@ -125,10 +126,13 @@ def get_file_sha256(p):
 
 platform = sys.platform
 if platform.startswith('linux'):
+    log.debug(f"Found Linux platform: {platform}")
     platform = 'linux'
 elif platform.startswith('win32'):
+    log.debug(f"Found Windows platform: {platform}")
     platform = 'windows'
 elif platform.startswith('darwin'):
+    log.debug(f"Found MacOS platform: {platform}")
     platform = 'darwin'
 # The elifs here are strictly here for documentation if we need to
 # support these platforms in the future
@@ -146,6 +150,7 @@ else:
     fail_for_unsupported_platform(platform)
 
 requirements_file = HERE.joinpath(f'{platform}-requirements.txt')
+log.debug(f"Found requirements_file: {requirements_file}")
 
 # Download a prebuilt Python distribution
 # First, get the latest release tag
@@ -153,7 +158,9 @@ response = requests.get(
     'https://raw.githubusercontent.com/indygreg/python-build-standalone/latest-release/latest-release.json',
 )
 response_json = response.json()
+log.debug(f"Found response json: {response_json}")
 tag = response_json['tag']
+log.debug(f"Found tag: {tag}")
 
 # Second, Get the release ID from Github API
 response = requests.get(
@@ -164,15 +171,17 @@ response = requests.get(
     }
 )
 response_json = response.json()
+log.debug(f"Found response json: {response_json}")
 assets = response_json['assets']
+log.debug(f"Found assets: {assets}")
 release_names = [d['name'] for d in assets]
-
+log.debug(f"Found release_names: {release_names}")
 # Filter to install_only build configuration
 release_names = [name for name in release_names if 'install_only' in name]
-
+log.debug(f"Found 'install_only' release_names: {release_names}")
 # Filter to only the python version that we are interested in
 release_names = [name for name in release_names if TARGET_PYTHON_VERSION in name]
-
+log.debug(f"Found correct python version release_names: {release_names}")
 # Filter to only platform and architecture that we are interested in
 if platform == 'windows':
     release_names = [name for name in release_names if 'windows-msvc-shared' in name]
@@ -180,6 +189,8 @@ elif platform == 'linux':
     release_names = [name for name in release_names if 'unknown-linux-gnu' in name]
 elif platform == 'darwin':
     release_names = [name for name in release_names if 'apple-darwin' in name]
+
+log.debug(f"Found platform specific release_names: {release_names}")
 
 # Filter to only bitness that we are interested in
 if platform == "windows":
@@ -200,6 +211,7 @@ elif platform == "darwin":
         release_names = [name for name in release_names if 'x86_64' in name]
     elif _platform.machine() == "arm64":
         release_names = [name for name in release_names if 'aarch64' in name]
+log.debug(f"Found bitness-correct release_names: {release_names}")
 
 # There should be two: one for the hash and one for the actual release
 if len(release_names) > 2:
