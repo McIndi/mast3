@@ -24,8 +24,9 @@ Management Interface (ssh).
 """
 from mast.util import _s, _b
 from .dpSOMALib import SomaRequest as Request
+from .WSClientLib import etree
 from mast.logging import make_logger, logged
-from lxml import etree
+# from lxml import etree
 from functools import partial, wraps
 from mast.timestamp import Timestamp
 from mast.config import get_config
@@ -703,7 +704,7 @@ class DataPower(object):
 
         This method accepts no arguments
         """
-        return "'{}'".format(self.hostname)
+        return f"DataPower({self.hostname})"
 
     def __repr__(self):
         """
@@ -729,7 +730,7 @@ class DataPower(object):
 
         This method accepts no arguments
         """
-        return "'{}'".format(self.hostname)
+        return f"DataPower({self.hostname})"
 
     def get_logger(self):
         """
@@ -1069,7 +1070,7 @@ class DataPower(object):
             return True
         elif 'nter new password' in resp:
             return True
-        elif re.match('.*?\[y/n\]', resp.splitlines()[-1]):
+        elif re.match(r'.*?\[y/n\]', resp.splitlines()[-1]):
             return True
         elif resp.strip().lower().endswith('login:'):
             return True
@@ -1824,11 +1825,21 @@ class DataPower(object):
 
         This method accepts no arguments
         """
+        log = self.get_logger()
         if not hasattr(self, '_raid_directory'):
+            log.debug(f"No cached RaidVolume, retrieving configuration.")
             resp = self.get_config(_class='RaidVolume', persisted=False)
-            _dir = resp.xml.find(CONFIG_XPATH + 'RaidVolume/Directory').text
+            log.debug(f"Received_response: {resp}")
+            try:
+                _dir = resp.xml.find(CONFIG_XPATH + 'RaidVolume/Directory').text
+            except AttributeError:
+                log.critical(f"Unable to find RaidVolume directory. RaidVolume configuration: {resp}")
+                raise ValueError(f"No RaidVolume directory configured")
+            log.debug(f"Found _dir: {dir}")
             # TODO: Is local:/ really always the correct location?
             self._raid_directory = 'local:/{}'.format(_dir)
+            log.debug(f"Caching raid directory: {self._raid_directory}")
+        log.debug(f"Returning raid_directory: {self._raid_directory}")
         return self._raid_directory
 
     @property
@@ -2000,7 +2011,7 @@ class DataPower(object):
         if supress_force_password_change:
             spc = etree.SubElement(user, 'SuppressPasswordChange')
             spc.text = "on"
-        print(self.request)
+        # print(self.request)
         resp = self.send_request(boolean=True)
         return resp
 
@@ -2271,7 +2282,7 @@ class DataPower(object):
                 fallback_user.text = user
                 # Set the flag to True so we don't do this more than once
                 flag = True
-        print(self.request)
+        # print(self.request)
         resp = self.send_request(boolean=True)
         return resp
 
@@ -3093,23 +3104,32 @@ class DataPower(object):
             return None
         # Begin building the request to add the static route
         self.request.clear()
-        new_config = self.request.request(domain="default").modify_config\
-            .EthernetInterface(name=ethernet_interface)
+        req = self.request.request
+        req.set("domain", "default")
+        modify_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}modify-config")
+        new_config = etree.SubElement(modify_config, f"EthernetInterface")
+        new_config.set("name", ethernet_interface)
 
         flag = False
-        for child in new_config.valid_children():
+
+        for child in self.request.valid_children(new_config):
             if existing_config.find(child) is not None:
                 for node in existing_config.findall(child):
                     if node.tag == 'Authentication':
                         continue
-                    new_config.append(node)
+                    else:
+                        new_config.append(node)
             if child in "StaticRoutes" and flag is False:
-                sr = new_config.StaticRoutes
-                sr.Destination(destination)
-                sr.Gateway(gateway)
-                sr.Metric(metric)
+                sr = etree.SubElement(new_config, "StaticRoutes")
+                dest = etree.SubElement(sr, "Destination")
+                dest.text = destination
+                gw = etree.SubElement(sr, "Gateway")
+                gw.text = gateway
+                met = etree.SubElement(sr, "Metric")
+                met.text = metric
                 flag = True
         resp = self.send_request(boolean=True)
+        # print(self.request)
         return resp
 
     @correlate
@@ -3127,8 +3147,7 @@ class DataPower(object):
         # (see comments in add_secondary_address)
         self.domain = "default"
 
-        xpath = CONFIG_XPATH + 'EthernetInterface[@name="%s"]' % (
-            ethernet_interface)
+        xpath = CONFIG_XPATH + f'EthernetInterface[@name="{ethernet_interface}"]'
         self.request.clear()
         resp = self.get_config('EthernetInterface', persisted=False)
         existing_config = resp.xml.find(xpath)
@@ -3140,10 +3159,13 @@ class DataPower(object):
             return None
         # Begin building the request to add the static route
         self.request.clear()
-        new_config = self.request.request(domain="default").set_config\
-            .EthernetInterface(name=ethernet_interface)
+        req = self.request.request
+        req.set("domain", "default")
+        set_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}set-config")
+        new_config = etree.SubElement(set_config, "EthernetInterface")
+        new_config.set("name", ethernet_interface)
 
-        for child in new_config.valid_children():
+        for child in self.request.valid_children(new_config):
             if existing_config.find(child) is not None:
                 for node in existing_config.findall(child):
                     if node.tag == 'StaticRoutes':
@@ -3152,6 +3174,7 @@ class DataPower(object):
                     if node.tag == 'Authentication':
                         continue
                     new_config.append(node)
+        # print(self.request)
         resp = self.send_request(boolean=True)
         return resp
 
@@ -3192,14 +3215,17 @@ class DataPower(object):
 
         # Start building the request to add the secondary ip.
         self.request.clear()
-        new_config = self.request.request.modify_config.EthernetInterface(
-            name=ethernet_interface)
+        req = self.request.request
+        req.set("domain", "default")
+        modify_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}modify-config")
+        new_config = etree.SubElement(modify_config, "EthernetInterface")
+        new_config.set("name", ethernet_interface)
 
         # I hate using flag, but otherwise it would add the secondary ip once
         # foreach existing secondary ip
         flag = False
         # loop through all valid children for new_config
-        for child in new_config.valid_children():
+        for child in self.request.valid_children(new_config):
             # If this valid child is present in existing_config:
             # append it to new_config
             if existing_config.find(child) is not None:
@@ -3210,7 +3236,8 @@ class DataPower(object):
             # We are looking for SecondaryAddress Here we found one...
             if child in 'SecondaryAddress' and flag is False:
                 # add SecondaryAddress to the new_config
-                new_config.SecondaryAddress(secondary_address)
+                sa = etree.SubElement(new_config, "SecondaryAddress")
+                sa.text = secondary_address
                 # Set the flag to True so we don't do this more than once
                 flag = True
         resp = self.send_request(boolean=True)
@@ -3245,11 +3272,14 @@ class DataPower(object):
 
         # Start building the request to add the secondary ip.
         self.request.clear()
-        new_config = self.request.request.set_config.EthernetInterface(
-            name=ethernet_interface)
+        req = self.request.request
+        req.set("domain", "default")
+        set_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}set-config")
+        new_config = etree.SubElement(set_config, "EthernetInterface")
+        new_config.set("name", ethernet_interface)
 
         # loop through all valid children for new_config
-        for child in new_config.valid_children():
+        for child in self.request.valid_children(new_config):
             # If this valid child is present in existing_config:
             # append it to new_config
             if existing_config.find(child) is not None:
@@ -3266,7 +3296,7 @@ class DataPower(object):
 
     @correlate
     @logged("debug")
-    def add_static_host(self, hostname, ip):
+    def add_static_host(self, hostname, ip, user_summary=""):
         '''
         adds a static host DNS entry to the DataPower.
         Returns a BooleanResponse object
@@ -3284,20 +3314,32 @@ class DataPower(object):
         existing_config = resp.xml.find(xpath)
 
         self.request.clear()
-        new_config = self.request.request.modify_config.DNSNameService(
-            name=existing_config.get('name'))
+        req = self.request.request
+        req.set("domain", "default")
+        modify_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}modify-config")
+        new_config = etree.SubElement(modify_config, "DNSNameService")
+        new_config.set("name", existing_config.get('name'))
+
         flag = False
-        for child in new_config.valid_children():
+        for child in self.request.valid_children(new_config):
+            print(child)
             if existing_config.find(child) is not None:
                 for node in existing_config.findall(child):
                     if node.find('Flags') is not None:
                         node.remove(node.find('Flags'))
+                    if node.find('IPVersion') is not None:
+                        node.remove(node.find('IPVersion'))
                     new_config.append(node)
             if child == 'StaticHosts' and flag is False:
-                SH = new_config.StaticHosts
-                SH.Hostname(hostname)
-                SH.IPAddress(ip)
+                SH = etree.SubElement(new_config, "StaticHosts")
+                host = etree.SubElement(SH, "Hostname")
+                host.text = hostname
+                ip_address = etree.SubElement(SH, "IPAddress")
+                ip_address.text = ip
+                summary = etree.SubElement(SH, "UserSummary")
+                summary.text = user_summary
                 flag = True
+        # print(self.request)
         resp = self.send_request(boolean=True)
         return resp
 
@@ -3320,13 +3362,18 @@ class DataPower(object):
         existing_config = resp.xml.find(xpath)
 
         self.request.clear()
-        new_config = self.request.request.set_config.DNSNameService(
-            name=existing_config.get('name'))
-        for child in new_config.valid_children():
+        req = self.request.request
+        req.set("domain", "default")
+        set_config = etree.SubElement(req, f"{{{MGMT_NAMESPACE}}}set-config")
+        new_config = etree.SubElement(set_config, "DNSNameService")
+        new_config.set("name", existing_config.get('name'))
+        for child in self.request.valid_children(new_config):
             if existing_config.find(child) is not None:
                 for node in existing_config.findall(child):
                     if node.find('Flags') is not None:
                         node.remove(node.find('Flags'))
+                    if node.find('IPVersion') is not None:
+                        node.remove(node.find('IPVersion'))
                     if node.tag == 'StaticHosts':
                         if node.find('Hostname').text == hostname:
                             continue
@@ -3351,10 +3398,15 @@ class DataPower(object):
         self.domain = "default"
         self.request.clear()
 
-        HA = self.request.request(domain='default').set_config.\
-            HostAlias(name=name)
-        HA.mAdminState(admin_state)
-        HA.IPAddress(ip)
+        req = self.request.request
+        req.set("domain", "default")
+        set_config = etree.SubElement(req, f'{{{MGMT_NAMESPACE}}}set-config')
+        HA = etree.SubElement(set_config, f'HostAlias')
+        HA.set("name", name)
+        madmin_state = etree.SubElement(HA, f'mAdminState')
+        madmin_state.text = admin_state
+        ip_address = etree.SubElement(HA, f'IPAddress')
+        ip_address.text = ip
         resp = self.send_request(boolean=True)
         return resp
 
@@ -3371,8 +3423,12 @@ class DataPower(object):
         self.domain = "default"
         self.request.clear()
 
-        self.request.request(domain='default').del_config.\
-            HostAlias(name=name)
+        req = self.request.request
+        req.set("domain", "default")
+        del_config = etree.SubElement(req, f'{{{MGMT_NAMESPACE}}}del-config')
+        HA = etree.SubElement(del_config, "HostAlias")
+        HA.set("name", name)
+
         resp = self.send_request(boolean=True)
         return resp
 
@@ -3746,7 +3802,10 @@ class DataPower(object):
         resp = etree.Element("diff")
         for _domain in domain:
             self.request.clear()
-            obj = self.request.request(domain=_domain).get_diff.object
+            req = self.request.request
+            req.set("domain", _domain)
+            get_diff = etree.SubElement(req, f'{{{MGMT_NAMESPACE}}}get-diff')
+            obj = etree.SubElement(get_diff, f'{{{MGMT_NAMESPACE}}}object')
             obj.set('class', 'all-classes')
             obj.set('name', 'all-objects')
             obj.set('recursive', 'true')
@@ -3758,7 +3817,7 @@ class DataPower(object):
                     "{http://www.datapower.com/schemas/management}diff"))
             el.set("domain", _domain)
             resp.append(el)
-        pretty_print(resp)
+        # pretty_print(resp)
         return etree.tostring(resp)
 
     @correlate
@@ -3873,7 +3932,6 @@ class DataPower(object):
                     with open(local_filename, 'wb') as fout:
                         fout.write(content)
 
-    # PICK UP WRITING TESTS HERE
     @correlate
     @logged("debug")
     def disable_domain(self, domain):
