@@ -15,6 +15,7 @@
 # Copyright 2015-2019, McIndi Solutions, All rights reserved.
 import os
 import re
+import csv
 import sys
 import flask
 import OpenSSL
@@ -105,6 +106,11 @@ DO NOT USE.__"""
         if not web:
             print("Must specify out_file")
         sys.exit(2)
+    fname, extension = os.path.splitext(out_file)
+    print(f"Found filename: {fname}, extension: {extension}")
+    if extension not in [".csv", ".xlsx"]:
+        raise ValueError("out_file must be either csv or xlsx")
+
     if not os.path.exists(os.path.dirname(out_file)):
         os.makedirs(os.path.dirname(out_file))
     check_hostname = not no_check_hostname
@@ -232,18 +238,27 @@ DO NOT USE.__"""
                 rows.append(row)
                 sleep(delay)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    for row in rows:
-        try:
-            ws.append(row)
-        except:
-            print("Error Adding certificate: '{}'".format(row))
-    wb.save(out_file)
+    if extension.lower() == ".csv":
+        with open(out_file, "w", newline="") as fout:
+            writer = csv.writer(fout)
+            writer.writerows(rows)
+    elif extension.lower() == ".xlsx":
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for row in rows:
+            try:
+                ws.append(row)
+            except:
+                print("Error Adding certificate: '{}'".format(row))
+        wb.save(out_file)
+    else:
+        # This should not happen
+        print("ERROR: out_file must have an xlsx or csv file extension.")
+        raise ValueError("ERROR: out_file must have an xlsx or csv file extension.")
     # wb.save(out_file)
     if not web:
         print("\n\nCertificate Report (available at {}):".format(os.path.abspath(out_file)))
-        print_table(rows)
+        # print_table(rows)
         print()
     else:
         return (html_table(rows,
