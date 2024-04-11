@@ -12,12 +12,12 @@
 # You should have received a copy of the GNU General Public License
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015-2019, McIndi Solutions, All rights reserved.
+# Copyright 2015-2024, McIndi Solutions, All rights reserved.
 from mast import __version__
 
 print(("""
 McIndi's Automated Solutions Tool
 Version {}
 
-Copyright 2015-2023 McIndi Solutions, LLC
+Copyright 2015-2024 McIndi Solutions, LLC
 """.format(__version__)))

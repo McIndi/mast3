@@ -12,7 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015-2019, McIndi Solutions, All rights reserved.
+# Copyright 2015-2024, McIndi Solutions, All rights reserved.
 import os
 import sys
 import platform
@@ -24,8 +24,15 @@ if "Windows" in platform.system():
     def main():
         exe_dir = os.path.dirname(sys.executable)
         if "site-packages" in exe_dir:
-            mast_home = os.path.abspath(os.path.join(
-                exe_dir, os.pardir, os.pardir, os.pardir, os.pardir))
+            mast_home = os.path.abspath(
+                os.path.join(
+                    exe_dir,
+                    os.pardir,
+                    os.pardir,
+                    os.pardir,
+                    os.pardir
+                )
+            )
         else:
             mast_home = os.path.abspath(os.path.join(exe_dir, os.pardir))
         anaconda_dir = os.path.join(mast_home, "anaconda")

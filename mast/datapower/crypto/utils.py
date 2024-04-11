@@ -12,7 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015-2019, McIndi Solutions, All rights reserved.
+# Copyright 2015-2024, McIndi Solutions, All rights reserved.
 
 def insert_newlines(string, every=64):
     return '\n'.join(string[i:i+every] for i in range(0, len(string), every))

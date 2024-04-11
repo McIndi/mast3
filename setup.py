@@ -12,7 +12,7 @@
 # You should have received a copy of the GNU General Public License
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015-2019, McIndi Solutions, All rights reserved.
+# Copyright 2015-2024, McIndi Solutions, All rights reserved.
 import os
 from setuptools import setup
 
@@ -27,7 +27,7 @@ def read(fname):
 
 setup(
     name="mast",
-    version="3.12.1",
+    version="3.12.1-r1",
     author="Clifford Bressette",
     author_email="cliffordbressette@mcindi.com",
     description=(
