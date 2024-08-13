@@ -23,7 +23,7 @@ to start the web gui:
 module provides a `mastd_plugin` which will host the web gui in it's own
 thread.
 2. Using the command line interface. If you run `$MAST_HOME/mast-web`
-on Linux or `%MAST_HOME%\mast-web.bat` on windows, the web gui will be
+on Linux or `%MAST_HOME%\\mast-web.bat` on windows, the web gui will be
 started and the address at which it is accessible will be printed to the
 screen.
 """
