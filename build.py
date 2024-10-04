@@ -34,8 +34,7 @@ cli.add_argument(
 cli.add_argument(
     "--build-directory",
     help="The directory to use for downloads and other file "
-         "operations, WARNING: This directory will be deleted "
-         "before any work is done on the build.",
+         "operations, WARNING: This directory will be deleted",
     default=HERE.joinpath("build"),
 )
 cli.add_argument(
@@ -304,20 +303,20 @@ command = f'{python_executable} -m pip install {HERE}'
 subprocess.run(command, shell=True)
 
 # Copy all files from files/mast_home
-src_directory = HERE.joinpath('src')
-home_directory = src_directory.joinpath('home')
-for item in home_directory.iterdir():
+files_directory = HERE.joinpath('files')
+mast_home_directory = files_directory.joinpath('mast_home')
+for item in mast_home_directory.iterdir():
     if item.is_dir():
         shutil.copytree(
             item,
-            ASSEMBLE_DIRECTORY.joinpath(item.name),
+            ASSEMBLE_DIRECTORY.joinpath(item.name)
         )
     else:
-        log.critical("Non-directory item in src/home")
+        log.critical("Non-directory item in files/mast_home")
         sys.exit(5)
 
-# Copy all invocation scripts from src/invocation_scripts/{platform} to DIST_DIRECTORY
-script_dir = src_directory.joinpath('invocation_scripts').joinpath(platform)
+# Copy all invocation scripts from files/invocation_scripts/{platform} to DIST_DIRECTORY
+script_dir = files_directory.joinpath('invocation_scripts').joinpath(platform)
 for item in script_dir.iterdir():
     if item.name.startswith('set-env'):
         contents = item.read_text()
