@@ -180,7 +180,7 @@ DO NOT USE.__"""
                             certificate_name=name,
                         )
                 except Exception as exception:
-                    logger.exception("An exception has occurred. The certificate {name} is being skipped and the error is being ignored")
+                    logger.exception(f"An exception has occurred. The certificate {name} is being skipped and the error is being ignored")
                     if not web:
                         print(f"Skipping Cert: {name}, exception: {exception}")
                     rows.append(row)
