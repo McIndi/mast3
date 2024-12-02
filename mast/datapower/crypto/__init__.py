@@ -179,19 +179,32 @@ DO NOT USE.__"""
                             certificate_name=name,
                         )
                 except:
-                    logger.warn(f"Skipping Cert: {name}")
+                    logger.warning(f"Skipping Cert: {name}")
                     if not web:
                         print(f"Skipping Cert: {name}")
                     rows.append(row)
                     continue
-                subject = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Subject']/text()")[0]
-                issuer = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Issuer']/text()")[0]
-                serial_number = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SerialNumber']/text()")[0]
-                signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
-                notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
-                notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
-                sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
-
+                try:
+                    subject = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Subject']/text()")[0]
+                    issuer = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Issuer']/text()")[0]
+                    serial_number = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SerialNumber']/text()")[0]
+                    signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
+                    notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
+                    notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
+                except:
+                    logger.warning(f"Could not parse details for cert {name}, received response {details}, skipping.")
+                    if not web:
+                        print(f"Skipping Cert: {name}")
+                    rows.append(row)
+                    continue
+                try:
+                    sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
+                except:
+                    logger.warning(f"Could not parse SANs for cert {name}, received response {details}, skipping.")
+                    if not web:
+                        print(f"Skipping Cert: {name}")
+                    rows.append(row)
+                    continue
                 local_tz = tz.tzlocal()
                 utc_tz = tz.tzutc()
                 notBefore_utc = parser.parse(notBefore)
