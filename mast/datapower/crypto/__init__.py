@@ -163,6 +163,7 @@ DO NOT USE.__"""
                 except:
                     rows.append([appliance.hostname, domain, name])
                     print(f"Skipping cert: {cert}")
+                    logger.exception(f"An exception has occurred. The certificate {cert.get('name')} is being skipped and the error is being ignored")
                     continue
                 name = cert.get("name")
                 # _filename = name
@@ -178,10 +179,10 @@ DO NOT USE.__"""
                             domain=domain,
                             certificate_name=name,
                         )
-                except:
-                    logger.warning(f"Skipping Cert: {name}")
+                except Exception as exception:
+                    logger.exception("An exception has occurred. The certificate {name} is being skipped and the error is being ignored")
                     if not web:
-                        print(f"Skipping Cert: {name}")
+                        print(f"Skipping Cert: {name}, exception: {exception}")
                     rows.append(row)
                     continue
                 try:
@@ -192,15 +193,15 @@ DO NOT USE.__"""
                     notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
                     notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
                 except:
-                    logger.warning(f"Could not parse details for cert {name}, received response {details}, skipping.")
+                    logger.exception(f"Could not parse details for cert {name}, received response {details}, skipping.")
                     if not web:
-                        print(f"Skipping Cert: {name}")
+                        print(f"Skipping Cert: {name}, details: {details}")
                     rows.append(row)
                     continue
                 try:
                     sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
                 except:
-                    logger.warning(f"Could not parse SANs for cert {name}, received response {details}, skipping.")
+                    logger.exception(f"Could not parse SANs for cert {name}, received response {details}, skipping.")
                     if not web:
                         print(f"Skipping Cert: {name}")
                     rows.append(row)
