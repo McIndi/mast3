@@ -153,7 +153,7 @@ def system_call(
     return stdout, stderr
 
 def quit_for_local_uploads(config_dir):
-    for filename in [x for x in os.listdir(config_dir) if "EMPTY" not in x]:
+    for filename in [x for x in os.listdir(config_dir) if "EMPTY" not in x.upper()]:
         _filename = os.path.join(config_dir, filename)
         tree = etree.parse(_filename)
         files = tree.findall(r'.//files/file')
@@ -682,7 +682,7 @@ class Plan(object):
                         "zip_file": os.path.join(common_config_dir, filename),
                         "source_type": "XML",
                     }
-                    for filename in [x for x in sorted(os.listdir(common_config_dir)) if "EMPTY" not in x]
+                    for filename in [x for x in sorted(os.listdir(common_config_dir)) if "EMPTY" not in x.upper()]
                 ]
             )
 
@@ -695,7 +695,7 @@ class Plan(object):
                         "zip_file": os.path.join(env_config_dir, filename),
                         "source_type": "XML"
                     }
-                    for filename in [x for x in sorted(os.listdir(env_config_dir)) if "EMPTY" not in x]
+                    for filename in [x for x in sorted(os.listdir(env_config_dir)) if "EMPTY" not in x.upper()]
                 ]
             )
         return ret
@@ -796,42 +796,42 @@ class Plan(object):
 
         # gather uploads
         if exists(common_pubcert_dir):
-            for filename in [x for x in os.listdir(common_pubcert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(common_pubcert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "pubcert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(common_pubcert_dir, filename),
                         "file_out": file_out,
                 }
         if exists(common_cert_dir):
-            for filename in [x for x in os.listdir(common_cert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(common_cert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "cert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(common_cert_dir, filename),
                         "file_out": file_out,
                 }
         if exists(common_sharedcert_dir):
-            for filename in [x for x in os.listdir(common_sharedcert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(common_sharedcert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "sharedcert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(common_sharedcert_dir, filename),
                         "file_out": file_out,
                 }
         if exists(env_pubcert_dir):
-            for filename in [x for x in os.listdir(env_pubcert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(env_pubcert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "pubcert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(env_pubcert_dir, filename),
                         "file_out": file_out,
                 }
         if exists(env_cert_dir):
-            for filename in [x for x in os.listdir(env_cert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(env_cert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "cert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(env_cert_dir, filename),
                         "file_out": file_out,
                 }
         if exists(env_sharedcert_dir):
-            for filename in [x for x in os.listdir(env_sharedcert_dir) if "EMPTY" not in x]:
+            for filename in [x for x in os.listdir(env_sharedcert_dir) if "EMPTY" not in x.upper()]:
                 file_out = "sharedcert:///{}".format(filename)
                 ret[file_out] = {
                         "file_in": os.path.join(env_sharedcert_dir, filename),
@@ -840,7 +840,7 @@ class Plan(object):
         if exists(common_local_dir):
             for root, dirs, files in os.walk(common_local_dir):
                 if files:
-                    for filename in [x for x in files if "EMPTY" not in x]:
+                    for filename in [x for x in files if "EMPTY" not in x.upper()]:
                         file_out = "local://{}".format(os.path.join(root, filename))
                         file_out = file_out.replace(common_local_dir, "")
                         file_out = file_out.replace(os.path.sep, "/")
@@ -851,7 +851,7 @@ class Plan(object):
         if exists(env_local_dir):
             for root, dirs, files in os.walk(env_local_dir):
                 if files:
-                    for filename in [x for x in files if "EMPTY" not in x]:
+                    for filename in [x for x in files if "EMPTY" not in x.upper()]:
                         file_out = "local://{}".format(os.path.join(root, filename))
                         file_out = file_out.replace(env_local_dir, "")
                         file_out = file_out.replace(os.path.sep, "/")
