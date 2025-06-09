@@ -23,8 +23,8 @@ cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpForma
 cli.add_argument(
     "-p",
     "--python-version",
-    help="The version of cPython to target. (i.e. 3.13.2)",
-    default="3.13.2",
+    help="The version of cPython to target. (i.e. 3.13.4)",
+    default="3.13.4",
 )
 cli.add_argument(
     "--hash-buff-size",
