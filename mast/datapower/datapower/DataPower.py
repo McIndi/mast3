@@ -1385,7 +1385,7 @@ class DataPower(object):
         # self.request.clear()
         from urllib.error import URLError
         try:
-            resp = self.get_status("Version")
+            resp = self.get_status("DateTimeStatus")
             # Because of lazy-loading we must explicitly prompt xml parsing
             tree = resp.xml
             return 'datapower' in resp.text.lower()
