@@ -30,7 +30,7 @@ from mast.logging import make_logger, logged
 from functools import partial, wraps
 from mast.timestamp import Timestamp
 from mast.config import get_config
-from mast.hashes import get_sha1
+from mast.hashes import get_sha1, get_sha512
 from mast.xor import xordecode
 from datetime import datetime
 from io import BytesIO
@@ -3772,12 +3772,13 @@ class DataPower(object):
                 name = file.find('./filename').text
                 self.log_debug("Checking file: {}".format(name))
                 checksum = file.find('./checksum').text
-                sha = get_sha1(os.path.join(dir, name))
-                if checksum == sha:
+                sha1 = get_sha1(os.path.join(dir, name))
+                sha512 = get_sha512(os.path.join(dir, name))
+                if checksum == sha1 or checksum == sha512:
                     self.log_info("File {} is verified".format(name))
                 else:
                     self.log_error(
-                        "File {} does not match sha1 hash!".format(name))
+                        "File {} does not match sha1 or sha512 hash!".format(name))
                     flag = True
         if flag is True:
             self.log_error("Verification Failed! Please try your backup again")
