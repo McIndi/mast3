@@ -23,8 +23,8 @@ cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpForma
 cli.add_argument(
     "-p",
     "--python-version",
-    help="The version of cPython to target. (i.e. 3.13.7)",
-    default="3.13.7",
+    help="The version of cPython to target. (i.e. 3.14.3)",
+    default="3.14.3",
 )
 cli.add_argument(
     "--hash-buff-size",
@@ -156,7 +156,7 @@ log.debug(f"Found requirements_file: {requirements_file}")
 # Download a prebuilt Python distribution
 # First, get the latest release tag
 response = requests.get(
-    'https://raw.githubusercontent.com/indygreg/python-build-standalone/latest-release/latest-release.json',
+    'https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json',
 )
 response_json = response.json()
 log.debug(f"Found response json: {response_json}")
@@ -165,7 +165,7 @@ log.debug(f"Found tag: {tag}")
 
 # Second, Get the release ID from Github API
 response = requests.get(
-    f'https://api.github.com/repos/indygreg/python-build-standalone/releases/tags/{tag}',
+    f'https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/{tag}',
     headers={
         'X-GitHub-Api-Version': '2022-11-28',
         'Accept': 'application/vnd.github+json'
