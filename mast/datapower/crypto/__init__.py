@@ -20,6 +20,7 @@ import sys
 import flask
 import OpenSSL
 import openpyxl
+from importlib.resources import files
 from .utils import *
 from time import sleep
 from mast.cli import Cli
@@ -29,7 +30,6 @@ from mast.plugins.web import Plugin
 from mast.logging import make_logger
 from mast.timestamp import Timestamp
 import xml.etree.cElementTree as etree
-from pkg_resources import resource_string
 import mast.datapower.datapower as datapower
 import mast.plugin_utils.plugin_utils as util
 from functools import partial, update_wrapper
@@ -557,7 +557,7 @@ DO NOT USE.__"""
 
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 class WebPlugin(Plugin):

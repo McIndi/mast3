@@ -27,7 +27,7 @@ def read(fname):
 
 setup(
     name="mast",
-    version="3.13.8",
+    version="3.14.3",
     author="Clifford Bressette",
     author_email="cliffordbressette@mcindi.com",
     description=(

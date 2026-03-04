@@ -15,10 +15,10 @@
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 import os
 import flask
+from importlib.resources import files
 from mast.logging import logged
 from mast.plugins.web import Plugin
 from mast.datapower import datapower
-from pkg_resources import resource_string
 from mast.xor import xordecode, xorencode
 
 _appliances = {}
@@ -35,7 +35,7 @@ def _check_for_appliance(hostname, appliances):
 
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 class WebPlugin(Plugin):

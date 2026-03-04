@@ -26,6 +26,7 @@ import base64
 import shutil
 import zipfile
 import commandr
+from importlib.resources import files
 from mast.cli import Cli
 from time import time, sleep
 from mast.xor import xorencode
@@ -33,7 +34,6 @@ from mast.plugins.web import Plugin
 from mast.logging import make_logger
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
-from pkg_resources import resource_string
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_utils as util
 import mast.plugin_utils.plugin_functions as pf
@@ -3868,7 +3868,7 @@ def _clean_error_reports(appliance, domain, backup, timestamp, out_dir):
 
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 class WebPlugin(Plugin):

@@ -29,8 +29,8 @@ if it is dead, it will be restarted. This process will continue until
 """
 import os
 import sys
-import pkg_resources
 import platform
+from importlib import metadata
 
 try:
     import win32serviceutil
@@ -77,7 +77,12 @@ def get_plugins():
     to find `entry_points` for `mastd_plugin` and return them.
     """
     named_objects = {}
-    for ep in pkg_resources.iter_entry_points(group='mastd_plugin'):
+    entry_points = metadata.entry_points()
+    if hasattr(entry_points, "select"):
+        candidates = entry_points.select(group='mastd_plugin')
+    else:
+        candidates = entry_points.get('mastd_plugin', [])
+    for ep in candidates:
         try:
             named_objects.update({ep.name: ep.load()})
         except:
@@ -235,7 +240,12 @@ else:
             """
             logger = make_logger("mast.daemon")
             self.named_objects = {}
-            for ep in pkg_resources.iter_entry_points(group='mastd_plugin'):
+            entry_points = metadata.entry_points()
+            if hasattr(entry_points, "select"):
+                candidates = entry_points.select(group='mastd_plugin')
+            else:
+                candidates = entry_points.get('mastd_plugin', [])
+            for ep in candidates:
                 try:
                     self.named_objects.update({ep.name: ep.load()})
                 except:

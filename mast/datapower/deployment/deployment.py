@@ -23,6 +23,7 @@ import os
 import sys
 import flask
 import subprocess
+from importlib.resources import files
 from time import sleep
 from mast.cli import Cli
 from collections import OrderedDict
@@ -31,7 +32,6 @@ from mast.datapower.deployment.git_deploy import git_deploy
 from mast.plugin_utils.plugin_utils import render_results_table, render_history
 from mast.plugins.web import Plugin
 from mast.timestamp import Timestamp
-from pkg_resources import resource_string
 from mast.logging import make_logger, logged
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_utils as util
@@ -1086,7 +1086,7 @@ DO NOT USE.__"""
         return output, history
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 cli.command('git-deploy', category='deployment')(git_deploy)

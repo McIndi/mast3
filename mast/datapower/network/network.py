@@ -21,9 +21,9 @@ tasks associated with IBM DataPower appliances.
 """
 import flask
 from mast.cli import Cli
+from importlib.resources import files
 import urllib.request, urllib.error, urllib.parse
 from mast.plugins.web import Plugin
-from pkg_resources import resource_string
 import mast.datapower.datapower as datapower
 from mast.logging import make_logger, logged
 import mast.plugin_utils.plugin_utils as util
@@ -1446,7 +1446,7 @@ DO NOT USE.__"""
 
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 class WebPlugin(Plugin):

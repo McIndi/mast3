@@ -22,12 +22,12 @@ related tasks associated with IBM DataPower appliances.
 import os
 import flask
 import zipfile
+from importlib.resources import files
 from mast.cli import Cli
 from time import time, sleep
 from mast.plugins.web import Plugin
 from mast.datapower import datapower
 from mast.timestamp import Timestamp
-from pkg_resources import resource_string
 from mast.logging import make_logger, logged
 import mast.plugin_utils.plugin_utils as util
 from functools import partial, update_wrapper
@@ -920,7 +920,7 @@ DO NOT USE.__"""
 
 
 def get_data_file(f):
-    return resource_string(__name__, 'docroot/{}'.format(f)).decode()
+    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
 class WebPlugin(Plugin):

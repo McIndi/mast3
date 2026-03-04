@@ -14,9 +14,9 @@
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 from io import StringIO, BytesIO
+from importlib import metadata
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
-import pkg_resources
 from mast.datapower.datapower import is_environment, get_appliances
 from mast.xor import xordecode, xorencode
 from mast.config import get_configs_dict
@@ -102,7 +102,12 @@ def initialize_plugins():
     logger.debug("Running in directory {}".format(os.getcwd()))
     logger.debug("Attempting to retrieve list of web plugins")
     plugins_dict = {}
-    for ep in pkg_resources.iter_entry_points(group='mast_web_plugin'):
+    entry_points = metadata.entry_points()
+    if hasattr(entry_points, "select"):
+        candidates = entry_points.select(group='mast_web_plugin')
+    else:
+        candidates = entry_points.get('mast_web_plugin', [])
+    for ep in candidates:
         logger.debug("found plugin: {}".format(ep.name))
         try:
             plugins_dict.update({ep.name: ep.load()})
