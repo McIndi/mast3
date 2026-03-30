@@ -35,9 +35,6 @@ import os
 import sys
 import getpass
 
-# TODO: map the configuration out better and
-# move to function. Also add defaults, so it can
-# run independant of any directory structure
 config = get_configs_dict()["server.conf"]
 
 static_dir = config["dirs"]["static"]
@@ -65,7 +62,6 @@ if secure:
     if "cacert" in config["server"]:
         cacert = config["server"]["cacert"]
 
-# TODO: Move config option gathering closer to here
 app = flask.Flask(
     __name__,
     static_folder=static_dir,
@@ -73,7 +69,7 @@ app = flask.Flask(
     template_folder=template_dir)
 
 
-app.secret_key = "M_C_I_N_D_I_PA$$W0RD-NEVER=BEFORE=SEEN"
+app.secret_key = config["server"].get("secret_key", "changeme")
 wzl = logging.getLogger("werkzeug")
 app.root_path = os.environ["MAST_HOME"]
 log_file = os.path.join(os.environ["MAST_HOME"], log_file)
