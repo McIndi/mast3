@@ -1164,7 +1164,6 @@ class DataPower(object):
         self.log_debug(
             "Recieved response from appliance: "
             "{}".format(_escape(self.last_response.decode()).encode()))
-        # TODO: Replace this with an xpath
         _hist["response"] = re.sub(
             r"<dp:file(.*?)>.*?</dp:file>",
             r"<dp:file\1>base 64 encoded file removed from log</dp:file>",
@@ -1836,7 +1835,6 @@ class DataPower(object):
                 log.critical(f"Unable to find RaidVolume directory. RaidVolume configuration: {resp}")
                 raise ValueError(f"No RaidVolume directory configured")
             log.debug(f"Found _dir: {dir}")
-            # TODO: Is local:/ really always the correct location?
             self._raid_directory = 'local:/{}'.format(_dir)
             log.debug(f"Caching raid directory: {self._raid_directory}")
         log.debug(f"Returning raid_directory: {self._raid_directory}")
@@ -3792,9 +3790,6 @@ class DataPower(object):
         """
         This method will get the difference between the running and
         the persisted configuration. Returns a DPResponse object.
-
-        TODO: Allow a blacklist param to skip domains when all-domains
-        is specified.
         """
         if isinstance(domain, str):
             domain = [domain]

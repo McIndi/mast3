@@ -214,8 +214,6 @@ DO NOT USE.__"""
 # del-static-route
 #
 
-
-# TODO: clean up web output (maybe into a seperate function call)
 @logged("mast.datapower.network")
 @cli.command("display-routing-table", category="network config")
 def display_routing_table(appliances=[],

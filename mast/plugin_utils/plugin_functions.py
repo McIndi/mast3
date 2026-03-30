@@ -31,10 +31,6 @@ within the corresponding bin scripts.
 The point of this is to recreate the functionality of the MAST CLI in the MAST
 web GUI. So, I was able to consolidate all of the functionality of these
 plugins into this single module.
-
-- TODO: move hard-coded HTML into flask (jinja 2) templates
-TODO: Documentation
-TODO: Test cases (unit testing)
 """
 import re
 import os
@@ -934,7 +930,6 @@ def _call_method(func, kwargs):
             sys.stderr.write(traceback.format_exc())
         t = Timestamp()
 
-        # TODO: move this path to configuration
         filename = os.path.join(
             "var", "www", "static", "tmp", "request_history", t.timestamp)
         if not os.path.exists(filename):
@@ -965,7 +960,6 @@ def call_method(plugin, form):
             else:
                 kwargs[arg] = False
         elif isinstance(default, list):
-            # TODO: This needs to implement a selection feature
             if arg == 'appliances':
                 kwargs[arg] = form.getlist(arg + '[]')
             elif arg == 'credentials':

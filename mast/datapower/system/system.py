@@ -2419,7 +2419,6 @@ DO NOT USE.__"""
                     "Aborting the remaining firmware upgrades!")
 
         # TODO: verify version
-        # Not implemented yet
 
         if enable_domains:
             for domain in appliance.domains:

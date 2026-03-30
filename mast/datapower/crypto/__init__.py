@@ -520,7 +520,6 @@ DO NOT USE.__"""
                                                 ObjectType="cert",
                                                 ObjectName=name,
                                                 OutputFilename=name)
-                # TODO: Test export and handle failure
                 logger.info("Finished exporting cert {}".format(cert))
                 try:
                     logger.info(

@@ -10,19 +10,6 @@ from mast.logging import make_logger
 from mast.timestamp import Timestamp
 from mast.datapower.datapower import Environment
 
-# #########################
-# TODO:
-#
-# New Features:
-#
-# 1. column filter
-# 2. optional concurency
-# 3. column sort
-# 4. Integrate with MAST 2.0.0
-# 5. Multiple status provider
-#
-# #########################
-
 logger = make_logger("mast.statmon")
 
 clear = partial(os.system, 'cls' if os.name == 'nt' else 'clear')
