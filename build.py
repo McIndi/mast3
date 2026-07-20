@@ -23,8 +23,8 @@ cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpForma
 cli.add_argument(
     "-p",
     "--python-version",
-    help="The version of cPython to target. (i.e. 3.14.3)",
-    default="3.14.3",
+    help="The version of cPython to target. (i.e. 3.14.6)",
+    default="3.14.6",
 )
 cli.add_argument(
     "--hash-buff-size",
@@ -180,6 +180,9 @@ log.debug(f"Found release_names: {release_names}")
 # Filter to install_only build configuration
 release_names = [name for name in release_names if 'install_only_stripped' in name]
 log.debug(f"Found 'install_only_stripped' release_names: {release_names}")
+# Exclude freethreaded builds; this package targets the regular CPython build.
+release_names = [name for name in release_names if 'freethreaded' not in name]
+log.debug(f"Found non-freethreaded release_names: {release_names}")
 # Filter to only the python version that we are interested in
 release_names = [name for name in release_names if TARGET_PYTHON_VERSION in name]
 log.debug(f"Found correct python version release_names: {release_names}")
