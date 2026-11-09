@@ -1,0 +1,77 @@
+# This file is part of McIndi's Automated Solutions Tool (MAST).
+#
+# MAST is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 3
+# as published by the Free Software Foundation.
+#
+# MAST is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with MAST.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Copyright 2015-2024, McIndi Solutions, All rights reserved.
+
+[build-system]
+# setuptools 77 is the first release that accepts an SPDX license expression.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mast"
+# The MAST version is only set here. mast.__version__ reads it from the
+# installed package metadata.
+version = "3.14.6"
+description = "A utility to help manage multiple IBM DataPower appliances"
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Clifford Bressette", email = "cliffordbressette@mcindi.com" },
+]
+keywords = ["DataPower", "backup", "checkpoint", "accounts", "network", "ssh", "system"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Topic :: Utilities",
+]
+# The runtime dependencies are in the per-platform requirements files
+# (windows-requirements.txt and so on), which build.py installs.
+dependencies = []
+
+[project.urls]
+Homepage = "http://github.com/mcindi/mast"
+
+[project.entry-points.mast_web_plugin]
+accounts = "mast.datapower.accounts:WebPlugin"
+backups = "mast.datapower.backups:WebPlugin"
+crypto = "mast.datapower.crypto:WebPlugin"
+deployment = "mast.datapower.deployment:WebPlugin"
+developer = "mast.datapower.developer:WebPlugin"
+network = "mast.datapower.network:WebPlugin"
+ssh = "mast.datapower.ssh:WebPlugin"
+status = "mast.datapower.status:WebPlugin"
+system = "mast.datapower.system:WebPlugin"
+
+[project.entry-points.mastd_plugin]
+mastd_web_plugin = "mast.datapower.web:Plugin"
+mastd_cron_plugin = "mast.cron:Plugin"
+
+[tool.setuptools.packages.find]
+include = ["mast", "mast.*"]
+
+[tool.setuptools]
+# Only the files named in package-data go into the wheel, as before.
+include-package-data = false
+
+[tool.setuptools.package-data]
+"mast.datapower.accounts" = ["docroot/*"]
+"mast.datapower.backups" = ["docroot/*"]
+"mast.datapower.crypto" = ["docroot/*"]
+"mast.datapower.deployment" = ["docroot/*"]
+"mast.datapower.developer" = ["docroot/*"]
+"mast.datapower.network" = ["docroot/*"]
+"mast.datapower.ssh" = ["docroot/*"]
+"mast.datapower.status" = ["docroot/*"]
+"mast.datapower.system" = ["docroot/*"]
