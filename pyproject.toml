@@ -23,7 +23,7 @@ build-backend = "setuptools.build_meta"
 name = "mast"
 # The MAST version is only set here. mast.__version__ reads it from the
 # installed package metadata.
-version = "3.14.6"
+version = "3.14.10"
 description = "A utility to help manage multiple IBM DataPower appliances"
 readme = "README.md"
 license = "GPL-3.0-only"
