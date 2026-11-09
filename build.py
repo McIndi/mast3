@@ -1,4 +1,5 @@
 import sys
+import re
 import json
 import shutil
 import hashlib
@@ -15,6 +16,7 @@ ERRORS = {
     'UNSUPPORTED_PLATFORM': 1,
     'AMBIGUOUS_INSTALL': 2,
     'HASH_MISMATCH': 3,
+    'NO_MATCHING_PYTHON': 4,
 }
 
 HERE = Path(__file__).parent
@@ -23,8 +25,10 @@ cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpForma
 cli.add_argument(
     "-p",
     "--python-version",
-    help="The version of cPython to target. (i.e. 3.14.6)",
-    default="3.14.6",
+    help="The version of cPython to target. Give a minor version (i.e. 3.14) "
+         "to use the newest patch release in the latest python-build-standalone "
+         "release, or a full version (i.e. 3.14.10) to require that exact patch.",
+    default="3.14",
 )
 cli.add_argument(
     "--hash-buff-size",
@@ -110,6 +114,15 @@ def fail_for_ambiguity(release_names):
     log.critical(f"Unable to determine correct Python build out of: {', '.join(release_names)}")
     sys.exit(ERRORS['AMBIGUOUS_INSTALL'])
 
+def fail_for_no_matching_python(requested, available):
+    log.critical(
+        f"Unable to find a Python build for version '{requested}' on {platform} in "
+        f"python-build-standalone release {tag}. "
+        f"Versions in that release: {', '.join(available) or 'none'}. "
+        "Pass --python-version with one of these (a minor version such as 3.14 is enough)."
+    )
+    sys.exit(ERRORS['NO_MATCHING_PYTHON'])
+
 def fail_for_hash_mismatch(expected, actual):
     log.critical(f"Unable to continue. Release file does not match hash. Expected: '{expected}', Actual: '{actual}'")
     sys.exit(ERRORS['HASH_MISMATCH'])
@@ -183,9 +196,27 @@ log.debug(f"Found 'install_only_stripped' release_names: {release_names}")
 # Exclude freethreaded builds; this package targets the regular CPython build.
 release_names = [name for name in release_names if 'freethreaded' not in name]
 log.debug(f"Found non-freethreaded release_names: {release_names}")
-# Filter to only the python version that we are interested in
-release_names = [name for name in release_names if TARGET_PYTHON_VERSION in name]
+# Filter to only the python version that we are interested in. The requested
+# version is either a minor version (3.14) or a full version (3.14.10). It must
+# match whole version components, so 3.1 does not match 3.14.10. Pre-releases
+# (3.16.0a1) never match because the patch number must be digits only.
+version_pattern = re.compile(rf"^cpython-({re.escape(TARGET_PYTHON_VERSION)}(?:\.\d+)?)\+")
+available_versions = sorted(
+    {m.group(1) for m in (re.match(r"^cpython-(\d+\.\d+\.\d+)\+", n) for n in release_names) if m},
+    key=lambda v: tuple(int(part) for part in v.split(".")),
+)
+requested_version = TARGET_PYTHON_VERSION
+release_names = [name for name in release_names if version_pattern.match(name)]
 log.debug(f"Found correct python version release_names: {release_names}")
+if not release_names:
+    fail_for_no_matching_python(requested_version, available_versions)
+# Several patch releases can match a minor version request. Use the newest.
+TARGET_PYTHON_VERSION = max(
+    {version_pattern.match(name).group(1) for name in release_names},
+    key=lambda v: tuple(int(part) for part in v.split(".")),
+)
+release_names = [name for name in release_names if version_pattern.match(name).group(1) == TARGET_PYTHON_VERSION]
+log.info(f"Using Python {TARGET_PYTHON_VERSION} (requested {requested_version})")
 # Filter to only platform and architecture that we are interested in
 if platform == 'windows':
     release_names = [name for name in release_names if 'windows-msvc' in name]
@@ -219,6 +250,8 @@ log.debug(f"Found bitness-correct release_names: {release_names}")
 
 
 # There should be only one: the actual release file
+if not release_names:
+    fail_for_no_matching_python(requested_version, available_versions)
 if len(release_names) > 1:
     fail_for_ambiguity(release_names)
 
