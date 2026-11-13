@@ -106,7 +106,7 @@ if __name__ == "__main__":
         sys.exit(0)
     except SystemExit:
         raise
-    except:
+    except Exception:
         make_logger("error").exception(
             "An unhandled exception occurred during execution")
         raise

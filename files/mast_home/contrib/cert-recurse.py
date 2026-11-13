@@ -90,7 +90,7 @@ def main(appliances=[],
                     logger.info(
                         "Finished deleting file {}".format(
                             "temporary:///{}".format(_filename)))
-                except:
+                except Exception:
                     logger.exception("An unhandled exception has occurred")
                     cert_node = out[hostname][domain]["CryptoCertificate"] = {
                         "name": cert.get("name"),
@@ -189,6 +189,6 @@ if __name__ == "__main__":
         cli.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("An unhandled exception has occurred")
         raise

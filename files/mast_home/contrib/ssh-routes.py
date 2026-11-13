@@ -104,7 +104,7 @@ if __name__ == "__main__":
     except SystemExit:
         # Don't need logs when user asks for help
         pass
-    except:
+    except Exception:
         make_logger("error").exception(
             "An exception ocurred during execution.")
         raise

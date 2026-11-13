@@ -108,11 +108,11 @@ class WebPlugin(Plugin):
                     sleep(2)
                     try:
                         return self.status()
-                    except:
+                    except Exception:
                         logger.exception(
                             "An unhandled exception occurred during execution")
                         raise
-                except:
+                except Exception:
                     logger.exception(
                         "An unhandled exception occurred during execution")
                     raise

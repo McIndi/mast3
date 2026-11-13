@@ -97,7 +97,7 @@ def main(
                         print(("\tDomain: '{}'".format(domain)))
                         try:
                             print(("\tMatches:\n\t\t'{}'".format("\n\t\t".join([etree.tostring(match, pretty_print=True).strip() for match in matches]))))
-                        except:
+                        except Exception:
                             print(("\tMatches:\n\t'{}'".format("\n\t\t".join([str(match).strip() for match in matches]))))
                         print(("\tresult: '{}'".format(result)))
     print(("Total Number of Failures: '{}'".format(error_count)))
@@ -109,6 +109,6 @@ if __name__ == "__main__":
         cli.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         log.exception("Sorry, an unhandled exception occurred.")
         raise

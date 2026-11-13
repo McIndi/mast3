@@ -72,7 +72,7 @@ def to_dp(appliances=[],
             if not dry_run:
                 try:
                     filestore = upload_file(appl, domain, f, overwrite, create_dir, ignore_errors, filestore)
-                except:
+                except Exception:
                     logger.exception("An error has occurred uploading "
                                      "{} to {} on {}:{}".format(f[0],
                                                                 f[1],
@@ -125,7 +125,7 @@ def from_dp(appliances=[],
                                    domain,
                                    recursive=recursive,
                                    ignore_errors=ignore_errors)
-            except:
+            except Exception:
                 logger.exception("An error occurred during download of "
                                  "{} to {} from {}:{}".format(location,
                                                               _out_dir,
@@ -240,10 +240,7 @@ def download_directory(appl,
         if file.endswith("/"):
             _local_path = os.path.join(local_path,
                                        file[:-1].split("/")[-1])
-            try:
-                os.makedirs(_local_path)
-            except:
-                pass
+            os.makedirs(_local_path, exist_ok=True)
             download_directory(appl,
                                file,
                                _local_path,
@@ -257,7 +254,7 @@ def download_directory(appl,
             print(("\t\t\t{} -> {}".format(fname, filename)))
             try:
                 fout.write(appl.getfile(domain=domain, filename=fname))
-            except:
+            except Exception:
                 logger.exception("An unhandled exception occurred")
                 print(("ERROR: While downloading {} from {}:{}".format(fname,
                                                                       appl.hostname,
@@ -270,7 +267,7 @@ def download_directory(appl,
 if __name__ == "__main__":
     try:
         cli.run()
-    except:
+    except Exception:
         make_logger("error").exception(
             "An unhandled exception occurred see log for details")
         raise

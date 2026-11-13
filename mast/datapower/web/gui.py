@@ -107,7 +107,7 @@ def initialize_plugins():
         logger.debug("found plugin: {}".format(ep.name))
         try:
             plugins_dict.update({ep.name: ep.load()})
-        except:
+        except Exception:
             logger.exception(
                 "An unhandled exception occurred during execution.")
             pass
@@ -129,7 +129,7 @@ def initialize_plugins():
                 '<li><a href="#mast.datapower.{0}">{0}</a></li>'.format(name))
             plugins["css"] += Markup(_plugin.css())
             plugins["js"] += Markup(_plugin.js())
-        except:
+        except Exception:
             logger.exception(
                 "An unhandled exception occured while attempting "
                 "to gather the content for web plugin {}".format(name))
@@ -140,7 +140,7 @@ def initialize_plugins():
                 '/%s' % (name),
                 view_func=_plugin.route,
                 methods=["GET", "POST", "DELETE", "PUT"])
-        except:
+        except Exception:
             logger.exception(
                 "An unhandled exception occured while attempting "
                 "to assign a handler for web plugin {}".format(name))
@@ -210,7 +210,7 @@ def check_connectivity(hostname):
         _resp = appl.ssh_connect(port=appl.ssh_port)
         appl.ssh_disconnect()
         resp["ssh"] = 'DataPower' in _resp
-    except:
+    except Exception:
         resp["ssh"] = False
     return flask.jsonify(resp)
 
@@ -447,7 +447,7 @@ def main():
         cherrypy.engine.block()
     except KeyboardInterrupt:
         cherrypy.engine.exit()
-    except:
+    except Exception:
         logger.exception(
             "Sorry, an unhandled exception occurred while starting CherryPy")
 

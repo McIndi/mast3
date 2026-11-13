@@ -181,7 +181,7 @@ def cert_audit(appliances=[],
                     # This most likely means the file did not exist for
                     # some reason (skip)
                     continue
-                except:
+                except Exception:
                     logger.exception("An unhandled exception has occurred")
                     print((appliance.history))
                     print("SKIPPING CERT")
@@ -435,6 +435,6 @@ if __name__ == "__main__":
         cli.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("An unhandled exception occurred!")
         raise

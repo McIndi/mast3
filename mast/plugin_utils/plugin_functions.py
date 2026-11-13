@@ -1045,7 +1045,7 @@ def handle(plugin):
         logger.debug("getting form")
         try:
             form = get_form(plugin.replace("mast.", ""), name, appliances, credentials)
-        except:
+        except Exception:
             logger.exception("An unhandled exception occurred during execution.")
             raise
         logger.debug("Got form")
@@ -1054,6 +1054,6 @@ def handle(plugin):
         logger.info("Received POST request for {}".format(plugin))
         try:
             return Markup(str(call_method(plugin, flask.request.form)))
-        except:
+        except Exception:
             logger.exception("An unhandled exception occurred during processing of request.")
             raise

@@ -411,7 +411,7 @@ class Request(object):
         """
         try:
             return self._pointers[key]
-        except:
+        except Exception:
             raise AttributeError
 
 

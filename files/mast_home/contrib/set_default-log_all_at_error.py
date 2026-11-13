@@ -61,6 +61,6 @@ if __name__ == "__main__":
         interface.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("Sorry, an unhandled exception has occurred.")
         raise

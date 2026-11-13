@@ -42,7 +42,7 @@ from mast import __version__
 
 try:
     mast_home = os.environ["MAST_HOME"]
-except:
+except KeyError:
     mast_home = os.getcwd()
 
 __all__ = ["CronExpression", "parse_atom", "DEFAULT_EPOCH", "SUBSTITUTIONS"]

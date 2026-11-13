@@ -518,7 +518,7 @@ DO NOT USE.__"""
                     print('\t', appliance.hostname, " - ", "Failed")
                 appliance.log_error(
                     'Verification of backup in %s failed' % (_directory))
-        except:
+        except Exception:
             if web:
                 results[appliance.hostname] = "Failed"
             logger.exception(

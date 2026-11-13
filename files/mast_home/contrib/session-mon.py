@@ -147,7 +147,7 @@ if __name__ == "__main__":
     try:
         cli = Cli(main=main)
         cli.run()
-    except:
+    except Exception:
         logger = make_logger("error")
         logger.exception(
             "Sorry, an unhandled exception occurred "
