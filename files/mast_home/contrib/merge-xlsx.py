@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from mast.logging import make_logger
 from mast.cli import Cli
-import pandas as pd
+from mast.util import require_optional
+
+# pandas is not installed with MAST.
+pd = require_optional("pandas")
 import os
 
 def main(left_file="",

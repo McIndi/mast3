@@ -15,7 +15,7 @@ jobs:
           python-version: "3.14"
       - name: Install MAST and its dependencies
         run: |
-          python -m pip install -r linux-requirements.txt pytest dulwich pandas
+          python -m pip install -r linux-requirements.txt pytest
           python -m pip install .
       - name: Run the unit and regression tests
         run: python -m pytest mast/testsuite/unit mast/testsuite/regression
@@ -34,7 +34,7 @@ jobs:
           python-version: "3.14"
       - name: Install MAST and its dependencies
         run: |
-          python -m pip install -r linux-requirements.txt pytest dulwich pandas
+          python -m pip install -r linux-requirements.txt pytest
           python -m pip install .
       - name: Run the integration tests against a DataPower container
         run: python -m pytest mast/testsuite/integration

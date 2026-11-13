@@ -5,7 +5,10 @@ import re
 import os
 import OpenSSL
 import openpyxl
-import pandas as pd
+from mast.util import require_optional
+
+# pandas is not installed with MAST.
+pd = require_optional("pandas")
 from time import sleep
 from mast.cli import Cli
 from mast.logging import make_logger
