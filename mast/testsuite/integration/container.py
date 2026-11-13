@@ -31,7 +31,17 @@ the first one found on the PATH.
 not start until you accept the IBM license, and only you can do that.
 * `MAST_TEST_DATAPOWER_TIMEOUT`: Seconds to wait for the gateway to
 start. The default is 300.
+* `MAST_TEST_DATAPOWER_KEEP`: Set to `true` to keep the shared
+container after the tests end, and to use it again in the next run.
+Remove it with `podman rm -f mast-test-keep` when you want a clean
+gateway.
+
+Most test classes use one shared container, which `shared_container`
+starts on first use and removes when Python exits. A test class that
+changes something no other class can tolerate, such as the password
+of the admin account, starts a private `DataPowerContainer`.
 """
+import atexit
 import os
 import shutil
 import ssl
@@ -47,6 +57,9 @@ DEFAULT_IMAGE = "icr.io/cpopen/datapower/datapower-limited:11.0.0.3"
 # The limited images start with this account.
 USERNAME = "admin"
 PASSWORD = "admin"
+
+# The name of the container that MAST_TEST_DATAPOWER_KEEP keeps.
+KEEP_NAME = "mast-test-keep"
 
 SOMA_PORT = 5550
 WEB_PORT = 9090
@@ -110,10 +123,10 @@ class DataPowerContainer(object):
             container.stop()
     """
 
-    def __init__(self, image=None):
+    def __init__(self, image=None, name=None):
         self.image = image or os.environ.get(
             "MAST_TEST_DATAPOWER_IMAGE", DEFAULT_IMAGE)
-        self.name = "mast-test-{}".format(uuid.uuid4().hex[:8])
+        self.name = name or "mast-test-{}".format(uuid.uuid4().hex[:8])
         self.timeout = int(os.environ.get("MAST_TEST_DATAPOWER_TIMEOUT", 300))
         self.runtime = None
         self.ports = {}
@@ -141,6 +154,8 @@ class DataPowerContainer(object):
                 "Set MAST_TEST_DATAPOWER_ACCEPT_LICENSE=true to accept the "
                 "IBM DataPower license and run the integration tests")
         self.runtime = find_runtime()
+        if self._attach():
+            return
         self._run(
             "create",
             "--name", self.name,
@@ -154,13 +169,38 @@ class DataPowerContainer(object):
         try:
             self._add_startup_config()
             self._run("start", self.name)
-            for port in (SOMA_PORT, WEB_PORT, SSH_PORT):
-                out = self._run("port", self.name, str(port))
-                self.ports[port] = int(out.strip().splitlines()[0].rsplit(":", 1)[1])
+            self._read_ports()
             self._wait_until_ready()
         except Exception:
             self.stop()
             raise
+
+    def _attach(self):
+        """Use a container of this name that is already running, if
+        there is one and it runs the image that was asked for. Remove a
+        container of this name that cannot be used."""
+        found = self._run(
+            "inspect", "--format", "{{.State.Status}} {{.ImageName}}",
+            self.name, check=False).strip().split()
+        if len(found) != 2 or "no such" in " ".join(found).lower():
+            return False
+        self.started = True
+        if found != ["running", self.image]:
+            self.stop()
+            return False
+        try:
+            self._read_ports()
+            self._wait_until_ready()
+        except ContainerUnavailable:
+            self.stop()
+            return False
+        return True
+
+    def _read_ports(self):
+        for port in (SOMA_PORT, WEB_PORT, SSH_PORT):
+            out = self._run("port", self.name, str(port))
+            self.ports[port] = int(
+                out.strip().splitlines()[0].rsplit(":", 1)[1])
 
     def _add_startup_config(self):
         """Copy the management configuration into the container."""
@@ -223,3 +263,21 @@ class DataPowerContainer(object):
             web_port=self.ports[WEB_PORT],
             ssh_port=self.ports[SSH_PORT],
             check_hostname=False)
+
+
+_shared = None
+
+
+def shared_container():
+    """Return the container that the test classes share. The first call
+    starts it. It is removed when Python exits, unless
+    MAST_TEST_DATAPOWER_KEEP is `true`."""
+    global _shared
+    if _shared is None:
+        keep = os.environ.get("MAST_TEST_DATAPOWER_KEEP", "").lower() == "true"
+        container = DataPowerContainer(name=KEEP_NAME if keep else None)
+        container.start()
+        if not keep:
+            atexit.register(container.stop)
+        _shared = container
+    return _shared
