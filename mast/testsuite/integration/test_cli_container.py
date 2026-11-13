@@ -261,6 +261,22 @@ class TestDeveloperCLI(CLITestCase):
             "-f", exports[0], "-o", "tmp/import")
 
 
+class TestDeploymentCLI(CLITestCase):
+
+    def test_get_file(self):
+        self.fresh_domain("cli_deploy")
+        local = self.local_file("deployed.txt", b"deployed\n")
+        self.dp.set_file(local, "local:", "cli_deploy")
+        self.mast(
+            "deployment", "get-file", "-D", "cli_deploy",
+            "-l", "local:///deployed.txt", "-o", "tmp/deploy")
+        found = glob.glob(
+            self.path("tmp", "deploy", "**", "*deployed.txt"), recursive=True)
+        self.assertEqual(1, len(found))
+        with open(found[0], "rb") as fin:
+            self.assertEqual(b"deployed\n", fin.read())
+
+
 class TestNetworkCLI(CLITestCase):
 
     def test_check_connectivity(self):

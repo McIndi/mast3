@@ -45,8 +45,6 @@ import multiprocessing
 from multiprocessing import Process
 from multiprocessing.queues import Queue
 from threading import Thread
-from tkinter import *
-from tkinter.scrolledtext import ScrolledText
 import errno
 import stat
 
@@ -76,9 +74,13 @@ class StdoutDisplay(Process):
         self.gui_root.quit()
 
     def run(self):
-        self.gui_root = Tk()
+        # tkinter is imported here, and not at the top of the module,
+        # because a Python on a server often has no tkinter. Only the
+        # output window needs it.
+        import tkinter
+        self.gui_root = tkinter.Tk()
         self.gui_root.title("MAST Git-Deployment Output")
-        self.gui_txt = Text(self.gui_root)
+        self.gui_txt = tkinter.Text(self.gui_root)
         self.gui_txt.pack(fill="both", expand=True)
         # self.gui_btn = Button(self.gui_root, text='Close', command=self.close)
         # self.gui_btn.pack()
@@ -94,6 +96,7 @@ class StdoutDisplay(Process):
 # It functions by waiting on new data entering the queue, when it
 # finds new data it will insert it into the text widget
 def text_catcher(parent, text_widget, queue):
+    from tkinter import END
     while True:
         msg = queue.get()
         if msg.strip() == "END":
@@ -1366,7 +1369,7 @@ saved after the deployment is complete
     return ret
 
 if __name__ == "__main__":
-    cli = Cli(main=main, description=main.__doc__)
+    cli = Cli(main=git_deploy, description=git_deploy.__doc__)
     try:
         cli.run()
     except SystemExit:
