@@ -762,9 +762,9 @@ class DataPower(object):
 
     @correlate
     @logged("audit")
-    def ssh_connect(self, domain='default', port=22, timeout=120):
+    def ssh_connect(self, domain='default', port=None, timeout=120):
         """
-        _method_: `mast.datapower.datapower.DataPower.ssh_connect(self, domain='default', port=22, timeout=120)`
+        _method_: `mast.datapower.datapower.DataPower.ssh_connect(self, domain='default', port=None, timeout=120)`
 
         Descritpion:
 
@@ -790,7 +790,7 @@ class DataPower(object):
 
         * `domain`: The domain to log in to, defaults to `default`
         * `port`: The ssh port to connect to. Expects an `int`, defaults
-        to 22
+        to the configured `ssh_port` of this appliance
         * `timeout`: The amount of time (in seconds) to wait for the
         connection to become active. If the timeout is exceeded, a
         `SSHTimeoutError` is raised
@@ -808,7 +808,7 @@ class DataPower(object):
                 self.log_debug("Attempting to initialize SSH subsystem")
                 self._ssh.connect(
                     self._hostname,
-                    port=self.ssh_port,
+                    port=self.ssh_port if port is None else port,
                     username=username,
                     password=password,
                     timeout=timeout)
@@ -1149,15 +1149,15 @@ class DataPower(object):
                     self.last_response = self.request.send(secure=self.check_hostname)
                     if b"Authentication failure" in self.last_response:
                         raise AuthenticationFailure(self.last_response)
-                except:
-                    _hist["response"] = str(e).replace("\n", "").replace("\r", "")
-                    if hasattr(e, "read"):
-                        _hist["response"] = e.read().decode().replace(
-                                "\n", "").replace("\r", "")
-                    self._history.append(_hist)
+                except Exception as retry_error:
+                    _retry_hist = {
+                        "request": _hist["request"],
+                        "response": str(retry_error).replace(
+                            "\n", "").replace("\r", "")}
+                    self._history.append(_retry_hist)
                     self.log_error(
                         "An error occurred trying to send request to "
-                        "appliance: {}".format(_escape(str(e))))
+                        "appliance: {}".format(_escape(str(retry_error))))
                     raise
             else:
                 raise
@@ -1167,7 +1167,7 @@ class DataPower(object):
         _hist["response"] = re.sub(
             r"<dp:file(.*?)>.*?</dp:file>",
             r"<dp:file\1>base 64 encoded file removed from log</dp:file>",
-            str(self.last_response).replace("\r", "").replace("\n", ""))
+            self.last_response.decode().replace("\r", "").replace("\n", ""))
 
         self._history.append(_hist)
 
@@ -1241,7 +1241,7 @@ class DataPower(object):
         msg = ''.join(msg)
         username, password = _s(self.credentials).split(_s(':'), 1)
         msg = msg.replace(_s(password), "********")
-        logger.debug(msg)
+        logger.info(msg)
 
     def log_warn(self, message):
         """
@@ -1271,7 +1271,7 @@ class DataPower(object):
         msg = ''.join(msg)
         username, password = _s(self.credentials).split(_s(':'), 1)
         msg = msg.replace(_s(password), "********")
-        logger.info(msg)
+        logger.warning(msg)
 
     def log_error(self, message, get_logs=False):
         """
@@ -1337,7 +1337,7 @@ class DataPower(object):
         for k, v in list(self.extra.items()):
             _msg.append('"{0}": "{1}", '.format(k, v))
         _msg.append('"message": "{}"'.format(msg))
-        msg = ''.join(msg)
+        msg = ''.join(_msg)
         username, password = _s(self.credentials).split(_s(':'), 1)
         msg = msg.replace(_s(password), "********")
         logger.critical(msg)
@@ -1389,13 +1389,11 @@ class DataPower(object):
             tree = resp.xml
             return 'datapower' in resp.text.lower()
         except AuthenticationFailure:
-            return 'datapower' in self.last_response.lower()
+            # The appliance answered, only the credentials were refused.
+            return b'datapower' in self.last_response.lower()
         except URLError as e:
             self.log_error(f"URLError: {self.request}: {e}")
             return False
-            # print(self.request)
-        except:
-            raise
 
     @correlate
     @logged("debug")
@@ -1735,7 +1733,7 @@ class DataPower(object):
 
     @property
     @logged("debug")
-    def users(self, persisted=False):
+    def users(self):
         """
         _property_: `mast.datapower.datapower.DataPower.users`
 
@@ -1759,7 +1757,7 @@ class DataPower(object):
         This method accepts no arguments
         """
         self.request.clear()
-        resp = self.get_config('User', persisted=persisted)
+        resp = self.get_config('User', persisted=False)
 
         users = resp.xml.findall('.//User')
         users = [x.get('name') for x in users]
@@ -1834,7 +1832,7 @@ class DataPower(object):
             except AttributeError:
                 log.critical(f"Unable to find RaidVolume directory. RaidVolume configuration: {resp}")
                 raise ValueError(f"No RaidVolume directory configured")
-            log.debug(f"Found _dir: {dir}")
+            log.debug(f"Found _dir: {_dir}")
             self._raid_directory = 'local:/{}'.format(_dir)
             log.debug(f"Caching raid directory: {self._raid_directory}")
         log.debug(f"Returning raid_directory: {self._raid_directory}")
@@ -2047,8 +2045,8 @@ class DataPower(object):
             # Handles the case of changing the password of the user which
             # we are using to authenticate to DataPower
             self.credentials = '{}:{}'.format(username, password)
-            self.request._credentials = base64.encodebytes(
-                self.credentials).strip()
+            self.request._credentials = base64.b64encode(
+                self.credentials.encode()).decode()
         return resp
 
     @correlate
@@ -2531,11 +2529,6 @@ class DataPower(object):
         location = file_out.split(":")[0] + ":"
         if filestore is None:
             filestore = self.get_filestore(domain, location)
-        if not overwrite:
-            if self.file_exists(file_out, domain, filestore):
-                self.log_error(
-                    "Attempted to overwrite file with overwrite set to False")
-                raise ValueError("Attempted to overwrite file with overwrite set to False")
         if self.directory_exists(file_out, domain, filestore) or \
                 self.location_exists(file_out, domain, filestore):
             file_out = "{}/{}".format(file_out, os.path.basename(file_in))
@@ -2543,6 +2536,11 @@ class DataPower(object):
         # Fix for leading and trailing whitespace in the filename
         file_out_fname = file_out.split("/")[-1]
         file_out = file_out.replace(file_out_fname, file_out_fname.strip())
+        if not overwrite:
+            if self.file_exists(file_out, domain, filestore):
+                self.log_error(
+                    "Attempted to overwrite file with overwrite set to False")
+                raise ValueError("Attempted to overwrite file with overwrite set to False")
         self.domain = domain
         file_in = self._get_local_file(file_in)
         self.request.clear()
@@ -2598,7 +2596,7 @@ class DataPower(object):
         if backup:
             contents = self.getfile(domain, filename)
             file_out = os.path.join(local_dir, filename.split("/")[-1])
-            with open(file_out, "w") as fout:
+            with open(file_out, "wb") as fout:
                 fout.write(contents)
         resp = self.DeleteFile(domain=domain, File=filename)
         return resp
@@ -2925,7 +2923,7 @@ class DataPower(object):
                 self.log_error(
                     "Error reading directory"
                     ": %s, request: %s, response: %s" % (
-                        dir, self.request, self.last_response.read()))
+                        dp_path, self.request, self.last_response.decode()))
                 return None
 
         files = self.ls(
@@ -3002,7 +3000,7 @@ class DataPower(object):
                 self.log_error(
                     "Error reading directory: "
                     "%s, request: %s, response: %s" % (
-                        dir, self.request, self.last_response.read()))
+                        dir, self.request, self.last_response.decode()))
                 return None
         fs = filestore.xml.find(FILESTORE_XPATH)
         directory = fs.find('.//directory[@name="{}"]'.format(dir))
@@ -3320,7 +3318,6 @@ class DataPower(object):
 
         flag = False
         for child in self.request.valid_children(new_config):
-            print(child)
             if existing_config.find(child) is not None:
                 for node in existing_config.findall(child):
                     if node.find('Flags') is not None:
@@ -3455,6 +3452,9 @@ class DataPower(object):
         doexport.set('persisted', persisted)
 
         doexport.set('all-files', all_files)
+        if comment:
+            _comment = etree.SubElement(doexport, f"{{{MGMT_NAMESPACE}}}user-comment")
+            _comment.text = comment
         _obj = etree.SubElement(doexport, f"{{{MGMT_NAMESPACE}}}object")
         _obj.set('name', obj)
         _obj.set('class', object_class)
@@ -3528,7 +3528,7 @@ class DataPower(object):
         except:
             self.log_error(
                 "There was an error retrieving a backup from {} {}".format(
-                    self.hostname, domain))
+                    self.hostname, domains))
             raise
         # print(type(_file))
         _file = base64.decodebytes(_file.encode())
@@ -3637,7 +3637,7 @@ class DataPower(object):
         DataPower.get_existing_checkpoints
         """
         self.domain = domain
-        self.RollbackCheckpoint(domain=domain, ChkName=checkpoint_name)
+        return self.RollbackCheckpoint(domain=domain, ChkName=checkpoint_name)
 
     @correlate
     @logged("debug")
@@ -3647,7 +3647,7 @@ class DataPower(object):
         checkpoints for a given domain.
         """
         xpath = CONFIG_XPATH + "Domain[@name='{}']/MaxChkpoints".format(domain)
-        config = self.get_config("Domain", domain)
+        config = self.get_config("Domain", domain, persisted=False)
         return int(config.xml.find(xpath).text)
 
     @correlate
@@ -3744,7 +3744,7 @@ class DataPower(object):
         Returns a list of Host Aliases for the appliances
         """
         xpath = "{}HostAlias".format(CONFIG_XPATH)
-        config = self.get_config("HostAlias")
+        config = self.get_config("HostAlias", persisted=False)
         return [(
             x.get("name"),
             x.find('IPAddress').text,
