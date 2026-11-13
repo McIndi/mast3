@@ -211,7 +211,7 @@ def get_objects(modules):
 
 
 def escape(string):
-    return string.replace("_", "\_")
+    return string.replace("_", "\\_")
 
 def generate_markdown(objects):
     md = ""
@@ -267,7 +267,7 @@ def generate_cli_reference():
     ret = ""
     for script in scripts:
         _script = os.path.join(mast_home, script)
-        ret += "# {}\n\n".format(script.replace("_", "\_"))
+        ret += "# {}\n\n".format(script.replace("_", "\\_"))
 
         command = [_script, "--help"]
         out, err = system_call(command)
@@ -309,8 +309,8 @@ def generate_cli_reference():
                 out = out.replace("Options:", "Options:\n\n")
                 out = out.replace("----------------------------------------", "")
                 ret += "## {} {}\n\n".format(
-                    script.replace("_", "\_"),
-                    subcommand.split(" - ")[0].replace("_", "\_"))
+                    script.replace("_", "\\_"),
+                    subcommand.split(" - ")[0].replace("_", "\\_"))
                 ret += "{}\n\n".format(textwrap.dedent(out))
     return ret
 

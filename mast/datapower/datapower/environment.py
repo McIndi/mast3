@@ -53,7 +53,7 @@ def which_environment(hostname):
     """Returns the first environment configured to which hostname belongs,
     returns None if hostname doesn't belong to a configured environment."""
     if which_environments(hostname):
-        return which_environment(hostname)[0]
+        return which_environments(hostname)[0]
     return None
 
 
@@ -69,7 +69,7 @@ def get_environment(name, credentials=None):
     """Factory function for creating an environment by name vs a list of
     hostnames."""
     if not is_environment(name):
-        return ValueError('Environment %s does not exist' % (name))
+        raise ValueError('Environment %s does not exist' % (name))
     hostnames = get_appliances(name)
     return Environment(hostnames, credentials)
 

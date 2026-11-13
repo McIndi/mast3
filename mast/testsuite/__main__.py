@@ -72,7 +72,7 @@ def main(out_file="stdout",
         suites = [unittest_suite, integration_suite, regression_suite]
 
     suite = unittest.TestSuite(suites)
-    if out_file is "stdout":
+    if out_file == "stdout":
         unittest.TextTestRunner(stream=sys.stdout, verbosity=0).run(suite)
     else:
         with open(out_file, "w") as fp_out:
