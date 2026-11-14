@@ -1,3 +1,4 @@
+import os
 import sys
 import re
 import json
@@ -20,6 +21,13 @@ ERRORS = {
 }
 
 HERE = Path(__file__).parent
+
+# Requests to the GitHub API without a token are limited to 60 per hour for
+# each IP address. Shared CI runners reach that limit, so use a token when
+# the environment has one.
+GITHUB_API_HEADERS = {'X-GitHub-Api-Version': '2022-11-28'}
+if os.environ.get('GITHUB_TOKEN'):
+    GITHUB_API_HEADERS['Authorization'] = f"Bearer {os.environ['GITHUB_TOKEN']}"
 
 cli = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 cli.add_argument(
@@ -171,6 +179,7 @@ log.debug(f"Found requirements_file: {requirements_file}")
 response = requests.get(
     'https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json',
 )
+response.raise_for_status()
 response_json = response.json()
 log.debug(f"Found response json: {response_json}")
 tag = response_json['tag']
@@ -179,11 +188,9 @@ log.debug(f"Found tag: {tag}")
 # Second, Get the release ID from Github API
 response = requests.get(
     f'https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/{tag}',
-    headers={
-        'X-GitHub-Api-Version': '2022-11-28',
-        'Accept': 'application/vnd.github+json'
-    }
+    headers={**GITHUB_API_HEADERS, 'Accept': 'application/vnd.github+json'},
 )
+response.raise_for_status()
 response_json = response.json()
 log.debug(f"Found response json: {response_json}")
 assets = response_json['assets']
@@ -277,11 +284,9 @@ log.debug(f'Found release_file_url: {release_file_url}')
 # Fourth Download Hash file
 hash_file_response = requests.get(
     hash_file_url,
-    headers={
-        'X-GitHub-Api-Version': '2022-11-28',
-        'Accept': 'application/octet-stream'
-    }
+    headers={**GITHUB_API_HEADERS, 'Accept': 'application/octet-stream'},
 )
+hash_file_response.raise_for_status()
 hash_file_path = BUILD_DIRECTORY.joinpath(hash_file)
 with hash_file_path.open('wb') as fp:
     fp.write(hash_file_response.content)
@@ -296,11 +301,9 @@ log.debug(hash_hex)
 # Fifth Download Release file
 release_file_response = requests.get(
     release_file_url,
-    headers={
-        'X-GitHub-Api-Version': '2022-11-28',
-        'Accept': 'application/octet-stream'
-    }
+    headers={**GITHUB_API_HEADERS, 'Accept': 'application/octet-stream'},
 )
+release_file_response.raise_for_status()
 release_file_path = BUILD_DIRECTORY.joinpath(release_file)
 with release_file_path.open('wb') as fp:
     fp.write(release_file_response.content)
@@ -332,15 +335,15 @@ else:
 
 # Upgrade pip
 command = f'{python_executable} -m pip install --upgrade pip'
-subprocess.run(command, shell=True)
+subprocess.run(command, shell=True, check=True)
 
 # Install dependencies
 command = f'{python_executable} -m pip install --no-warn-script-location -r {requirements_file}'
-subprocess.run(command, shell=True)
+subprocess.run(command, shell=True, check=True)
 
 # Install mast package
 command = f'{python_executable} -m pip install {HERE}'
-subprocess.run(command, shell=True)
+subprocess.run(command, shell=True, check=True)
 
 # Copy all files from files/mast_home
 files_directory = HERE.joinpath('files')
@@ -372,9 +375,15 @@ command = f'{python_executable} -c "import mast; print(mast.__version__)"'
 output = subprocess.check_output(command, shell=True)
 mast_version = output.strip().decode()
 
+# Windows and Linux are built for x86_64 only. macOS is built for Intel and
+# for Apple silicon, so the macOS archive name includes the architecture.
+archive_platform = platform
+if platform == 'darwin':
+    archive_platform = f'{platform}-{_platform.machine()}'
+
 shutil.make_archive(
     DIST_DIRECTORY.joinpath(
-        f'MAST-{mast_version}_py{TARGET_PYTHON_VERSION}_{platform}',
+        f'MAST-{mast_version}_py{TARGET_PYTHON_VERSION}_{archive_platform}',
     ),
     format='zip',
     root_dir=ASSEMBLE_DIRECTORY,

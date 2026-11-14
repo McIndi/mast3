@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml calls this workflow, so that installers are only built from
+  # a commit that passes the tests.
+  workflow_call:
 
 jobs:
   unit:
