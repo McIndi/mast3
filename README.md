@@ -55,7 +55,7 @@ python build.py
 
 The installer is written to `dist/`. To review its contents, look in `build/assemble`.
 
-You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.14.10`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and attaches them to a draft release. The tag must match the version in `pyproject.toml`.
+You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.14.10`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
 
 ### 2. Install
 

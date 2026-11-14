@@ -1,7 +1,7 @@
 name: release
 
 # Builds the MAST installers when a version tag is pushed, and attaches them
-# to a draft GitHub release. The installers are only built if the unit and
+# to a published GitHub release. The installers are only built if the unit and
 # integration tests pass for the tagged commit.
 
 on:
@@ -100,7 +100,7 @@ jobs:
           path: dist
           pattern: installer-*
           merge-multiple: true
-      - name: Create a draft release with the installers
+      - name: Publish a release with the installers
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -110,5 +110,5 @@ jobs:
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --draft --verify-tag --generate-notes $prerelease \
+            --verify-tag --generate-notes $prerelease \
             --title "MAST $GITHUB_REF_NAME"
