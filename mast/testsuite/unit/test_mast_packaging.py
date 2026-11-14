@@ -103,10 +103,14 @@ class TestMASTPackaging(unittest.TestCase):
             self.assertTrue(part.isdigit(), mast.__version__)
 
     def test_license_file_is_in_the_metadata(self):
-        files = [str(f) for f in metadata.files("mast")]
-        self.assertTrue(
-            any(f.replace("\\", "/").endswith("licenses/LICENSE") for f in files),
-            "LICENSE is not in the installed metadata")
+        # Read the License-File field, not the list of installed files.
+        # When the tests run from a source checkout that was built
+        # before, Python finds `mast.egg-info` there first, and its
+        # file list has `LICENSE` where an installed MAST has
+        # `licenses/LICENSE`. The field is the same in both.
+        self.assertEqual(
+            metadata.metadata("mast").get_all("License-File"), ["LICENSE"],
+            "LICENSE is not in the metadata")
         self.assertEqual(metadata.metadata("mast")["License-Expression"],
                          "GPL-3.0-only")
 
