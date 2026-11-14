@@ -5,7 +5,10 @@ from mast.cli import Cli
 from lxml import etree
 import openpyxl
 import sqlite3
-import pandas as pd
+from mast.util import require_optional
+
+# pandas is not installed with MAST.
+pd = require_optional("pandas")
 
 
 def recurse_config(header_row, hostname=None, domain=None, node=None, status=None, root=None, row=None, seperator="\n", obfuscate_passwords=False):

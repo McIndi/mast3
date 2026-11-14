@@ -13,3 +13,4 @@ pyOpenSSL
 requests
 wheel
 mock
+dulwich

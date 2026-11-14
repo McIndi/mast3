@@ -91,7 +91,7 @@ The tests run with [pytest](https://docs.pytest.org) from a source checkout. Thi
 
 ```shell
 python -m venv .venv
-.venv/bin/pip install -r linux-requirements.txt pytest dulwich pandas
+.venv/bin/pip install -r linux-requirements.txt pytest
 .venv/bin/pip install .
 .venv/bin/python -m pytest mast/testsuite/unit mast/testsuite/regression
 ```
