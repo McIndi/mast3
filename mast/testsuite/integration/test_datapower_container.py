@@ -16,10 +16,12 @@
 """
 Integration tests for `mast.datapower.datapower.DataPower`.
 
-Each test class starts its own DataPower container, so one class
-cannot change the state that another class sees. The classes are
-skipped when a container cannot be started. See `container.py` for
-the environment variables.
+The test classes share one DataPower container. Each class uses its
+own domain, user and object names, and removes what it creates, so the
+classes do not disturb each other and the container can be used again.
+A class that sets `private_container` gets a container of its own. The
+classes are skipped when a container cannot be started. See
+`container.py` for the environment variables.
 
 A container cannot test these parts of MAST, because DataPower locks
 the related configuration when it runs in a container:
@@ -44,6 +46,7 @@ from mast.testsuite.integration.container import (
     PASSWORD,
     SOMA_PORT,
     USERNAME,
+    shared_container,
 )
 
 # A password that the default DataPower password policy accepts.
@@ -51,22 +54,57 @@ GOOD_PASSWORD = "Passw0rd!x9"
 
 
 class ContainerTestCase(unittest.TestCase):
-    """Start one DataPower container for the test class."""
+    """Give the test class a DataPower container."""
+
+    # Set to True in a class that must not share its container.
+    private_container = False
 
     @classmethod
     def setUpClass(cls):
-        cls.container = DataPowerContainer()
         try:
-            cls.container.start()
+            if cls.private_container:
+                cls.container = DataPowerContainer()
+                cls.container.start()
+            else:
+                cls.container = shared_container()
         except ContainerUnavailable as e:
             raise unittest.SkipTest(str(e))
+        cls.addClassCleanup(cls._release_container)
         cls.dp = cls.container.datapower()
         cls.workdir = tempfile.mkdtemp(prefix="mast-test-")
+        cls.addClassCleanup(shutil.rmtree, cls.workdir, ignore_errors=True)
 
     @classmethod
-    def tearDownClass(cls):
-        cls.container.stop()
-        shutil.rmtree(cls.workdir, ignore_errors=True)
+    def _release_container(cls):
+        if cls.private_container:
+            cls.container.stop()
+
+    @classmethod
+    def fresh_domain(cls, name):
+        """Create the domain `name`. Remove it first if an earlier run
+        left it behind, and remove it when the class ends."""
+        status = cls.dp.get_status("DomainStatus")
+        if name in [x.text for x in status.xml.findall(".//Domain")]:
+            cls.dp.del_domain(name)
+        assert cls.dp.add_domain(name)
+        cls.addClassCleanup(cls.dp.del_domain, name)
+
+    def remove_leftovers(self, users=(), groups=()):
+        """Remove users and groups now, if an earlier run left them
+        behind, and again when the test ends."""
+        def remove():
+            dp = self.container.datapower()
+            fallback = dp.fallback_users
+            for user in users:
+                if user in fallback:
+                    dp.del_rbm_fallback(user)
+                if user in dp.users:
+                    dp.remove_user(user)
+            for group in groups:
+                if group in dp.groups:
+                    dp.del_group(group)
+        remove()
+        self.addCleanup(remove)
 
     def local_file(self, name, contents):
         path = os.path.join(self.workdir, name)
@@ -128,7 +166,8 @@ class TestDomains(ContainerTestCase):
 
     def test_domain_lifecycle(self):
         dp = self.dp
-        self.assertEqual(["default"], dp.domains)
+        self.assertIn("default", dp.domains)
+        self.addCleanup(dp.del_domain, "lifecycle")
 
         self.assertTrue(dp.add_domain("lifecycle"))
         status = dp.get_status("DomainStatus")
@@ -153,6 +192,8 @@ class TestAccounts(ContainerTestCase):
 
     def test_group_and_user_lifecycle(self):
         dp = self.dp
+        self.remove_leftovers(
+            users=["group_user", "priv_user"], groups=["testers"])
         self.assertTrue(dp.add_group(
             "testers", access_policies=["*/*/*?Access=r"]))
         self.assertIn("testers", dp.groups)
@@ -169,9 +210,9 @@ class TestAccounts(ContainerTestCase):
         self.assertTrue(dp.change_password("group_user", "N3w" + GOOD_PASSWORD))
 
         self.assertTrue(dp.add_rbm_fallback("priv_user"))
-        self.assertEqual(["priv_user"], dp.fallback_users)
+        self.assertIn("priv_user", dp.fallback_users)
         self.assertTrue(dp.del_rbm_fallback("priv_user"))
-        self.assertEqual([], dp.fallback_users)
+        self.assertNotIn("priv_user", dp.fallback_users)
 
         self.assertTrue(dp.remove_user("group_user"))
         self.assertTrue(dp.remove_user("priv_user"))
@@ -192,6 +233,9 @@ class TestAccounts(ContainerTestCase):
 
 class TestChangeOwnPassword(ContainerTestCase):
 
+    # No other class can log in after this test.
+    private_container = True
+
     def test_object_keeps_working_after_it_changes_its_own_password(self):
         dp = self.dp
         new_password = "Adm1n" + GOOD_PASSWORD
@@ -207,7 +251,7 @@ class TestFiles(ContainerTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.dp.add_domain("files")
+        cls.fresh_domain("files")
 
     def test_file_lifecycle(self):
         dp = self.dp
@@ -279,7 +323,7 @@ class TestCheckpoints(ContainerTestCase):
 
     def test_checkpoint_lifecycle(self):
         dp = self.dp
-        dp.add_domain("chk")
+        self.fresh_domain("chk")
         self.assertIsInstance(dp.max_checkpoints("chk"), int)
         self.assertEqual({}, dp.get_existing_checkpoints("chk"))
 
@@ -301,8 +345,9 @@ class TestBackupsAndExports(ContainerTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.dp.add_domain("bk")
+        cls.fresh_domain("bk")
         cls.dp.add_host_alias("bk_alias", "127.0.0.1")
+        cls.addClassCleanup(cls.dp.del_host_alias, "bk_alias")
 
     def test_normal_backup_and_restore(self):
         dp = self.dp
@@ -340,6 +385,7 @@ class TestNetwork(ContainerTestCase):
 
     def test_host_alias_lifecycle(self):
         dp = self.dp
+        self.addCleanup(dp.del_host_alias, "alias_one")
         self.assertTrue(dp.add_host_alias("alias_one", "127.0.0.1"))
         self.assertIn(
             ("alias_one", "127.0.0.1", "enabled"), dp.get_host_aliases())
@@ -371,13 +417,14 @@ class TestSSH(ContainerTestCase):
 
     def test_ssh_rbm_fallback(self):
         dp = self.dp
+        self.remove_leftovers(users=["ssh_fallback"])
         dp.add_user(
             "ssh_fallback", GOOD_PASSWORD,
             privileged=True, supress_force_password_change=True)
         dp.ssh_add_rbm_fallback("ssh_fallback")
-        self.assertEqual(["ssh_fallback"], dp.fallback_users)
+        self.assertIn("ssh_fallback", dp.fallback_users)
         dp.ssh_del_rbm_fallback("ssh_fallback")
-        self.assertEqual([], dp.fallback_users)
+        self.assertNotIn("ssh_fallback", dp.fallback_users)
 
 
 if __name__ == "__main__":
