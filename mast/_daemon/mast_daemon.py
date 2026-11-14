@@ -85,7 +85,7 @@ def get_plugins():
     for ep in candidates:
         try:
             named_objects.update({ep.name: ep.load()})
-        except:
+        except Exception:
             pass
     return named_objects
 
@@ -183,7 +183,7 @@ if "Windows" in platform.system():
                                     logger.debug(
                                         "Plugin {} started".format(key))
                                     continue
-                                except:
+                                except Exception:
                                     logger.exception(
                                         "An unhandled exception "
                                         "occurred during execution.")
@@ -197,7 +197,7 @@ if "Windows" in platform.system():
                                 threads[key] = value()
                                 threads[key].start()
                                 continue
-                            except:
+                            except Exception:
                                 logger.exception(
                                     "An unhandled exception occurred "
                                     "during execution.")
@@ -211,7 +211,7 @@ if "Windows" in platform.system():
                         servicemanager.LogInfoMsg(
                             "SomeShortNameVersion - STOPPED!")
                         break
-            except:
+            except Exception:
                 logger.exception(
                     "An uhhandled exception occurred during execution")
                 raise
@@ -248,7 +248,7 @@ else:
             for ep in candidates:
                 try:
                     self.named_objects.update({ep.name: ep.load()})
-                except:
+                except Exception:
                     logger.exception(
                         "An unhandled exception occurred during execution.")
                     pass
@@ -284,7 +284,7 @@ else:
                                     threads[key] = value()
                                     threads[key].start()
                                     continue
-                                except:
+                                except Exception:
                                     logger.exception(
                                         "An unhandled exception occurred "
                                         "during execution.")
@@ -298,14 +298,14 @@ else:
                                 threads[key] = value()
                                 threads[key].start()
                                 continue
-                            except:
+                            except Exception:
                                 logger.exception(
                                     "An unhandled exception occurred "
                                     "during execution.")
                                 continue
                             continue
                     sleep(60)
-            except:
+            except Exception:
                 logger.exception(
                     "An uhhandled exception occurred during execution")
                 raise

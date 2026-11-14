@@ -1426,7 +1426,7 @@ class DataPower(object):
         """
         try:
             return self.is_reachable()
-        except:
+        except Exception:
             return False
 
     @correlate
@@ -1514,7 +1514,7 @@ class DataPower(object):
         except AuthenticationFailure:
             # Able to connect, but authentication failed, return True
             return True
-        except:
+        except Exception:
             return False
 
     @logged("audit")
@@ -2420,7 +2420,7 @@ class DataPower(object):
             _file = getattr(_file, 'text')
             if _file is None:
                 _file = ""
-        except:
+        except Exception:
             self.log_error(
                 "An error occurred while trying to retrieve "
                 "file {} from {} domain".format(
@@ -2815,7 +2815,7 @@ class DataPower(object):
             node = filestore.xml.find(
                 './/location[@name="{}"]'.format(location))
             return node is not None
-        except:
+        except Exception:
             return False
 
     @correlate
@@ -2909,10 +2909,7 @@ class DataPower(object):
         _path = _path.replace("/", os.path.sep)
         if _path not in local_path:
             local_path = os.path.join(local_path, _path)
-        try:
-            os.makedirs(local_path)
-        except:
-            pass
+        os.makedirs(local_path, exist_ok=True)
 
         if filestore is None:
             location = '{}:'.format(dp_path.split(':')[0])
@@ -2937,10 +2934,7 @@ class DataPower(object):
             if file.endswith("/"):
                 _local_path = os.path.join(
                     local_path, file[:-1].split("/")[-1])
-                try:
-                    os.makedirs(_local_path)
-                except:
-                    pass
+                os.makedirs(_local_path, exist_ok=True)
                 self.copy_directory(
                     file,
                     _local_path,
@@ -3464,7 +3458,7 @@ class DataPower(object):
         try:
             response = re.sub(_b(re1), b'', self.last_response)
             response = re.sub(_b(re2), b'', response)
-        except:
+        except Exception:
             self.log_error(
                 "Regular expression failed! Usually This is a connectivity"
                 " error or an invalid request")
@@ -3525,7 +3519,7 @@ class DataPower(object):
                 "DataPower did not send a valid backup when requested."
                 "This can sometimes be fixed by cleaning up the filesystem"
                 "and retrying.")
-        except:
+        except Exception:
             self.log_error(
                 "There was an error retrieving a backup from {} {}".format(
                     self.hostname, domains))

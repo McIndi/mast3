@@ -882,7 +882,7 @@ class Plan(object):
                     except (binascii.Error, ValueError):
                         try:
                             name, password = line.split(":", 1)
-                        except:
+                        except ValueError:
                             raise ValueError("Unable to parse Password Map Alias")
 
                     ret.append(
@@ -899,7 +899,7 @@ class Plan(object):
                     except (binascii.Error, ValueError):
                         try:
                             name, password = line.split(":", 1)
-                        except:
+                        except ValueError:
                             raise ValueError("Unable to parse Password Map Alias")
                     ret.append(
                         {
@@ -1374,6 +1374,6 @@ if __name__ == "__main__":
         cli.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("mast.datapower.deployment.git-deploy").exception("An unhandled exception occurred")
         raise

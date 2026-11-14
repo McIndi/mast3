@@ -61,7 +61,7 @@ def create_workbook(
                     _domains = appliance.domains
                 else:
                     _domains = domains
-            except:
+            except Exception:
                 print((" ".join((
                     "ERROR: See log for details,",
                     "skipping appliance {}".format(appliance.hostname)
@@ -106,7 +106,7 @@ def create_workbook(
                         )
                         skip.append(appliance)
                         continue
-                except:
+                except Exception:
                     print((" ".join((
                         "ERROR: See log for details,",
                         "skipping appliance {}".format(appliance.hostname)
@@ -207,6 +207,6 @@ if __name__ == "__main__":
     try:
         cli = Cli(main=main)
         cli.run()
-    except:
+    except Exception:
         logger.exception("An unhandled exception occured during execution.")
         raise

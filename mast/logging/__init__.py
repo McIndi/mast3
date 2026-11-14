@@ -316,7 +316,7 @@ def logged(name="mast"):
                     func.__name__, arguments))
             try:
                 result = func(*args, **kwargs)
-            except:
+            except Exception:
                 logger.exception(
                     "An unhandled exception occurred while "
                     "attempting to execute {}({})".format(

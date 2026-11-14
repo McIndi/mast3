@@ -99,6 +99,6 @@ if __name__ == "__main__":
     try:
         cli = Cli(main=main)
         cli.run()
-    except:
+    except Exception:
         make_logger("error").exception("An unhandled exception occured.")
         raise

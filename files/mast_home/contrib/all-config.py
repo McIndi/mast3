@@ -383,6 +383,6 @@ if __name__ == "__main__":
         cli.run()
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("an unhandled exception occurred")
         raise

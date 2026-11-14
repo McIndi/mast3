@@ -3896,5 +3896,6 @@ if __name__ == '__main__':
             raise
     except SystemExit:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("an unhandled exception occured")
+        raise

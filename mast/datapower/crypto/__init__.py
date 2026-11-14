@@ -160,7 +160,7 @@ DO NOT USE.__"""
                 logger.info("Exporting cert {}".format(cert))
                 try:
                     filename = cert.find("Filename").text
-                except:
+                except Exception:
                     rows.append([appliance.hostname, domain, name])
                     print(f"Skipping cert: {cert}")
                     logger.exception(f"An exception has occurred. The certificate {cert.get('name')} is being skipped and the error is being ignored")
@@ -192,7 +192,7 @@ DO NOT USE.__"""
                     signature_algorithm = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='SignatureAlgorithm']/text()")[0]
                     notBefore = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotBefore']/text()")[0]
                     notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
-                except:
+                except Exception:
                     logger.exception(f"Could not parse details for cert {name}, received response {details}, skipping.")
                     if not web:
                         print(f"Skipping Cert: {name}, details: {details}")
@@ -200,7 +200,7 @@ DO NOT USE.__"""
                     continue
                 try:
                     sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
-                except:
+                except Exception:
                     logger.exception(f"Could not parse SANs for cert {name}, received response {details}, skipping.")
                     if not web:
                         print(f"Skipping Cert: {name}")
@@ -262,7 +262,7 @@ DO NOT USE.__"""
         for row in rows:
             try:
                 ws.append(row)
-            except:
+            except Exception:
                 print("Error Adding certificate: '{}'".format(row))
         wb.save(out_file)
     else:
@@ -536,7 +536,7 @@ DO NOT USE.__"""
                                          File="temporary:///{}".format(name))
                     logger.info(
                         "Finished deleting file temporary:///{}".format(name))
-                except:
+                except Exception:
                     logger.exception("An unhandled exception has occurred")
                     if not web:
                         print("SKIPPING CERT")

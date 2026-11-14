@@ -66,10 +66,10 @@ else:
             import fcntl, termios, struct
             hw = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))
             wh = (hw[1], hw[0])
-        except:
+        except Exception:
             try:
                 wh = (os.environ['COLUMNS'], os.environ['LINES'])
-            except:
+            except KeyError:
                 wh = (80, 25)
         return wh
 

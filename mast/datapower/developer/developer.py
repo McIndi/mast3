@@ -372,11 +372,8 @@ DO NOT USE.__"""
     logger = make_logger("mast.developer")
     t = Timestamp()
     if object_name is None or object_class is None:
-        try:
-            raise TypeError("Must Provide both object name and object class")
-        except:
-            logger.exception("Must Provide both object name and object class")
-            raise
+        logger.error("Must Provide both object name and object class")
+        raise TypeError("Must Provide both object name and object class")
     if format == "ZIP":
         extention = "zip"
     elif format == "XML":

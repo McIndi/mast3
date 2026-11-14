@@ -80,7 +80,7 @@ class Cli(object):
         if __name__ == "__main__":
             try:
                 cli.run()
-            except:
+            except Exception:
                 log_something()
                 raise
 
@@ -96,7 +96,7 @@ class Cli(object):
             cli = Cli(main=main)
             try:
                 cli.run()
-            except:
+            except Exception:
                 log_something()
                 raise
     """
@@ -239,7 +239,7 @@ class Cli(object):
             if __name__ == "__main__":
                 try:
                     cli.run()
-                except:
+                except Exception:
                     logger.exception()
                     raise
         """

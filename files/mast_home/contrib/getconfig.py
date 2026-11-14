@@ -97,7 +97,7 @@ def create_workbook(env, object_classes, domains, out_file,
             if "all-domains" in domains:
                 try:
                     _domains = dp.domains
-                except:
+                except Exception:
                     print((" ".join((
                         "ERROR: See log for details,",
                         "skipping appliance {}".format(dp.hostname)
@@ -144,7 +144,7 @@ def create_workbook(env, object_classes, domains, out_file,
                             "Received AuthenticationFailure again. Skipping.")
                         skip.append(dp)
                         continue
-                except:
+                except Exception:
                     print((" ".join((
                         "ERROR: See log for details,",
                         "skipping appliance {}".format(dp.hostname)
@@ -262,6 +262,6 @@ if __name__ == "__main__":
     try:
         cli = Cli(main=main)
         cli.run()
-    except:
+    except Exception:
         logger.exception("An unhandled exception occured during execution.")
         raise

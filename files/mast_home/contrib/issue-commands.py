@@ -63,6 +63,6 @@ if __name__ == "__main__":
         cli.run()
     except KeyboardInterrupt:
         pass
-    except:
+    except Exception:
         make_logger("error").exception("An unhandled exception occurred")
         raise
