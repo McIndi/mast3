@@ -24,6 +24,10 @@ SQLite path is relative to `$MAST_HOME`. The environment variable
 `MAST_JOBS_DB_URL` overrides it.
 * `[worker] lease_seconds`: How long a worker may be silent before
 its job is declared lost.
+* `[worker] concurrency`: How many jobs a worker runs at the same time.
+* `[worker] poll_seconds`: How long a worker waits before it looks
+again when there was no job to take.
+* `[worker] mastd`: Whether `mastd` hosts a worker.
 * `[secrets] key_file`: The file that holds the key for the secret
 parameters of queued jobs.
 """
@@ -31,11 +35,15 @@ import os
 
 from mast.config import MAST_HOME, get_config
 
-__all__ = ["database_url", "lease_seconds", "key_file"]
+__all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
+           "mastd_worker", "key_file"]
 
 _DEFAULTS = {
     ("database", "url"): "sqlite:///var/jobs/jobs.db",
     ("worker", "lease_seconds"): "60",
+    ("worker", "concurrency"): "1",
+    ("worker", "poll_seconds"): "2",
+    ("worker", "mastd"): "true",
     ("secrets", "key_file"): "etc/local/jobs.key",
 }
 
@@ -73,6 +81,34 @@ def lease_seconds():
     keeps a job.
     """
     return int(_get("worker", "lease_seconds"))
+
+
+def concurrency():
+    """
+    _function_: `mast.jobs.config.concurrency()`
+
+    Return the number of jobs that a worker runs at the same time.
+    """
+    return int(_get("worker", "concurrency"))
+
+
+def poll_seconds():
+    """
+    _function_: `mast.jobs.config.poll_seconds()`
+
+    Return the number of seconds that a worker waits before it looks
+    again when there was no job to take.
+    """
+    return float(_get("worker", "poll_seconds"))
+
+
+def mastd_worker():
+    """
+    _function_: `mast.jobs.config.mastd_worker()`
+
+    Return True if `mastd` hosts a worker.
+    """
+    return _get("worker", "mastd").lower() in ("on", "true", "t", "yes", "y")
 
 
 def key_file():

@@ -57,6 +57,7 @@ system = "mast.datapower.system:WebPlugin"
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.datapower.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
+mastd_worker_plugin = "mast.jobs.worker:Plugin"
 
 [tool.setuptools.packages.find]
 include = ["mast", "mast.*"]

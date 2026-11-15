@@ -20,8 +20,14 @@ _module_: `mast.jobs.runner`
 Run a job that was claimed from the queue.
 
 This is the one place where a queued command is executed. A worker
-process calls `run_next` in a loop. A program that submits a job and
-has no worker to give it to can call `run_next` itself.
+process (`mast.jobs.worker`) calls `run_next` in a loop. A program
+that submits a job and has no worker to give it to can call `run_next`
+itself.
+
+A running job can be cancelled where its command reports progress
+with `mast.cli.say`. Commands do that between their steps, so a job
+stops between two steps and not in the middle of a request to an
+appliance. A command that is silent for a long time runs to its end.
 """
 import os
 import socket
@@ -31,10 +37,16 @@ import uuid
 
 from mast.cli import Result, listening
 from mast.jobs import config, queue
-from mast.jobs.models import FAILED, SUCCEEDED
+from mast.jobs.models import CANCELLED, FAILED, SUCCEEDED
 from mast.logging import make_logger
 
-__all__ = ["new_worker_id", "run_job", "run_next"]
+__all__ = ["new_worker_id", "run_job", "run_next", "JobCancelled"]
+
+
+class JobCancelled(BaseException):
+    """Raised inside a command, from `mast.cli.say`, when somebody
+    asked to cancel its job. It is not an `Exception`, so that a
+    command that catches every `Exception` does not continue."""
 
 
 def new_worker_id():
@@ -67,10 +79,19 @@ def _beat(job_id, worker_id, lease_seconds, stop):
 def _execute(job_id, worker_id):
     """Call the command of the job. Return the arguments for
     `queue.finish`."""
+    def store(message):
+        if queue.add_event(job_id, message):
+            raise JobCancelled()
+
     try:
         command, values = queue.load(job_id, worker_id)
-        with listening(lambda message: queue.add_event(job_id, message)):
+        with listening(store):
             result = command.fn(command.model(**values))
+    except JobCancelled:
+        return {"status": CANCELLED,
+                "error": "The job was cancelled while it ran. What it "
+                         "did before that was not undone.",
+                "history": traceback.format_exc()}
     except SystemExit as exc:
         # Some commands report a problem and then exit
         if exc.code in (None, 0):

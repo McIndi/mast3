@@ -47,17 +47,19 @@ from mast.jobs.models import (
     CANCELLED, FAILED, FINISHED, LOST, QUEUED, RUNNING, SUCCEEDED)
 from mast.jobs.queue import (
     EventInfo, Heartbeat, JobInfo, JobNotFound, NotOwner, ResultInfo,
-    add_event, cancel, claim, events, finish, get, heartbeat, list_jobs,
-    load, reap, result, submit)
+    WorkerInfo, abandon, add_event, cancel, claim, events, finish, get,
+    heartbeat, list_jobs, load, reap, result, submit, worker_gone,
+    worker_seen, workers)
 from mast.jobs.registry import UnknownCommand, register, resolve
 from mast.jobs.runner import new_worker_id, run_job, run_next
 
 __all__ = [
     "submit", "get", "list_jobs", "events", "result", "cancel",
-    "claim", "load", "heartbeat", "add_event", "finish", "reap",
+    "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
+    "worker_seen", "worker_gone", "workers",
     "new_worker_id", "run_job", "run_next",
     "register", "resolve",
-    "JobInfo", "EventInfo", "ResultInfo", "Heartbeat",
+    "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "Principal", "LOCAL", "Forbidden",
     "JobNotFound", "NotOwner", "UnknownCommand",
     "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "LOST",

@@ -24,7 +24,9 @@ up to date, the first time a process opens a session.
 """
 import contextlib
 import os
+import sqlite3
 import threading
+import time
 
 from alembic import command as alembic_command
 from alembic.config import Config
@@ -102,8 +104,7 @@ def _create_engine(url):
         # _on_begin
         dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
-        # WAL lets readers and one writer work at the same time
-        cursor.execute("PRAGMA journal_mode=WAL")
+        _use_wal(cursor)
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -116,6 +117,25 @@ def _create_engine(url):
         connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     return created
+
+
+def _use_wal(cursor):
+    """Put a SQLite database in WAL mode, in which readers and one
+    writer work at the same time. The mode is kept in the file, so
+    this changes something only for a new database. SQLite does not
+    wait for a lock for this change, so several processes that open a
+    new database together must try again."""
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            if cursor.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+                return
+            cursor.execute("PRAGMA journal_mode=WAL")
+            return
+        except sqlite3.OperationalError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.05)
 
 
 def lock_queue(connection):

@@ -23,6 +23,7 @@ The tables of the job queue.
 * `JobTarget`: One appliance that a job talks to.
 * `JobEvent`: One line of progress from a job, or one change of state.
 * `JobResult`: What a finished job returned.
+* `Worker`: One worker process that is, or was, running.
 
 A change to these tables needs a migration in
 `mast/jobs/migrations/versions`.
@@ -36,7 +37,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
 __all__ = [
-    "Base", "Job", "JobTarget", "JobEvent", "JobResult",
+    "Base", "Job", "JobTarget", "JobEvent", "JobResult", "Worker",
     "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "LOST",
     "FINISHED",
 ]
@@ -153,3 +154,18 @@ class JobResult(Base):
     html: Mapped[str] = mapped_column(Text)
     # The requests and responses, or the traceback of a failed job
     history: Mapped[str] = mapped_column(Text)
+
+
+class Worker(Base):
+    __tablename__ = "workers"
+
+    # The name of the worker process. The jobs of its slots have the
+    # worker_id "<id>/<slot>".
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(255))
+    pid: Mapped[int] = mapped_column(Integer)
+    # How many jobs the worker runs at the same time
+    concurrency: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    # The worker writes this time again and again while it is alive
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)

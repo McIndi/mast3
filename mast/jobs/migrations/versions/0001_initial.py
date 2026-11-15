@@ -88,8 +88,19 @@ def upgrade():
             ["job_id"], ["jobs.id"], ondelete="CASCADE",
             name="fk_job_results_job_id_jobs"))
 
+    op.create_table(
+        "workers",
+        sa.Column("id", sa.String(200), nullable=False),
+        sa.Column("hostname", sa.String(255), nullable=False),
+        sa.Column("pid", sa.Integer(), nullable=False),
+        sa.Column("concurrency", sa.Integer(), nullable=False),
+        sa.Column("started_at", _time, nullable=False),
+        sa.Column("last_seen_at", _time, nullable=False),
+        sa.PrimaryKeyConstraint("id", name="pk_workers"))
+
 
 def downgrade():
+    op.drop_table("workers")
     op.drop_table("job_results")
     op.drop_table("job_events")
     op.drop_table("job_targets")

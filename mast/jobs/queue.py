@@ -42,7 +42,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import aliased
 
 from mast.config import get_config
@@ -50,12 +50,13 @@ from mast.jobs import config, db, registry, secrets
 from mast.jobs.auth import LOCAL, authorize
 from mast.jobs.models import (
     CANCELLED, FINISHED, LOST, QUEUED, RUNNING, Job, JobEvent, JobResult,
-    JobTarget)
+    JobTarget, Worker)
 
 __all__ = [
     "submit", "get", "list_jobs", "events", "result", "cancel",
-    "claim", "load", "heartbeat", "add_event", "finish", "reap",
-    "JobInfo", "EventInfo", "ResultInfo", "Heartbeat",
+    "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
+    "worker_seen", "worker_gone", "workers",
+    "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner",
 ]
 
@@ -141,6 +142,23 @@ class Heartbeat(BaseModel):
     """
     owned: bool
     cancel_requested: bool = False
+
+
+class WorkerInfo(BaseModel):
+    """
+    _class_: `mast.jobs.queue.WorkerInfo`
+
+    A worker process. `id` is its name, and `concurrency` is how many
+    jobs it runs at the same time.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    hostname: str
+    pid: int
+    concurrency: int
+    started_at: datetime
+    last_seen_at: datetime
 
 
 def _now():
@@ -317,9 +335,9 @@ def cancel(job_id, principal=LOCAL):
     Cancel a job and return its `JobInfo`.
 
     A queued job is cancelled now. For a running job the request is
-    recorded and the worker learns of it with its next heartbeat. What
-    the worker does then is up to the worker. A finished job does not
-    change.
+    recorded, and the job stops the next time its command reports
+    progress (see `mast.jobs.runner`). What the command did before
+    that is not undone. A finished job does not change.
     """
     info = get(job_id, principal)
     authorize(principal, "cancel", command=info.command, targets=info.targets)
@@ -489,10 +507,13 @@ def add_event(job_id, message, kind="say"):
     _function_: `mast.jobs.queue.add_event(job_id, message, kind="say")`
 
     Add an event to a job. A worker stores each line of progress from
-    the command this way.
+    the command this way. Return True if somebody asked to cancel the
+    job.
     """
     with db.session() as session:
         _event(session, job_id, kind, message)
+        return bool(session.scalar(
+            select(Job.cancel_requested).where(Job.id == job_id)))
 
 
 def finish(job_id, worker_id, status, text="", html="", history="",
@@ -528,3 +549,78 @@ def finish(job_id, worker_id, status, text="", html="", history="",
             job_id=job_id, text=text, html=html, history=history))
         _event(session, job_id, "state", status, now)
     return True
+
+
+def abandon(job_id, worker_id, reason):
+    """
+    _function_: `mast.jobs.queue.abandon(job_id, worker_id, reason)`
+
+    Declare a job that `worker_id` has `lost`, because the worker
+    must stop before the command ends. `reason` is stored as the error
+    of the job. Return False if the worker does not have the job.
+    """
+    now = _now()
+    with db.session() as session:
+        job = session.scalar(select(Job).where(*_owned(job_id, worker_id)))
+        if job is None:
+            return False
+        abandoned = session.execute(
+            update(Job).where(*_owned(job_id, worker_id))
+            .values(status=LOST, finished_at=now, lease_expires_at=None,
+                    error=reason, params=secrets.scrub(job.params))).rowcount
+        if abandoned:
+            _event(session, job_id, "state", LOST, now)
+        return bool(abandoned)
+
+
+# The row of a worker that did not say goodbye is removed after this long
+_FORGET_WORKERS_AFTER = timedelta(days=1)
+
+
+def worker_seen(worker_id, hostname, pid, concurrency):
+    """
+    _function_: `mast.jobs.queue.worker_seen(worker_id, hostname, pid,
+    concurrency)`
+
+    Record that a worker process is alive. A worker calls this when it
+    starts and then several times in each lease.
+    """
+    now = _now()
+    with db.session() as session:
+        worker = session.get(Worker, worker_id)
+        if worker is None:
+            session.add(Worker(
+                id=worker_id, hostname=hostname, pid=pid,
+                concurrency=concurrency, started_at=now, last_seen_at=now))
+        else:
+            worker.last_seen_at = now
+        session.execute(delete(Worker).where(
+            Worker.last_seen_at < now - _FORGET_WORKERS_AFTER))
+
+
+def worker_gone(worker_id):
+    """
+    _function_: `mast.jobs.queue.worker_gone(worker_id)`
+
+    Record that a worker process stopped.
+    """
+    with db.session() as session:
+        session.execute(delete(Worker).where(Worker.id == worker_id))
+
+
+def workers(alive=True, principal=LOCAL):
+    """
+    _function_: `mast.jobs.queue.workers(alive=True, principal=LOCAL)`
+
+    Return the worker processes as a list of `WorkerInfo`, oldest
+    first. With `alive`, only the workers that were seen within the
+    last lease (`lease_seconds` in `jobs.conf`).
+    """
+    authorize(principal, "read")
+    query = select(Worker).order_by(Worker.started_at, Worker.id)
+    if alive:
+        query = query.where(Worker.last_seen_at >= _now() - timedelta(
+            seconds=config.lease_seconds()))
+    with db.session() as session:
+        return [WorkerInfo.model_validate(row)
+                for row in session.scalars(query)]

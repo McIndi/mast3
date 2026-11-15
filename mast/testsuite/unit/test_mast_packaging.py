@@ -47,6 +47,7 @@ EXPECTED_WEB_PLUGINS = {
 EXPECTED_DAEMON_PLUGINS = {
     "mastd_web_plugin": "mast.datapower.web:Plugin",
     "mastd_cron_plugin": "mast.cron:Plugin",
+    "mastd_worker_plugin": "mast.jobs.worker:Plugin",
 }
 
 # Packages that must have docroot/* files (the web GUI pages).

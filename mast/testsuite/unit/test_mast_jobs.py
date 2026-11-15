@@ -25,7 +25,11 @@ empty database that the tests may erase, for example
 import multiprocessing
 import os
 import shutil
+import signal
+import subprocess
+import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -40,6 +44,7 @@ from mast import jobs
 from mast.cli import Cli, Option, Params, Text, say
 from mast.jobs import db, queue, registry, secrets
 from mast.jobs.models import Base, Job, JobTarget
+from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
 
@@ -52,6 +57,7 @@ class Work(Params):
     seconds: float = Option(0.0, help="How long to work")
     fail: bool = Option(False, help="Raise an exception")
     exit_status: int | None = Option(None, help="Call sys.exit")
+    steps: int = Option(0, help="How many steps to report")
 
 
 def make_cli():
@@ -68,6 +74,26 @@ def make_cli():
             raise SystemExit(params.exit_status)
         return Text("worked with " + ",".join(params.credentials),
                     history="the history")
+
+    meeting = threading.Barrier(2, timeout=10)
+
+    @cli.command("meet")
+    def meet(params: Work):
+        """Wait for another job that runs at the same time."""
+        meeting.wait()
+        return Text("met")
+
+    @cli.command("steps")
+    def steps(params: Work):
+        """Report progress again and again, as a long command does."""
+        for step in range(params.steps):
+            try:
+                say("step", step)
+            except Exception:
+                # A command that catches every Exception is still cancelled
+                pass
+            time.sleep(0.05)
+        return Text("all steps done")
 
     @cli.command("quiet")
     def quiet(params: Work):
@@ -469,7 +495,6 @@ class TestRunner(SqliteCase):
             time.sleep(1.0)
             reaped.extend(jobs.reap())
 
-        import threading
         thread = threading.Thread(target=reap_soon)
         thread.start()
         self.assertEqual(
@@ -485,6 +510,202 @@ class TestRunner(SqliteCase):
         jobs.reap()
         self.assertIsNone(jobs.run_job(job_id, "w1", lease_seconds=60))
         self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+
+
+    def test_a_running_job_is_cancelled_at_its_next_step(self):
+        job_id = jobs.submit("test.steps", {"steps": 200})
+        jobs.claim("w1")
+        outcome = []
+        thread = threading.Thread(
+            target=lambda: outcome.append(jobs.run_job(job_id, "w1")))
+        thread.start()
+        while len(jobs.events(job_id)) < 5:
+            time.sleep(0.01)
+        jobs.cancel(job_id)
+        thread.join(10)
+        self.assertEqual(outcome, [jobs.CANCELLED])
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, jobs.CANCELLED)
+        self.assertIn("cancelled", info.error)
+        steps = [e for e in jobs.events(job_id) if e.kind == "say"]
+        self.assertLess(len(steps), 200)
+
+
+def wait_for(condition, seconds=10):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+class TestWorker(SqliteCase):
+    def start(self, **kwargs):
+        kwargs.setdefault("poll_seconds", 0.02)
+        worker = Worker(**kwargs)
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(worker.abort)
+        return worker, thread
+
+    def test_drain_runs_every_job_and_returns(self):
+        submitted = [submit("dp1"), submit("dp1"), submit("dp2", fail=True)]
+        lines = []
+        Worker(drain=True, poll_seconds=0.02, report=lines.append).run()
+        self.assertEqual(
+            [jobs.get(job_id).status for job_id in submitted],
+            [jobs.SUCCEEDED, jobs.SUCCEEDED, jobs.FAILED])
+        self.assertIn("job {} started".format(submitted[0]), lines)
+        self.assertIn("job {} failed".format(submitted[2]), lines)
+        self.assertEqual(lines[-1], "stopped")
+
+    def test_concurrency_runs_jobs_at_the_same_time(self):
+        # Each of these jobs waits until the other one runs too
+        first = jobs.submit("test.meet", {"appliances": ["dp1"]})
+        second = jobs.submit("test.meet", {"appliances": ["dp2"]})
+        Worker(concurrency=2, drain=True, poll_seconds=0.02).run()
+        self.assertEqual(jobs.get(first).status, jobs.SUCCEEDED)
+        self.assertEqual(jobs.get(second).status, jobs.SUCCEEDED)
+        self.assertNotEqual(
+            jobs.get(first).worker_id, jobs.get(second).worker_id)
+
+    def test_concurrency_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            Worker(concurrency=0)
+
+    def test_a_worker_is_listed_while_it_runs(self):
+        self.assertEqual(jobs.workers(), [])
+        worker, thread = self.start(concurrency=3)
+        self.assertTrue(wait_for(lambda: jobs.workers()))
+        listed = jobs.workers()[0]
+        self.assertEqual(listed.id, worker.id)
+        self.assertEqual(listed.concurrency, 3)
+        self.assertEqual(listed.pid, os.getpid())
+        worker.stop()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(jobs.workers(alive=False), [])
+
+    def test_a_worker_that_died_is_not_alive(self):
+        clock = self.use_clock()
+        jobs.worker_seen("w1", "host", 1, 1)
+        clock.advance(59)
+        self.assertEqual([w.id for w in jobs.workers()], ["w1"])
+        jobs.worker_seen("w1", "host", 1, 1)
+        clock.advance(59)
+        self.assertEqual([w.id for w in jobs.workers()], ["w1"])
+        clock.advance(2)
+        self.assertEqual(jobs.workers(), [])
+        self.assertEqual([w.id for w in jobs.workers(alive=False)], ["w1"])
+        # A day later, another worker's sign of life removes the row
+        clock.advance(24 * 60 * 60)
+        jobs.worker_seen("w2", "host", 2, 1)
+        self.assertEqual([w.id for w in jobs.workers(alive=False)], ["w2"])
+
+    def test_stop_waits_for_the_running_job(self):
+        running = jobs.submit("test.steps", {"steps": 10})
+        waiting = jobs.submit("test.steps", {"steps": 10})
+        worker, thread = self.start()
+        self.assertTrue(wait_for(lambda: worker.running() == [running]))
+        worker.stop()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(jobs.get(running).status, jobs.SUCCEEDED)
+        self.assertEqual(jobs.get(waiting).status, jobs.QUEUED)
+
+    def test_abort_loses_the_running_job(self):
+        job_id = jobs.submit(
+            "test.steps", {"steps": 40, "appliances": ["dp1"]})
+        behind = submit("dp1")
+        worker, thread = self.start()
+        self.assertTrue(wait_for(lambda: worker.running() == [job_id]))
+        worker.abort()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, jobs.LOST)
+        self.assertIn("was stopped", info.error)
+        # The command is still in its thread. Its result is not stored.
+        self.assertTrue(wait_for(
+            lambda: not any(t.name == "mast-worker-1" and t.is_alive()
+                            for t in threading.enumerate())))
+        self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+        self.assertIsNone(jobs.result(job_id))
+        self.assertEqual(jobs.claim("w2"), behind)
+
+    def test_the_worker_survives_a_database_error(self):
+        job_id = submit("dp1")
+        real, calls = queue.claim, []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("the database is away")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(queue, "claim", flaky):
+            Worker(drain=True, poll_seconds=0.02).run()
+        self.assertEqual(jobs.get(job_id).status, jobs.SUCCEEDED)
+
+    def test_the_mastd_plugin(self):
+        plugin = Plugin()
+        plugin.start()
+        self.assertTrue(wait_for(lambda: jobs.workers()))
+        plugin.stop()
+        plugin.join(10)
+        self.assertFalse(plugin.is_alive())
+
+    def test_the_mastd_plugin_can_be_turned_off(self):
+        with mock.patch("mast.jobs.config.mastd_worker", return_value=False):
+            plugin = Plugin()
+        plugin.start()
+        time.sleep(0.2)
+        self.assertTrue(plugin.is_alive())
+        self.assertEqual(jobs.workers(), [])
+        plugin.stop()
+        plugin.join(10)
+        self.assertFalse(plugin.is_alive())
+
+
+@unittest.skipIf(sys.platform == "win32", "sends POSIX signals")
+class TestWorkerProcess(SqliteCase):
+    def spawn(self, *args):
+        env = dict(os.environ, MAST_JOBS_DB_URL=self.url)
+        process = subprocess.Popen(
+            [sys.executable, "-m", "mast.jobs.worker", "-p", "0.05"]
+            + list(args),
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True)
+        self.addCleanup(process.stdout.close)
+        self.addCleanup(process.kill)
+        return process
+
+    def test_sigterm_stops_an_idle_worker(self):
+        process = self.spawn("-c", "2")
+        self.assertTrue(wait_for(lambda: jobs.workers(), 30))
+        self.assertEqual(jobs.workers()[0].pid, process.pid)
+        process.send_signal(signal.SIGTERM)
+        self.assertEqual(process.wait(30), 0)
+        output = process.stdout.read()
+        self.assertIn("runs up to 2 job(s)", output)
+        self.assertIn("stopped", output)
+        self.assertEqual(jobs.workers(alive=False), [])
+
+    def test_a_worker_runs_a_command_of_a_plugin(self):
+        # system.xor needs no appliance
+        job_id = jobs.submit("system.xor", {"string": "user:password"})
+        process = self.spawn("--drain")
+        self.assertEqual(process.wait(60), 0, process.stdout.read())
+        self.assertEqual(jobs.get(job_id).status, jobs.SUCCEEDED)
+        from mast.xor import xorencode
+        self.assertIn(xorencode("user:password"), jobs.result(job_id).text)
+
+    def test_bad_options_are_refused(self):
+        process = self.spawn("-c", "0")
+        self.assertEqual(process.wait(30), 2)
+        self.assertIn("--concurrency", process.stdout.read())
 
 
 def _compete(url, worker_id, start, claimed, overlaps):
@@ -585,6 +806,14 @@ class TestRunnerPostgres(PostgresMixin, TestRunner):
 
 
 class TestWorkersTogetherPostgres(PostgresMixin, TestWorkersTogether):
+    pass
+
+
+class TestWorkerPostgres(PostgresMixin, TestWorker):
+    pass
+
+
+class TestWorkerProcessPostgres(PostgresMixin, TestWorkerProcess):
     pass
 
 
