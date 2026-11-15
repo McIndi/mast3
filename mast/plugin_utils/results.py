@@ -22,10 +22,13 @@ shows it as HTML.
 """
 import os
 
-from mast.cli import Result, Table
-from mast.pprint import pprint_xml
+from mast.cli import Result, Table, say
+from mast.pprint import format_xml
 
-__all__ = ["history", "ActionResults", "SeeDownload", "ListResults"]
+__all__ = [
+    "history", "ActionResults", "Report", "CommonItems", "SeeDownload",
+    "ListResults",
+]
 
 
 def history(env):
@@ -74,23 +77,74 @@ class ActionResults(_EnvironmentResult):
         self.env = env
         self.suffix = suffix
 
-    def table(self):
+    def text(self):
+        lines = []
+        for host, response in self.responses.items():
+            lines.append("{}\n{}".format(host, "=" * len(host)))
+            lines.append(format_xml(response.xml))
+        return "\n".join(lines)
+
+    def html(self):
         return Table(
             ("Appliance", "Result"),
             [(_label(host, self.suffix),
               "Succeeded" if response else "Failed")
-             for host, response in self.responses.items()])
+             for host, response in self.responses.items()]).html()
 
-    def text(self):
-        return self.table().text()
+
+class Report(_EnvironmentResult):
+    """
+    _class_: `mast.plugin_utils.results.Report(env=None)`
+
+    The result of a command that does several things in turn. The
+    command adds the result of each step with `add`. The terminal gets
+    each step when it is added, so the user sees progress. The web GUI
+    shows all the steps when the command finishes.
+    """
+    def __init__(self, env=None):
+        self.env = env
+        self.steps = []
+
+    def add(self, result):
+        self.steps.append(result)
+        text = result.text()
+        if text:
+            say(text)
+        return result
 
     def html(self):
-        return self.table().html()
+        return "".join(step.html() for step in self.steps)
 
-    def emit(self):
-        for host, response in self.responses.items():
-            print("{}\n{}".format(host, "=" * len(host)))
-            pprint_xml(response.xml)
+
+class CommonItems(_EnvironmentResult):
+    """
+    _class_: `mast.plugin_utils.results.CommonItems(title, items, env=None)`
+
+    The items (users or groups, for example) on each appliance, and the
+    items that every appliance has. `items` maps each hostname to a
+    list of strings and `title` is the name of the items.
+    """
+    def __init__(self, title, items, env=None):
+        self.title = title
+        self.items = items
+        self.env = env
+        sets = [set(found) for found in items.values()]
+        self.common = sorted(sets[0].intersection(*sets[1:])) if sets else []
+
+    def text(self):
+        lines = []
+        for host, found in self.items.items():
+            lines += ["", host, "=" * len(host)]
+            lines += ["\t{}".format(item) for item in found]
+        lines += ["", "Common", "======"]
+        lines += ["\t{}".format(item) for item in self.common]
+        return "\n".join(lines)
+
+    def html(self):
+        rows = [(host, "\n".join(found))
+                for host, found in self.items.items()]
+        rows.append(("All", "\n".join(self.common)))
+        return Table(("Appliance", self.title), rows).html()
 
 
 class SeeDownload(_EnvironmentResult):

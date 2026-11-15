@@ -118,7 +118,8 @@ class Table(Result):
     _class_: `mast.cli.results.Table(header, rows, history="")`
 
     A result that is a table. `header` is a sequence of column names
-    and `rows` is a sequence of rows, each one a sequence of cells.
+    and `rows` is a sequence of rows, each one a sequence of cells. A
+    cell can have more than one line.
     """
     def __init__(self, header, rows, history=""):
         self.header = [str(cell) for cell in header]
@@ -156,7 +157,7 @@ class Table(Result):
             out.append('<tr class="result_table_row">')
             for cell in row:
                 out.append('<td class="result_table_cell">{}</td>'.format(
-                    html.escape(cell)))
+                    html.escape(cell).replace("\n", "<br />")))
             out.append("</tr>")
         out.append("</table>")
         return "\n".join(out)

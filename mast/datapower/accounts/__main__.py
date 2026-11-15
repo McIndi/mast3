@@ -19,10 +19,4 @@ from .accounts import cli
 import sys
 sys.argv[0] = "mast-accounts"
 
-try:
-    cli.run()
-except AttributeError as e:
-    if "'NoneType' object has no attribute 'app'" in str(e):
-        raise NotImplementedError(
-            "HTML formatted output is not supported on the CLI")
-    raise
+cli.run()
