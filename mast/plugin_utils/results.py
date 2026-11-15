@@ -103,6 +103,9 @@ class Report(_EnvironmentResult):
 
     A step that the command already reported in its own words is added
     with `show=False`.
+
+    A step can be the result of another command. The history of the
+    report is the history of its own `env`, then of each step.
     """
     def __init__(self, env=None):
         self.env = env
@@ -117,6 +120,11 @@ class Report(_EnvironmentResult):
 
     def html(self):
         return "".join(step.html() for step in self.steps)
+
+    @property
+    def history(self):
+        own = history(self.env) if self.env is not None else ""
+        return own + "".join(step.history for step in self.steps)
 
 
 class CommonItems(_EnvironmentResult):

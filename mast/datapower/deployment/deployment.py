@@ -20,21 +20,21 @@ A set of utilities which can simplify, automate and audit
 your DataPower service deployments and migrations.
 """
 import os
-import sys
-import flask
 import subprocess
 from importlib.resources import files
 from time import sleep
-from mast.cli import Cli
-from collections import OrderedDict
+from pydantic import model_validator
+from mast.cli import Cli, Option, Table, say
 from mast.datapower import datapower
 from mast.datapower.deployment.git_deploy import git_deploy
-from mast.plugin_utils.plugin_utils import render_results_table, render_history
+from mast.plugin_utils.plugin_utils import render_results_table
+from mast.plugin_utils.params import (
+    ApplianceParams, OUT_DIR, UPLOAD, configured)
+from mast.plugin_utils.results import Report, SeeDownload, StatusResults
 from mast.plugins.web import Plugin
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
 from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_utils as util
 import mast.plugin_utils.plugin_functions as pf
 
 cli = Cli()
@@ -63,317 +63,187 @@ def system_call(
     return stdout, stderr
 
 
+class SetFile(ApplianceParams):
+    file_in: str = Option(
+        short="f", widget=UPLOAD,
+        help="The path and filename of the file to upload")
+    destination: str = Option(
+        short="d",
+        help="Should be the path and filename of the file once "
+             "uploaded to the DataPower **NOTE: file_out should "
+             "contain the filename ie. local:/test.txt**")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain to which to upload the file")
+    overwrite: bool = Option(
+        True,
+        help="If specified this program will exit with an error "
+             "rather than overwrite a file")
+
+
 @logged('mast.datapower.deployment')
 @cli.command('set-file', category='file management')
-def set_file(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             file_in=None,
-             destination=None,
-             Domain='default',
-             overwrite=True,
-             web=False):
-    """Uploads a file to the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-f, --file-in`: The path and filename of the file to upload
-* `-d, --destination`: Should be the path and filename of the file
-once uploaded to the DataPower **NOTE: file_out should contain
-the filename ie. local:/test.txt**
-* `-D, --Domain`: The domain to which to upload the file,
-* `-N, --no-overwrite`: If specified this program will exit with an
-error rather than overwrite a file
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+def set_file(params: SetFile):
+    """Uploads a file to the specified appliances"""
+    env = params.environment()
     kwargs = {
-        'file_in': file_in,
-        'file_out': destination,
-        'domain': Domain,
-        'overwrite': overwrite}
+        'file_in': params.file_in,
+        'file_out': params.destination,
+        'domain': params.Domain,
+        'overwrite': params.overwrite}
     resp = env.perform_async_action('set_file', **kwargs)
+    return StatusResults(
+        {host: "Succeeded" if r else "Failed" for host, r in resp.items()},
+        env, suffix="set_file")
 
-    if web:
-        return util.render_boolean_results_table(
-            resp, suffix="set_file"), util.render_history(env)
+
+class GetFile(ApplianceParams):
+    location: str = Option(
+        short="l",
+        help="The location of the file (on DataPower) you would like "
+             "to get")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain from which to get the file")
+    out_dir: str = Option(
+        'tmp', short="o", widget=OUT_DIR,
+        help="The directory you would like to save the file to")
 
 
 @logged('mast.datapower.deployment')
 @cli.command('get-file', category='file management')
-def get_file(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             location=None,
-             Domain='default',
-             out_dir='tmp',
-             web=False):
-    """Retrieves a file from the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-l, --location`: The location of the file (on DataPower) you would
-like to get
-* `-D, --Domain`: The domain from which to get the file
-* `-o, --out-dir`: (NOT NEEDED IN THE WEB GUI)The directory you would like to
-save the file to
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def get_file(params: GetFile):
+    """Retrieves a file from the specified appliances"""
     t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {'domain': Domain, 'filename': location}
+    env = params.environment()
+    kwargs = {'domain': params.Domain, 'filename': params.location}
     responses = env.perform_async_action('getfile', **kwargs)
 
-    if not os.path.exists(out_dir) or not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(params.out_dir, exist_ok=True)
 
     for hostname, fin in list(responses.items()):
-        filename = location.split('/')[-1]
+        filename = params.location.split('/')[-1]
         filename = os.path.join(
-            out_dir,
+            params.out_dir,
             '%s-%s-%s' % (hostname, t.timestamp, filename))
         with open(filename, 'wb') as fout:
             fout.write(fin)
-    if web:
-        return util.render_see_download_table(
-            responses, suffix="get_file"), util.render_history(env)
+        say("Wrote {} from {} to {}".format(
+            params.location, hostname, filename))
+    return SeeDownload(responses, env, suffix="get_file")
+
+
+class DeleteFile(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain from which to delete the file")
+    filename: str = Option(
+        "", short="f",
+        help="The name of the file (on DataPower) you would like to "
+             "delete")
+    backup: bool = Option(
+        False, short="b",
+        help="Whether to backup the file before deleting")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory you would like to save the file to")
 
 
 @logged('mast.datapower.deployment')
 @cli.command('del-file', category="file management")
-def delete_file(appliances=[],
-                credentials=[],
-                timeout=120,
-                no_check_hostname=False,
-                Domain="",
-                filename="",
-                backup=False,
-                out_dir="tmp",
-                web=False):
-    """Deletes a file from the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain from which to delete the file
-* `-f, --filename`: The name of the file (on DataPower) you would
-like to delete
-* `-b, --backup`: Whether to backup the file before deleting
-* `-o, --out-dir`: (NOT NEEDED IN THE WEB GUI)The directory you would like to
-save the file to
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    if backup:
+def delete_file(params: DeleteFile):
+    """Deletes a file from the specified appliances"""
+    env = params.environment()
+    if params.backup:
         resp = {}
         for appliance in env.appliances:
-            _out_dir = os.path.join(out_dir, appliance.hostname)
+            _out_dir = os.path.join(params.out_dir, appliance.hostname)
             if not os.path.exists(_out_dir):
                 os.makedirs(_out_dir)
             resp[appliance.hostname] = appliance.del_file(
-                filename=filename, domain=Domain,
+                filename=params.filename, domain=params.Domain,
                 backup=True, local_dir=_out_dir)
     else:
-        resp = env.perform_action("del_file", filename=filename, domain=Domain)
-    if web:
-        return (
-            util.render_boolean_results_table(resp),
-            util.render_history(env))
-    for host, response in list(resp.items()):
-        print(host)
-        print("=" * len(host))
-        if response:
-            print("Success")
-        else:
-            print("Error")
-        print()
+        resp = env.perform_action(
+            "del_file", filename=params.filename, domain=params.Domain)
+    return StatusResults(
+        {host: "Success" if r else "Error" for host, r in resp.items()}, env)
+
+
+class CleanUp(ApplianceParams):
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain whose filesystem you would like to clean up")
+    checkpoints: bool = Option(
+        False, short="C",
+        help="If specified, all checkpoints will be removed from the "
+             "domain")
+    export: bool = Option(
+        False, short="e",
+        help="If specified all exports will be removed from the domain")
+    error_reports: bool = Option(
+        False, short="E",
+        help="If specified, all error reports will be removed from the "
+             "appliance(s)")
+    recursive: bool = Option(
+        False, short="r",
+        help="If specified, directories will be cleaned recursively")
+    logtemp: bool = Option(
+        False, short="l",
+        help="If specified, all files in `logtemp:` will be removed "
+             "from the domain")
+    logstore: bool = Option(
+        False, short="L",
+        help="If specified, all files in `logstore:` will be removed")
+    backup_files: bool = Option(
+        True,
+        help="If specified, files will not be backed up before "
+             "deleting")
+    out_dir: str = Option(
+        'tmp', short="o", widget=OUT_DIR,
+        help="The directory to save backed up files")
 
 
 @logged('mast.datapower.deployment')
 @cli.command('clean-up', category='maintenance')
-def clean_up(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             Domain='default',
-             checkpoints=False,
-             export=False,
-             error_reports=False,
-             recursive=False,
-             logtemp=False,
-             logstore=False,
-             backup_files=True,
-             out_dir='tmp',
-             web=False):
+def clean_up(params: CleanUp):
     """This will clean up the specified appliances filesystem optionally
-(defaults to True) taking copies of the files as backups.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain who's filesystem you would like to clean up
-* `-C, --checkpoints`: If specified, all checkpoints will be removed
-from the domain
-* `-e, --export`: If specified all exports will be removed from the domain
-* `-l, --logtemp`: If specified, all files in `logtemp:` will be removed
-from the domain
-* `-L, --logstore`: If specified, all files in `logstore:` will be
-removed
-* `-E, --error-reports`: If specified, all error reports will be removed
-from the appliance(s)
-* `-r, --recursive`: If specified, directories will be cleaned recursively
-* `--no-backup-files`: If specified, files will not be backed up before
-deleting
-* `-o, --out-dir`: The directory to save backed up files
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+(defaults to True) taking copies of the files as backups."""
+    env = params.environment()
 
     t = Timestamp()
     dirs = []
-    if checkpoints:
+    if params.checkpoints:
         dirs.append('chkpoints:/')
-    if export:
+    if params.export:
         dirs.append('export:/')
-    if logtemp:
+    if params.logtemp:
         dirs.append('logtemp:/')
-    if logstore:
+    if params.logstore:
         dirs.append('logstore:/')
 
-    if web:
-        rows = []
+    rows = []
     for appliance in env.appliances:
-        if web:
-            rows.append((appliance.hostname, ))
+        rows.append((appliance.hostname, ))
         for _dir in dirs:
             _clean_dir(
                 appliance,
                 _dir,
-                Domain,
-                recursive,
-                backup_files,
+                params.Domain,
+                params.recursive,
+                params.backup_files,
                 t.timestamp,
-                out_dir)
-            if web:
-                rows.append(("", _dir, "Cleaned"))
-        if error_reports:
+                params.out_dir)
+            rows.append(("", _dir, "Cleaned"))
+        if params.error_reports:
             _clean_error_reports(
-                appliance, Domain,
-                backup_files, t.timestamp,
-                out_dir)
+                appliance, params.Domain,
+                params.backup_files, t.timestamp,
+                params.out_dir)
             rows.append(("", "ErrorReports", "Cleaned"))
-    return flask.render_template(
-        "results_table.html",
-        header_row=["Appliance", "Location", "Action"],
-        rows=rows), util.render_history(env)
+    report = Report(env)
+    report.add(Table(["Appliance", "Location", "Action"], rows))
+    return report
 
 
 @logged('mast.datapower.deployment')
@@ -437,93 +307,84 @@ def _clean_error_reports(appliance, domain, backup, timestamp, out_dir):
         appliance.DeleteFile(domain=domain, File=filename)
 
 
+class Predeploy(ApplianceParams):
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory (local) where you would like to store the "
+             "artifacts generated by this script")
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="This is the app domain to backup and the app domain in "
+             "which to set a checkpoint")
+    comment: str = Option(
+        "", short="C",
+        help="This is shared among other actions. The comment is used "
+             "to build the name of the checkpoint.")
+    predeploy_command: str | None = Option(
+        None, short="p",
+        help='This command will be "shelled out" to the machine '
+             "running MAST after performing the backups and "
+             "checkpoints. Use this parameter to pull from version "
+             "control or similar operations.")
+    CryptoCertificate: str = Option(
+        "", widget=configured("CryptoCertificate"),
+        help="The CryptoCertificate with which to encrypt the secure "
+             "backup")
+    secure_backup_destination: str = Option(
+        "local:/raid0", short="s",
+        help="The destination (on the DataPower) where the secure "
+             "backup will be stored")
+    backup_default: bool = Option(
+        True,
+        help="If specified, the default domain will not be backed up")
+    backup_all: bool = Option(
+        True, help="If specified, all-domains will not be backed up")
+    do_secure_backup: bool = Option(
+        False, short="d",
+        help="Whether to retrieve a secure backup. This needs "
+             "--CryptoCertificate")
+    do_normal_backup: bool = Option(
+        True, help="If specified, no normal backups will be retrieved")
+    set_checkpoints: bool = Option(
+        True, help="If specified, no checkpoints will be set")
+    include_iscsi: bool = Option(
+        False, short="i",
+        help="Whether to include the iscsi volume in the secure backup")
+    include_raid: bool = Option(
+        False, short="I",
+        help="Whether to include the raid volume in the secure backup")
+    remove_secure_backup: bool = Option(
+        True,
+        help="If specified, the secure backup will not be removed from "
+             "the appliance after verifying your local copy.")
+    default_checkpoint: bool = Option(
+        True,
+        help="If specified, no checkpoint will be created in the "
+             "default domain")
+    remove_oldest_checkpoint: bool = Option(
+        True,
+        help="If specified, the oldest checkpoint will not be removed "
+             "from the domain when the maximum number of checkpoints "
+             "has been reached.")
+    allow_shell: bool = Option(
+        False, short="A",
+        help="Whether to allocate a shell for the execution of the "
+             "predeploy-command")
+
+    @model_validator(mode="after")
+    def _secure_backup_needs_a_certificate(self):
+        if self.do_secure_backup and not self.CryptoCertificate:
+            raise ValueError(
+                "CryptoCertificate must be specified in order to "
+                "perform a secure backup")
+        return self
+
+
 @logged('mast.datapower.deployment')
 @cli.command('predeploy', category='deployment')
-def predeploy(
-        appliances=[],
-        credentials=[],
-        timeout=120,
-        no_check_hostname=False,
-        out_dir="tmp",
-        Domain="",
-        comment="",
-        predeploy_command=None,
-        CryptoCertificate="",
-        secure_backup_destination="local:/raid0",
-        backup_default=True,
-        backup_all=True,
-        do_secure_backup=False,
-        do_normal_backup=True,
-        set_checkpoints=True,
-        include_iscsi=False,
-        include_raid=False,
-        remove_secure_backup=True,
-        default_checkpoint=True,
-        remove_oldest_checkpoint=True,
-        allow_shell=False,
-        web=False):
+def predeploy(params: Predeploy):
     """Perform routine pre-deployment actions. Everything is optional, but if
 you wish to perform an action, you must provide the necessary arguments.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: (Not needed in web GUI) The directory (local)
-where you would like to store the artifacts generated by this
-script
-* `-D, --Domain`: This is the app domain to backup and the app domain
-in which to set a checkpoint
-* `-C, --comment`: This is shared among other actions. The comment is
-used to build the name of the checkpoint.
-* `-p, --predeploy-command`: This command will be "shelled out"
-to the machine running MAST after performing the backups and checkpoints.
-Use this parameter to pull from version control or similar
-operations.
-* `--CryptoCertificate`: The CryptoCertificate with which to
-encrypt the secure backup
-* `-s, --secure-backup-destination`: The destination (on the DataPower)
-where the secure backup will be stored
-* `-N, --no-backup-default`: Whether to also backup the default domain
-* `--no-backup-all`: Whether to also backup all-domains
-* `-d, --do-secure-backup`: Whether to retrieve a secure backup
-* `--no-do-normal-backup`: Whether to retrieve normal backups
-* `--no-set-checkpoints`: Whether to set checkpoints
-* `-i, --include-iscsi`: Whether to include the iscsi volume in the
-secure backup
-* `-I, --include-raid`: Whether to include the raid volume in the
-secure backup
-* `--no-remove-secure-backup`: Whether to remove the secure backup
-from the appliance after verifying your local copy.
-* `--no-default-checkpoint`: Whether to create a checkpoint in the
-default domain
-* `--no-remove-oldest-checkpoint`: Whether to remove the oldest
-checkpoint from the domain IF AND ONLY IF the maximum number
-of checkpoints has been reached.
-* `-A, --allow-shell`: Whether to allocate a shell for the execution of
-the predeploy-command
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__
 
 Here is what is possible (will be done in this order):
 
@@ -541,7 +402,7 @@ Here is what is possible (will be done in this order):
         * `--no-do-normal-backup`
         * `-o, --out-dir`
         * `-D, --Domain`
-        * `-N, --no-backup-default`
+        * `--no-backup-default`
         * `--no-backup-all`
         * `-C, --comment`
 3. Checkpoints
@@ -555,146 +416,103 @@ Here is what is possible (will be done in this order):
     from mast.datapower.backups import get_normal_backup, get_secure_backup
 
     logger = make_logger('mast.datapower.deployment')
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    if web:
-        output = ""
-        history = ""
+    env = params.environment()
+    # Each step is the result of another command, with its own history
+    report = Report()
 
     # Loop through appliances so we will only affect one appliance at a time
     for appliance in env.appliances:
 
         # Secure Backup
-        if do_secure_backup:
-            if not CryptoCertificate:
-                # Fail if CryptoCertificate is not given
-                logger.error(
-                    "Cert must be specified in order "
-                    "to perform a secure backup!")
-                sys.exit(-1)
-
+        if params.do_secure_backup:
             logger.info("Starting Secure Backup for {}".format(
                 appliance.hostname))
 
-            _out = get_secure_backup(
+            report.add(get_secure_backup(
                 appliances=appliance.hostname,
                 credentials=appliance.credentials,
-                timeout=timeout,
-                out_dir=out_dir,
-                CryptoCertificate=CryptoCertificate,
-                destination=secure_backup_destination,
-                include_iscsi=include_iscsi,
-                include_raid=include_raid,
-                remove=remove_secure_backup,
+                timeout=params.timeout,
+                out_dir=params.out_dir,
+                CryptoCertificate=params.CryptoCertificate,
+                destination=params.secure_backup_destination,
+                include_iscsi=params.include_iscsi,
+                include_raid=params.include_raid,
+                remove=params.remove_secure_backup,
                 quiesce_before=False,
                 unquiesce_after=False,
-                no_check_hostname=no_check_hostname)
-
-            # A backups command returns a mast.cli.Result, not the
-            # (html, history) pair of the commands that still take a
-            # web parameter
-            if web:
-                output += _out.html()
-                history += _out.history
-            else:
-                _out.emit()
+                no_check_hostname=params.no_check_hostname))
 
             logger.info("Finished Secure Backup for {}".format(
                 appliance.hostname))
 
         # Normal backups
-        if do_normal_backup:
+        if params.do_normal_backup:
             logger.info(
                 "Pre-Deployment backups started at {}".format(
                     str(Timestamp())))
 
-            domains = [Domain]
-            if backup_default:
+            domains = [params.Domain]
+            if params.backup_default:
                 domains.append("default")
-            if backup_all:
+            if params.backup_all:
                 domains.append("all-domains")
 
-            _out = get_normal_backup(
+            report.add(get_normal_backup(
                 appliances=[appliance.hostname],
-                credentials=credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
+                credentials=params.credentials,
+                timeout=params.timeout,
+                no_check_hostname=params.no_check_hostname,
                 Domain=domains,
-                comment=comment,
-                out_dir=out_dir)
+                comment=params.comment,
+                out_dir=params.out_dir))
 
             logger.info(
                 "Pre-Deployment backups finished at {}".format(
                     str(Timestamp())))
 
-            # A backups command returns a mast.cli.Result, not the
-            # (html, history) pair of the commands that still take a
-            # web parameter
-            if web:
-                output += _out.html()
-                history += _out.history
-            else:
-                _out.emit()
-
         # Checkpoints
-        if set_checkpoints:
+        if params.set_checkpoints:
             logger.info(
                 "Pre-Deployment checkpoints started at {}".format(
                     str(Timestamp())))
 
-            domains = [Domain]
-            if default_checkpoint:
+            domains = [params.Domain]
+            if params.default_checkpoint:
                 domains.append("default")
 
-            _out = set_checkpoint(
+            report.add(set_checkpoint(
                 appliances=[appliance.hostname],
-                credentials=credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
+                credentials=params.credentials,
+                timeout=params.timeout,
+                no_check_hostname=params.no_check_hostname,
                 Domain=domains,
-                comment=comment,
-                remove_oldest=remove_oldest_checkpoint)
+                comment=params.comment,
+                remove_oldest=params.remove_oldest_checkpoint))
 
             logger.info(
                 "Pre-Deployment checkpoints finished at {}".format(
                     str(Timestamp())))
 
-            # A backups command returns a mast.cli.Result, not the
-            # (html, history) pair of the commands that still take a
-            # web parameter
-            if web:
-                output += _out.html()
-                history += _out.history
-            else:
-                _out.emit()
-
-    if predeploy_command:
+    if params.predeploy_command:
         logger.info(
             "Pre-Deployment command '{}' found. Executing at {}".format(
-                predeploy_command, str(Timestamp())))
+                params.predeploy_command, str(Timestamp())))
 
-        out, err = system_call(command=predeploy_command, shell=allow_shell)
+        out, err = system_call(
+            command=params.predeploy_command, shell=params.allow_shell)
         out = str(out)
         err = str(err)
 
         logger.info(
             "finished executing Pre-Deployment command '{}' at {}., output: {}".format(
-                predeploy_command, str(Timestamp()), ";".join([out, err])))
-        if web:
-            from mast.plugin_utils.plugin_utils import render_results_table
-            results = {"predeploy command": "{}\n\nout: {}\n\nerr: {}".format(predeploy_command, out, err)}
-            output += render_results_table(results)
-        else:
-            print("Finished running pre-deploy command. output: {}".format(
-                ";".join([out, err])))
+                params.predeploy_command, str(Timestamp()), ";".join([out, err])))
+        say("Finished running pre-deploy command. output: {}".format(
+            ";".join([out, err])))
+        report.add(StatusResults({
+            "predeploy command": "{}\n\nout: {}\n\nerr: {}".format(
+                params.predeploy_command, out, err)}), show=False)
 
-    if web:
-        return output, history
+    return report
 
 
 @logged('mast.datapower.deployment')
@@ -1103,222 +921,77 @@ def get_data_file(f):
 
 cli.command('git-deploy', category='deployment')(git_deploy)
 
+def _result_lines(response):
+    """Return the lines of text in the result of a response."""
+    return [line for line in response.xml.find(
+        ".//{http://www.datapower.com/schemas/management}result"
+    ).itertext()]
+
+
+def _password_map_alias(params, method, action, message, **kwargs):
+    """Call method on each appliance to add or delete a password map
+    alias, then save the configuration if the parameters ask for it."""
+    logger = make_logger('mast.datapower.deployment')
+    env = params.environment()
+
+    output = {}
+
+    def record(appliance, step, response):
+        logger.info(repr(response))
+        lines = _result_lines(response)
+        output["{}-{}".format(appliance.hostname, step)] = "\n".join(lines)
+        say("\t\t{}".format("\n\t\t".join(lines).strip()))
+
+    for appliance in env.appliances:
+        say(appliance.hostname)
+        say("\t" + message)
+        response = getattr(appliance, method)(
+            domain=params.Domain, AliasName=params.alias_name, **kwargs)
+        record(appliance, action, response)
+        if params.save_config and response:
+            say("\tSaving Configuration")
+            record(appliance, "SaveConfig",
+                   appliance.SaveConfig(domain=params.Domain))
+    report = Report(env)
+    report.add(StatusResults(output), show=False)
+    return report
+
+
+class DelPasswordMapAlias(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain of the password map alias")
+    alias_name: str = Option(
+        "", short="A", help="The name of the password map alias")
+    save_config: bool = Option(
+        True,
+        help="If specified, the configuration of the domain will not "
+             "be saved")
+
+
+class AddPasswordMapAlias(DelPasswordMapAlias):
+    password: str = Option(
+        "", short="p", secret=True,
+        help="The password to use for the password map alias")
+
+
 @logged('mast.datapower.deployment')
 @cli.command('add-password-map-alias', category='password map aliases')
-def add_password_map_alias(
-    appliances=[],
-    credentials=[],
-    timeout=120,
-    no_check_hostname=False,
-    Domain="",
-    alias_name="",
-    password="",
-    save_config=True,
-    web=False,
-    ):
-    """create a password map alias on the specified appliances
+def add_password_map_alias(params: AddPasswordMapAlias):
+    """create a password map alias on the specified appliances"""
+    return _password_map_alias(
+        params, "AddPasswordMap", "AddPasswordMapAlias",
+        "Attempting to add Password Map Alias", Password=params.password)
 
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-A, --alias-name`: The name to use for the password map alias
-* `-P, --Password`: The password to use for the password map alias
-* `-N, --no-save-config`: If specified, the configuration of the domain will be
-persisted
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    logger = make_logger('mast.datapower.deployment')
-
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname
-    )
-
-    if web:
-        output = OrderedDict()
-    for appliance in env.appliances:
-        if not web:
-            print((appliance.hostname))
-            print("\tAttempting to add Password Map Alias")
-        response = appliance.AddPasswordMap(
-            domain=Domain,
-            AliasName=alias_name,
-            Password=password,
-        )
-        logger.info(repr(response))
-        if web:
-            output["{}-{}".format(appliance.hostname, "AddPasswordMapAlias")] = "\n".join(
-                response.xml.find(
-                    ".//{http://www.datapower.com/schemas/management}result"
-                ).itertext()
-            )
-        else:
-            print((
-                "\t\t{}".format(
-                    "\n\t\t".join(
-                        response.xml.find(
-                            ".//{http://www.datapower.com/schemas/management}result"
-                        ).itertext()
-                    ).strip()
-                )
-            ))
-        if save_config and response:
-            if not web:
-                print("\tSaving Configuration")
-            response = appliance.SaveConfig(domain=Domain)
-            logger.info(repr(response))
-            if web:
-                output["{}-{}".format(appliance.hostname, "SaveConfig")] = "\n".join(
-                    response.xml.find(
-                        ".//{http://www.datapower.com/schemas/management}result"
-                    ).itertext()
-                )
-            else:
-                print((
-                    "\t\t{}".format(
-                        "\n\t\t".join(
-                            response.xml.find(
-                                ".//{http://www.datapower.com/schemas/management}result"
-                            ).itertext()
-                        ).strip()
-                    )
-                ))
-    if web:
-        return (
-            render_results_table(output),
-            render_history(env),
-        )
 
 @logged('mast.datapower.deployment')
 @cli.command('del-password-map-alias', category='password map aliases')
-def del_password_map_alias(
-    appliances=[],
-    credentials=[],
-    timeout=120,
-    no_check_hostname=False,
-    Domain="",
-    alias_name="",
-    save_config=True,
-    web=False,
-    ):
-    """delete a password map alias on the specified appliances
+def del_password_map_alias(params: DelPasswordMapAlias):
+    """delete a password map alias on the specified appliances"""
+    return _password_map_alias(
+        params, "DeletePasswordMap", "DeletePasswordMapAlias",
+        "Attempting to remove Password Map Alias")
 
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-A, --alias-name`: The name of the password map alias to delete
-* `-N, --no-save-config`: If specified, the configuration of the domain will be
-persisted
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    logger = make_logger('mast.datapower.deployment')
-
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname
-    )
-
-    if web:
-        output = OrderedDict()
-    for appliance in env.appliances:
-        if not web:
-            print((appliance.hostname))
-            print("\tAttempting to remove Password Map Alias")
-        response = appliance.DeletePasswordMap(
-            domain=Domain,
-            AliasName=alias_name,
-        )
-        logger.info(repr(response))
-        if web:
-            output["{}-{}".format(appliance.hostname, "DeletePasswordMapAlias")] = "\n".join(
-                response.xml.find(
-                    ".//{http://www.datapower.com/schemas/management}result"
-                ).itertext()
-            )
-        else:
-            print((
-                "\t\t{}".format(
-                    "\n\t\t".join(
-                        response.xml.find(
-                            ".//{http://www.datapower.com/schemas/management}result"
-                        ).itertext()
-                    ).strip()
-                )
-            ))
-        if save_config and response:
-            if not web:
-                print("\tSaving Configuration")
-            response = appliance.SaveConfig(domain=Domain)
-            logger.info(repr(response))
-            if web:
-                output["{}-{}".format(appliance.hostname, "SaveConfig")] = "\n".join(
-                    response.xml.find(
-                        ".//{http://www.datapower.com/schemas/management}result"
-                    ).itertext()
-                )
-            else:
-                print((
-                    "\t\t{}".format(
-                        "\n\t\t".join(
-                            response.xml.find(
-                                ".//{http://www.datapower.com/schemas/management}result"
-                            ).itertext()
-                        ).strip()
-                    )
-                ))
-    if web:
-        return (
-            render_results_table(output),
-            render_history(env),
-        )
 
 class WebPlugin(Plugin):
     def __init__(self):
