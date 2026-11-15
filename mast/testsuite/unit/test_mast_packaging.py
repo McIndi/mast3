@@ -150,7 +150,8 @@ class TestMASTPackaging(unittest.TestCase):
                  if m.ispkg}
         expected = {
             "mast.cli", "mast.config", "mast.cron", "mast._daemon",
-            "mast.datapower", "mast.hashes", "mast.logging", "mast.plugins",
+            "mast.datapower", "mast.hashes", "mast.jobs", "mast.jobs.migrations",
+            "mast.jobs.migrations.versions", "mast.logging", "mast.plugins",
             "mast.plugin_utils", "mast.pprint", "mast.test", "mast.testsuite",
             "mast.testsuite.unit", "mast.testsuite.integration",
             "mast.testsuite.regression", "mast.timestamp", "mast.xor",

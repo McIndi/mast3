@@ -38,14 +38,15 @@ from mast import __version__
 from mast.logging import make_logger
 from mast.cli import params as _params
 from mast.cli.params import Params, Option
-from mast.cli.results import Result, Text, Table, say, captured
+from mast.cli.results import (
+    Result, Text, Table, say, captured, listening)
 
 from collections import defaultdict
 from pydantic import ValidationError
 
 __all__ = [
     "Cli", "Command", "Params", "Option",
-    "Result", "Text", "Table", "say", "captured",
+    "Result", "Text", "Table", "say", "captured", "listening",
 ]
 
 

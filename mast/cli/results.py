@@ -30,7 +30,7 @@ import contextlib
 import contextvars
 import html
 
-__all__ = ["Result", "Text", "Table", "say", "captured"]
+__all__ = ["Result", "Text", "Table", "say", "captured", "listening"]
 
 _sink = contextvars.ContextVar("mast_cli_sink", default=None)
 
@@ -51,6 +51,25 @@ def say(*parts):
 
 
 @contextlib.contextmanager
+def listening(callback):
+    """
+    _function_: `mast.cli.results.listening(callback)`
+
+    A context manager that gives each message from `say` to `callback`
+    and does not print it. The job queue stores the messages this way.
+
+        :::python
+        with listening(store_message):
+            result = command(params)
+    """
+    token = _sink.set(callback)
+    try:
+        yield
+    finally:
+        _sink.reset(token)
+
+
+@contextlib.contextmanager
 def captured():
     """
     _function_: `mast.cli.results.captured()`
@@ -63,11 +82,8 @@ def captured():
             result = command(params)
     """
     messages = []
-    token = _sink.set(messages.append)
-    try:
+    with listening(messages.append):
         yield messages
-    finally:
-        _sink.reset(token)
 
 
 class Result(object):

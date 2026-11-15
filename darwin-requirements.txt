@@ -15,3 +15,7 @@ requests
 wheel
 mock
 dulwich
+sqlalchemy>=2
+alembic
+cryptography
+psycopg[binary]
