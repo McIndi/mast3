@@ -30,11 +30,10 @@ import mock
 import mast.datapower.deployment as deployment
 from mast.cli import Text, captured
 from mast.datapower.deployment.deployment import cli
-from mast.plugin_utils.results import Report, SeeDownload, StatusResults
+from mast.plugin_utils.results import Report, SeeDownload
 
-# These call commands of mast.datapower.system, which still take a web
-# parameter. They move to models after the system commands do.
-LEGACY = {"deploy", "postdeploy", "git-deploy"}
+# git-deploy still takes a web parameter.
+LEGACY = {"git-deploy"}
 
 
 class FakeResponse(object):
@@ -266,6 +265,115 @@ class TestDeploymentCommands(unittest.TestCase):
         self.assertIn("Succeeded", text)
         self.assertRegex(text, r"logstore:/ +Cleaned")
         self.assertIn("Attempting to add Password Map Alias", text)
+
+    def patch_steps(self, *names):
+        """Replace the commands that deploy and postdeploy call. Return
+        a list that gets (name, kwargs) for each call."""
+        calls = []
+
+        def fake(name):
+            def command(**kwargs):
+                calls.append((name, kwargs))
+                return Text("did " + name)
+            return command
+
+        for target in names:
+            patch = mock.patch(target, fake(target.rsplit(".", 1)[1]))
+            patch.start()
+            self.addCleanup(patch.stop)
+        patch = mock.patch("mast.datapower.deployment.deployment.sleep")
+        self.sleep = patch.start()
+        self.addCleanup(patch.stop)
+        FakeAppliance.log_info = lambda self, message: None
+        self.addCleanup(delattr, FakeAppliance, "log_info")
+        return calls
+
+    SYSTEM = "mast.datapower.system."
+    ONE = {"appliances": ["dp1"], "credentials": ["user:pass"],
+           "no_check_hostname": False}
+
+    def test_deploy(self):
+        calls = self.patch_steps(
+            self.SYSTEM + "quiesce_domain", self.SYSTEM + "quiesce_appliance",
+            self.SYSTEM + "unquiesce_domain",
+            self.SYSTEM + "unquiesce_appliance",
+            self.SYSTEM + "objects_audit", "mast.datapower.developer._import")
+        result, messages = self.call(
+            deployment.deploy, Domain=["app"], file_in="export.zip",
+            deployment_policy="policy", quiesce_appliance=True,
+            quiesce_timeout=61, out_dir=self.out_dir)
+        self.assertEqual(
+            ["quiesce_domain", "quiesce_appliance", "_import",
+             "unquiesce_domain", "unquiesce_appliance", "objects_audit"],
+            [name for name, _ in calls])
+        one = dict(self.ONE, timeout=180)
+        self.assertEqual(
+            dict(one, Domain=["app"], quiesce_timeout=61), calls[0][1])
+        self.assertEqual(dict(one, quiesce_timeout=61), calls[1][1])
+        self.assertEqual(
+            dict(one, Domain=["app"], file_in="export.zip",
+                 deployment_policy="policy", dry_run=False,
+                 overwrite_files=True, overwrite_objects=True,
+                 rewrite_local_ip=True, source_type="ZIP",
+                 out_dir=self.out_dir), calls[2][1])
+        self.assertEqual(dict(one, Domain=["app"]), calls[3][1])
+        self.assertEqual(one, calls[4][1])
+        self.assertEqual(dict(one, out_dir=self.out_dir), calls[5][1])
+        self.assertEqual(
+            [mock.call(61), mock.call(61)], self.sleep.call_args_list)
+        self.assertIsInstance(result, Report)
+        self.assertIn("did _import", result.html())
+        self.assertEqual("did quiesce_domain", messages[0])
+
+    def test_deploy_without_the_optional_steps(self):
+        calls = self.patch_steps(
+            self.SYSTEM + "quiesce_domain", self.SYSTEM + "quiesce_appliance",
+            self.SYSTEM + "unquiesce_domain",
+            self.SYSTEM + "unquiesce_appliance",
+            self.SYSTEM + "objects_audit", "mast.datapower.developer._import")
+        self.call(
+            deployment.deploy, Domain="app", file_in="export.xml",
+            format="XML", dry_run=True, quiesce_domain=False,
+            object_audit=False)
+        self.assertEqual(["_import"], [name for name, _ in calls])
+        self.assertEqual("XML", calls[0][1]["source_type"])
+        self.assertTrue(calls[0][1]["dry_run"])
+        self.sleep.assert_not_called()
+
+        with self.assertRaises(ValueError):
+            deployment.deploy(appliances=["dp1"], Domain=["app"])
+        with self.assertRaises(ValueError):
+            deployment.deploy(
+                appliances=["dp1"], file_in="export.tgz", format="TGZ")
+
+    def test_postdeploy(self):
+        calls = self.patch_steps(
+            self.SYSTEM + "unquiesce_appliance",
+            self.SYSTEM + "unquiesce_domain", self.SYSTEM + "save_config")
+        with mock.patch(
+                "mast.datapower.deployment.deployment.system_call",
+                return_value=(b"done", None)) as system_call:
+            result, messages = self.call(
+                deployment.postdeploy, Domain="app",
+                unquiesce_appliance=True, postdeploy_command="git push")
+        one = dict(self.ONE, timeout=120)
+        self.assertEqual(
+            [("unquiesce_appliance", one),
+             ("unquiesce_domain", dict(one, Domain="app")),
+             ("save_config", dict(one, Domain="app"))], calls)
+        system_call.assert_called_once_with(command="git push")
+        html = result.html()
+        self.assertIn("did save_config", html)
+        self.assertIn("git push", html)
+        self.assertIn("Finished saving the configuration", messages)
+
+        del calls[:]
+        with mock.patch(
+                "mast.datapower.deployment.deployment.system_call") as system_call:
+            self.call(deployment.postdeploy, Domain="app",
+                      unquiesce_domain=False, save_config=False)
+        self.assertEqual([], calls)
+        system_call.assert_not_called()
 
     def test_which_commands_take_a_web_parameter(self):
         self.assertEqual(10, len(cli.commands))
