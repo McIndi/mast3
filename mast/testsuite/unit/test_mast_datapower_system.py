@@ -56,13 +56,14 @@ class FakeResponse(object):
     def __init__(self, ok=True, xml="<result>OK</result>"):
         self.xml = etree.fromstring(xml)
         self.ok = ok
-        self.pretty = "pretty " + xml
+        # As DPResponse: pretty is bytes and str() is the same as text
+        self.pretty = ("pretty " + xml).encode()
 
     def __bool__(self):
         return self.ok
 
     def __str__(self):
-        return self.pretty
+        return self.pretty.decode()
 
     def __repr__(self):
         return "collapsed"

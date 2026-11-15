@@ -833,7 +833,7 @@ class ReloadResults(ActionResults):
             if response is False:
                 lines.append("Appliance did not come back up")
             else:
-                lines.append(response.pretty)
+                lines.append(str(response))
         return "\n".join(lines)
 
 
@@ -1094,7 +1094,8 @@ def _write_listings(params, action, name, **kwargs):
         msg = "Writing directory listing of {} to {}".format(host, filename)
         logger.info(msg)
         say(msg)
-        with open(filename, 'w') as fout:
+        # pretty is bytes
+        with open(filename, 'wb') as fout:
             fout.write(r.pretty)
     return SeeDownload(resp, env, suffix=action)
 
