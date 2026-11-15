@@ -863,13 +863,13 @@ DO NOT USE.__"""
             overwrite_objects=overwrite_objects,
             rewrite_local_ip=rewrite_local_ip,
             source_type=format,
-            out_dir=out_dir,
-            web=web)
+            out_dir=out_dir)
 
-
+        # _import returns a mast.cli.Result, not the (html, history)
+        # pair of the commands that still take a web parameter
         if web:
-            output += _out[0]
-            history += _out[1]
+            output += _out.html()
+            history += _out.history
 
         appliance.log_info("Finished importing configuration at {}".format(
             str(Timestamp())))

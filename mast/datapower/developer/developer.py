@@ -20,14 +20,19 @@ A set of tools for automating routine development
 tasks associated with IBM DataPower appliances.
 """
 import os
+import urllib.error
 from importlib.resources import files
-from mast.cli import Cli
+from typing import Literal
+from mast.cli import Cli, Option, say
 from mast.plugins.web import Plugin
 from mast.datapower import datapower
 from mast.timestamp import Timestamp
-from mast.pprint import pprint_xml
+from mast.pprint import format_xml
 from mast.logging import make_logger, logged
-import mast.plugin_utils.plugin_utils as util
+from mast.plugin_utils.params import (
+    ApplianceParams, OUT_DIR, UPLOAD, configured)
+from mast.plugin_utils.results import (
+    ActionResults, ListResults, SeeDownload)
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
@@ -47,135 +52,50 @@ cli = Cli()
 #
 
 
+class FlushCache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain where xml_manager resides")
+    xml_manager: str = Option(
+        "", short="x", help="The XMLManager whose cache to flush")
+
+
 @logged("mast.datapower.developer")
 @cli.command('flush-document-cache', category='caches')
-def flush_document_cache(appliances=[],
-                         credentials=[],
-                         timeout=120,
-                         no_check_hostname=False,
-                         Domain="",
-                         xml_manager="",
-                         web=False):
+def flush_document_cache(params: FlushCache):
     """Flushes the Document Cache for the specified xml_manager
-in the specified domain.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases please see the comments in `hosts.conf` located
-in `$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where xml_manager resides
-* `-x, --xml-manager`: The XMLManager whose cache to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+in the specified domain."""
     logger = make_logger("mast.developer")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to flush document cache for {} in {} domain on {} XMLManager".format(str(env.appliances), Domain, xml_manager)
+    env = params.environment()
+    msg = "Attempting to flush document cache for {} in {} domain on {} XMLManager".format(
+        str(env.appliances), params.Domain, params.xml_manager)
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
 
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
+    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
     responses = env.perform_action('FlushDocumentCache', **kwargs)
     logger.debug("Responses received: {}".format(str(responses)))
 
-    if not web:
-        for host, resp in list(responses.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_document_cache"), util.render_history(env)
+    return ActionResults(responses, env, suffix="flush_document_cache")
 
 
 @logged("mast.datapower.developer")
 @cli.command('flush-stylesheet-cache', category='caches')
-def flush_stylesheet_cache(appliances=[],
-                           credentials=[],
-                           timeout=120,
-                           no_check_hostname=False,
-                           Domain="",
-                           xml_manager="",
-                           web=False):
+def flush_stylesheet_cache(params: FlushCache):
     """Flushes the Stylesheet Cache for the specified xml_manager
-in the specified domain.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases please see the comments in `hosts.conf` located
-in `$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where xml_manager resides
-* `-x, --xml-manager`: The XMLManager whose cache to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+in the specified domain."""
     logger = make_logger("mast.developer")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to flush stylesheet cache for {} in {} domain on {} XMLManager".format(str(env.appliances), Domain, xml_manager)
+    env = params.environment()
+    msg = "Attempting to flush stylesheet cache for {} in {} domain on {} XMLManager".format(
+        str(env.appliances), params.Domain, params.xml_manager)
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
 
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
+    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
     responses = env.perform_action('FlushStylesheetCache', **kwargs)
     logger.debug("Responses received: {}".format(str(responses)))
 
-    if not web:
-        for host, resp in list(responses.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        return util.render_boolean_results_table(
-            responses,
-            suffix="flush_stylesheet_cache"), util.render_history(env)
+    return ActionResults(responses, env, suffix="flush_stylesheet_cache")
 
 # services/objects
 # ================
@@ -189,110 +109,83 @@ DO NOT USE.__"""
 # export - export a service or object from the specified domain
 
 
+class Import(ApplianceParams):
+    Domain: list[str] = Option(
+        default_factory=list, short="D", widget=configured("Domain"),
+        help="The domain into which the configuration will be imported. "
+             "Use `all-domains` for every domain on the appliance.")
+    file_in: str = Option(
+        short="f", widget=UPLOAD,
+        help="The file to import into the specified domain. This "
+             "__MUST__ match the format specified in source_type")
+    deployment_policy: str | None = Option(
+        None, short="d",
+        help="The deployment policy to use for the import "
+             "(must already exist on the appliances)")
+    deployment_policy_variables: str | None = Option(
+        None,
+        help="The deployment policy variables object to use for the "
+             "import")
+    dry_run: bool = Option(
+        False, help="Whether to do a dry-run (nothing will be imported)")
+    overwrite_files: bool = Option(
+        True,
+        help="If specified, no files will be overwritten as part of "
+             "the import")
+    overwrite_objects: bool = Option(
+        True,
+        help="If specified, no objects will be overwritten as part of "
+             "the import")
+    rewrite_local_ip: bool = Option(
+        True,
+        help="If specified, no local ip addresses will be rewritten as "
+             "part of the import")
+    source_type: Literal["ZIP", "XML"] = Option(
+        "ZIP", short="s", help="The type of file to import.")
+    out_dir: str = Option(
+        "tmp/", short="o", widget=OUT_DIR,
+        help="The directory to output artifacts generated by this script")
+
+
 @logged("mast.datapower.developer")
 @cli.command('import', category='services/objects')
-def _import(appliances=[],
-            credentials=[],
-            timeout=120,
-            no_check_hostname=False,
-            Domain=[],
-            file_in=None,
-            deployment_policy=None,
-            deployment_policy_variables=None,
-            dry_run=False,
-            overwrite_files=True,
-            overwrite_objects=True,
-            rewrite_local_ip=True,
-            source_type='ZIP',
-            out_dir="tmp/",
-            web=False):
-    """Import a service/object into the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D. --Domain`: The domain into which the configuration will be imported
-* `-f, --file-in`: The file to import into the specified domain. This
-__MUST__ match the format specified in source_type
-* `-d, --deployment-policy`: The deployment policy to use for the import
-(must already exist on the appliances)
-* `--dry-run`: Whether to do a dry-run (nothing will be imported)
-* `-N, --no-overwrite-files`: If specified, no files will be overwritten
-as part of the import
-* `--no-overwrite-objects`: If specified, no objects will be overwritten
-as part of the import
-* `--no-rewrite-local-ip`: If specified, no local ip addresses will be
-rewritten as part of the import
-* `-s, --source-type`: The type of file to import. Can be "XML" or "ZIP"
-* `-o, --out-dir`: The directory to output artifacts generated by this
-script
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def _import(params: Import):
+    """Import a service/object into the specified appliances"""
     logger = make_logger("mast.developer")
     t = Timestamp()
 
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to import {} to {}".format(file_in, str(env.appliances))
+    env = params.environment()
+    msg = "Attempting to import {} to {}".format(
+        params.file_in, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
 
     results = {}
-    out_dir = os.path.join(out_dir, "import_results", t.timestamp)
+    out_dir = os.path.join(params.out_dir, "import_results", t.timestamp)
     os.makedirs(out_dir)
     for appliance in env.appliances:
-        if not web:
-            print(appliance.hostname)
+        say(appliance.hostname)
         results[appliance.hostname] = {}
-        domains = Domain
+        domains = params.Domain
         if "all-domains" in domains:
             domains = appliance.domains
         for domain in domains:
-            if not web:
-                print("\t", domain)
+            say("\t", domain)
             kwargs = {
                 'domain': domain,
-                'zip_file': file_in,
-                'deployment_policy': deployment_policy,
-                'deployment_policy_variables': deployment_policy_variables,
-                'dry_run': dry_run,
-                'overwrite_files': overwrite_files,
-                'overwrite_objects': overwrite_objects,
-                'rewrite_local_ip': rewrite_local_ip,
-                'source_type': source_type}
+                'zip_file': params.file_in,
+                'deployment_policy': params.deployment_policy,
+                'deployment_policy_variables': params.deployment_policy_variables,
+                'dry_run': params.dry_run,
+                'overwrite_files': params.overwrite_files,
+                'overwrite_objects': params.overwrite_objects,
+                'rewrite_local_ip': params.rewrite_local_ip,
+                'source_type': params.source_type}
 
             resp = appliance.do_import(**kwargs)
             results[appliance.hostname][domain] = resp
-            if not web:
-                pprint_xml(resp.xml)
+            say(format_xml(resp.xml))
             logger.debug("Response received: {}".format(str(resp)))
-
 
             filename = os.path.join(
                 out_dir,
@@ -303,177 +196,104 @@ DO NOT USE.__"""
             )
             with open(filename, 'wb') as fout:
                 fout.write(resp.pretty)
-    if web:
-        return util.render_see_download_table(
-            results, suffix="import"), util.render_history(env)
+    return SeeDownload(results, env, suffix="import")
+
+
+class Export(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain from which to export service/object")
+    object_name: str = Option(
+        short="o", help="The name of the object to export")
+    object_class: str = Option(
+        short="O", help="The class of the object to export")
+    comment: str = Option(
+        '', short="C", help="The comment to embed into the export")
+    format: Literal["ZIP", "XML"] = Option(
+        "ZIP", short="f",
+        help="The format in which to export the configuration.")
+    persisted: bool = Option(
+        True,
+        help="If specified, the running configuration will be exported "
+             "as opposed to the persisted configuration")
+    all_files: bool = Option(
+        True, help="If specified, the export will not include all files")
+    referenced_files: bool = Option(
+        True,
+        help="If specified, the referenced files will not be included "
+             "in the export")
+    referenced_objects: bool = Option(
+        True,
+        help="If specified, referenced objects will not be included in "
+             "the export.")
+    out_dir: str = Option(
+        'tmp', widget=OUT_DIR,
+        help="The directory (local) in which to save the export")
 
 
 @logged("mast.datapower.developer")
 @cli.command('export', category='services/objects')
-def export(appliances=[],
-           credentials=[],
-           timeout=120,
-           no_check_hostname=False,
-           Domain="",
-           object_name=None,
-           object_class=None,
-           comment='',
-           format='ZIP',
-           persisted=True,
-           all_files=True,
-           referenced_files=True,
-           referenced_objects=True,
-           out_dir='tmp',
-           web=False):
+def export(params: Export):
     """Exports a service or object to be used to import into another
-domain or appliance
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain from which to export service/object
-* `-o, --object-name`: The name of the object to export
-* `-O, --object-class`: The class of the object to export
-* `-C, --comment`: The comment to embed into the export
-* `-f, --format`: the format in which to export the configuration. This
-can be either "XML" or "ZIP"
-* `-N, --no-persisted`: If specified, the running configuration will be
-exported as opposed to the persisted configuration
-* `--no-all-files`: If specified, the export will not include all files
-* `--no-referenced-files`: If specified, the referenced files will not
-be included in the export
-* `--no-referenced-objects`: If specified, referenced objects will not
-be included in the export.
-* `--out-dir`: (**NOT NEEDED IN THE WEB GUI**)The directory (local)
-in which to save the export
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+domain or appliance"""
     logger = make_logger("mast.developer")
     t = Timestamp()
-    if object_name is None or object_class is None:
-        logger.error("Must Provide both object name and object class")
-        raise TypeError("Must Provide both object name and object class")
-    if format == "ZIP":
-        extention = "zip"
-    elif format == "XML":
-        extention = "xcfg"
-    else:
-        raise ValueError("Format must be either 'ZIP' or 'XML', got '{}'".format(format))
+    extention = {"ZIP": "zip", "XML": "xcfg"}[params.format]
 
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to export {} from {}".format(object_name, str(env.appliances))
+    env = params.environment()
+    msg = "Attempting to export {} from {}".format(
+        params.object_name, str(env.appliances))
     logger.info(msg)
 
     kwargs = {
-        'domain': Domain,
-        'obj': object_name,
-        'object_class': object_class,
-        'comment': comment,
-        'format': format,
-        'persisted': persisted,
-        'all_files': all_files,
-        'referenced_objects': referenced_objects,
-        'referenced_files': referenced_files}
+        'domain': params.Domain,
+        'obj': params.object_name,
+        'object_class': params.object_class,
+        'comment': params.comment,
+        'format': params.format,
+        'persisted': params.persisted,
+        'all_files': params.all_files,
+        'referenced_objects': params.referenced_objects,
+        'referenced_files': params.referenced_files}
 
     results = env.perform_action(
         'export',
         **kwargs)
 
     for hostname, _export in list(results.items()):
-        d = os.path.join(out_dir, hostname, t.timestamp)
+        d = os.path.join(params.out_dir, hostname, t.timestamp)
         os.makedirs(d)
         filename = os.path.join(d, '%s-%s-%s.%s' % (
             t.timestamp,
             hostname,
-            object_name,
+            params.object_name,
             extention))
-        msg = "Writing export of {} from {} to {}".format(object_name, hostname, filename)
+        msg = "Writing export of {} from {} to {}".format(
+            params.object_name, hostname, filename)
         logger.debug(msg)
-        if not web:
-            print(msg)
+        say(msg)
         with open(filename, 'wb') as fout:
             fout.write(_export)
 
-    if web:
-        return util.render_see_download_table(
-            results, suffix="export"), util.render_history(env)
+    return SeeDownload(results, env, suffix="export")
+
+
+class ListProbes(ApplianceParams):
+    Domain: list[str] = Option(
+        default_factory=list, short="D", widget=configured("Domain"),
+        help="One or more domains to inspect. Use `all-domains` for "
+             "every domain on the appliance.")
 
 
 @logged("mast.datapower.developer")
 @cli.command('list-probes', category='services/objects')
-def list_probes(appliances=[],
-                credentials=[],
-                timeout=120,
-                no_check_hostname=False,
-                Domain=[],
-                web=False):
-    """Lists all enabled probes in all specified domains
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: One or more domains to inspect. To spcify multiple domains,
-use multiple entries of the form `[-D domain1 [-D domain2...]]`
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    import urllib.request, urllib.error, urllib.parse
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout=timeout,
-        check_hostname=check_hostname)
+def list_probes(params: ListProbes):
+    """Lists all enabled probes in all specified domains"""
+    env = params.environment()
     results = {}
     for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in Domain:
+        domains = params.Domain
+        if "all-domains" in domains:
             domains = appliance.domains
         for domain in domains:
             try:
@@ -493,17 +313,7 @@ DO NOT USE.__"""
                             results[k].append(v)
                         else:
                             results[k] = [v]
-    if web:
-        for k, v in list(results.items()):
-            results[k] = "\n".join(v)
-        return (
-            util.render_results_table(results),
-            util.render_history(env))
-    else:
-        for k, v in list(results.items()):
-            print(k, "\n", "-" * len(k))
-            for item in v:
-                print("\t{}".format(item))
+    return ListResults(results, env)
 
 
 def get_data_file(f):
@@ -525,9 +335,4 @@ class WebPlugin(Plugin):
 
 
 if __name__ == '__main__':
-    try:
-        cli.run()
-    except AttributeError as e:
-        if "'NoneType' object has no attribute 'app'" in str(e):
-            raise NotImplementedError(
-                "HTML formatted output is not supported on the CLI")
+    cli.run()
