@@ -32,8 +32,6 @@ from mast.cli import Text, captured
 from mast.datapower.deployment.deployment import cli
 from mast.plugin_utils.results import Report, SeeDownload
 
-# git-deploy still takes a web parameter.
-LEGACY = {"git-deploy"}
 
 
 class FakeResponse(object):
@@ -375,11 +373,72 @@ class TestDeploymentCommands(unittest.TestCase):
         self.assertEqual([], calls)
         system_call.assert_not_called()
 
-    def test_which_commands_take_a_web_parameter(self):
+    def git_deploy(self, **kwargs):
+        """Call git_deploy with the repository and the plan replaced.
+        Return (result, messages, config of the plan)."""
+        # The package has a function with the same name as the module
+        import sys
+        module = sys.modules["mast.datapower.deployment.git_deploy"]
+        seen = {}
+
+        class FakePlan(object):
+            def __init__(self, config):
+                seen.update(config)
+                self.environment = FakeEnvironment(["dp1"])
+
+            def list_steps(self):
+                module.print("App Domains")
+                return {"App Domains": "dp1 -> app"}
+
+            def execute(self):
+                module.print(b"Step 0/0, import")
+                return {"0-import": "Imported Files"}
+
+        patch = mock.patch.object
+        with patch(module, "parse_config",
+                   return_value={"repo": "r"}) as parse_config, \
+                patch(module, "_prepare_output_directories"), \
+                patch(module, "_initialize_logging"), \
+                patch(module, "_clone_pull_and_checkout"), \
+                patch(module, "make_logger"), \
+                patch(module, "Plan", FakePlan):
+            result, messages = self.call(
+                deployment.git_deploy, credentials=["user:pass"], **kwargs)
+        seen["parse_config"] = parse_config.call_args[0]
+        return result, messages, seen
+
+    def test_git_deploy(self):
+        result, messages, config = self.git_deploy(
+            environment="prod", service="svc", commit="v1",
+            quiesce_timeout=61, save_config=True)
+        self.assertEqual(
+            (["dp1"], ["user:pass"], "prod", "svc", True, 120),
+            config["parse_config"])
+        self.assertEqual("v1", config["commit"])
+        self.assertEqual(61, config["quiesce_timeout"])
+        self.assertTrue(config["save_config"])
+        self.assertTrue(config["quiesce"])
+        self.assertNotIn("web", config)
+        # The steps are reported as they happen, bytes included
+        self.assertEqual(["Step 0/0, import"], messages)
+        self.assertIsInstance(result, Report)
+        self.assertEqual("", result.text())
+        self.assertIn("0-import", result.html())
+        self.assertIn("Imported Files", result.html())
+        self.assertIn("request: x", result.history)
+
+    def test_git_deploy_dry_run(self):
+        result, messages, config = self.git_deploy(
+            environment="prod", service="svc", dry_run=True, quiesce=False)
+        self.assertEqual(["App Domains"], messages)
+        self.assertIn("dp1 -&gt; app", result.html())
+        self.assertFalse(config["quiesce"])
+
+    def test_no_command_takes_a_web_parameter(self):
         self.assertEqual(10, len(cli.commands))
-        legacy = {name for name, command in cli.commands.items()
-                  if command.model is None}
-        self.assertEqual(LEGACY, legacy)
+        for command in cli.commands.values():
+            self.assertIsNotNone(command.model, command.name)
+            self.assertNotIn("web", command.model.model_fields)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ from mast.cli import Params, Option
 from mast.datapower.datapower import Environment
 
 __all__ = [
-    "ApplianceParams", "SaveConfigParams",
+    "ApplianceOptions", "ApplianceParams", "SaveConfigParams",
     "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
     "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
 ]
@@ -80,11 +80,13 @@ def timeout_option(default=120):
              "execution may halt if a timeout is reached.")
 
 
-class ApplianceParams(Params):
+class ApplianceOptions(Params):
     """
-    _class_: `mast.plugin_utils.params.ApplianceParams`
+    _class_: `mast.plugin_utils.params.ApplianceOptions`
 
-    The parameters of every command that talks to appliances.
+    The parameters that say which appliances a command talks to, and
+    how. Most commands use `ApplianceParams`, which also makes the
+    `Environment` from them.
     """
     appliances: list[str] = Option(
         default_factory=list, short="a", widget=APPLIANCES,
@@ -106,6 +108,15 @@ class ApplianceParams(Params):
         False, short="n",
         help="If specified SSL verification will be turned off when "
              "sending commands to the appliances.")
+
+
+
+class ApplianceParams(ApplianceOptions):
+    """
+    _class_: `mast.plugin_utils.params.ApplianceParams`
+
+    The parameters of every command that talks to appliances.
+    """
 
     def environment(self):
         """

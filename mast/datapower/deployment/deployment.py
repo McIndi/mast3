@@ -777,7 +777,7 @@ def get_data_file(f):
     return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
-cli.command('git-deploy', category='deployment')(git_deploy)
+git_deploy = cli.command('git-deploy', category='deployment')(git_deploy)
 
 def _result_lines(response):
     """Return the lines of text in the result of a response."""
