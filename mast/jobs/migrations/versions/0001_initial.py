@@ -42,6 +42,8 @@ def upgrade():
         sa.Column("worker_id", sa.String(200), nullable=True),
         sa.Column("lease_expires_at", _time, nullable=True),
         sa.Column("cancel_requested", sa.Boolean(), nullable=False),
+        sa.Column("reserved_for", sa.String(200), nullable=True),
+        sa.Column("attached_until", _time, nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_jobs"),
         sa.ForeignKeyConstraint(

@@ -87,6 +87,34 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
 
+## The job queue
+
+Each command that you run is recorded as a job in a database, with its progress and its result. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
+
+You do not have to set anything up. If no worker is running, the command does its own job and you see the same output as before.
+
+To have jobs done by a worker process, start one or more workers. `mastd` also hosts one.
+
+```shell
+mast-worker             # run jobs until Ctrl-C
+mast-worker -c 4        # up to four jobs at the same time
+```
+
+With a worker running, a command can return at once and leave the job to the worker:
+
+```shell
+mast-backups normal-backup -a lab -c admin:password -D default --detach
+mast-jobs list          # the newest jobs
+mast-jobs show -j 3f2a  # one job: progress and result (the start of the id is enough)
+mast-jobs follow -j 3f2a
+mast-jobs cancel -j 3f2a
+mast-jobs workers
+```
+
+Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
+
+The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there. The credentials of a waiting job are stored encrypted with the key in `etc/local/jobs.key`, and are removed when the job ends.
+
 ## Running the tests
 
 The tests run with [pytest](https://docs.pytest.org) from a source checkout. This example is for Linux; on Windows or macOS, use the requirements file for that platform.

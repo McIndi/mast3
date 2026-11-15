@@ -34,6 +34,10 @@ are both not exclusive can share an appliance.
 * A worker keeps its job with `heartbeat`. If the worker is silent
 for longer than the lease, the job becomes `lost`. A lost job is not
 run again, because nobody knows how much of it was done.
+* A program that waits for its job says so with `attach` while the
+job is queued. If the program goes away, the job is cancelled, so
+that it does not run when nobody waits for it and does not hold up
+the jobs behind it.
 
 All times are UTC, from the clock of the process that writes them.
 Workers on more than one host need synchronized clocks.
@@ -53,7 +57,8 @@ from mast.jobs.models import (
     JobTarget, Worker)
 
 __all__ = [
-    "submit", "get", "list_jobs", "events", "result", "cancel",
+    "submit", "attach", "get", "find", "list_jobs", "events", "result",
+    "cancel",
     "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
@@ -221,10 +226,11 @@ def _targets(model, params):
 
 
 def submit(command, params=None, principal=LOCAL, exclusive=None,
-           parent_id=None):
+           parent_id=None, reserved_for=None, attached=False):
     """
     _function_: `mast.jobs.queue.submit(command, params=None,
-    principal=LOCAL, exclusive=None, parent_id=None)`
+    principal=LOCAL, exclusive=None, parent_id=None, reserved_for=None,
+    attached=False)`
 
     Put a job in the queue and return its id.
 
@@ -240,6 +246,11 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     a running job. The default is the command's own `exclusive`
     attribute, or True if it has none.
     * `parent_id`: The id of the job that makes this job.
+    * `reserved_for`: If given, only the worker with this id can
+    claim the job.
+    * `attached`: If True, the caller waits for the job and must call
+    `attach` several times in each lease while the job is queued. A
+    queued job whose caller is silent is cancelled.
     """
     cmd = registry.resolve(command)
     if not isinstance(params, cmd.model):
@@ -260,12 +271,31 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             submitted_by=principal.name,
             parent_id=parent_id,
             created_at=now,
-            cancel_requested=False))
+            cancel_requested=False,
+            reserved_for=reserved_for,
+            attached_until=_lease(now, None) if attached else None))
         session.flush()
         for appliance in targets:
             session.add(JobTarget(job_id=job_id, appliance=appliance))
         _event(session, job_id, "state", QUEUED, now)
     return job_id
+
+
+def attach(job_id):
+    """
+    _function_: `mast.jobs.queue.attach(job_id)`
+
+    Say that the program that submitted a job with `attached` still
+    waits for it. This keeps the queued job for another lease. It
+    does nothing for a job that is not queued or was not submitted
+    with `attached`.
+    """
+    with db.session() as session:
+        session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == QUEUED,
+                   Job.attached_until.is_not(None))
+            .values(attached_until=_lease(_now(), None)))
 
 
 def get(job_id, principal=LOCAL):
@@ -279,6 +309,30 @@ def get(job_id, principal=LOCAL):
         info = _info(session, job)
     authorize(principal, "read", command=info.command, targets=info.targets)
     return info
+
+
+def find(prefix, principal=LOCAL):
+    """
+    _function_: `mast.jobs.queue.find(prefix, principal=LOCAL)`
+
+    Return the id of the job whose id starts with `prefix`, so that a
+    person does not have to type all of an id. Raises `JobNotFound` if
+    no job, or more than one job, has such an id.
+    """
+    authorize(principal, "read")
+    prefix = prefix.strip().lower()
+    if not prefix or not all(c in "0123456789abcdef" for c in prefix):
+        raise JobNotFound(prefix)
+    with db.session() as session:
+        found = session.scalars(
+            select(Job.id).where(Job.id.startswith(prefix, autoescape=True))
+            .limit(2)).all()
+    if len(found) == 1:
+        return found[0]
+    if found:
+        raise JobNotFound("more than one job has an id that starts "
+                          "with {}".format(prefix))
+    raise JobNotFound(prefix)
 
 
 def list_jobs(status=None, limit=50, principal=LOCAL):
@@ -364,7 +418,23 @@ def cancel(job_id, principal=LOCAL):
 
 
 def _reap(session, now):
-    """Declare the running jobs with an expired lease lost."""
+    """Declare the running jobs with an expired lease lost, and cancel
+    the queued jobs that nobody waits for any more. Return the ids of
+    the lost jobs."""
+    deserted = session.scalars(
+        select(Job).where(
+            Job.status == QUEUED, Job.attached_until < now)).all()
+    for job in deserted:
+        done = session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == QUEUED,
+                   Job.attached_until < now)
+            .values(status=CANCELLED, finished_at=now,
+                    params=secrets.scrub(job.params),
+                    error="The program that submitted the job stopped "
+                          "before the job started.")).rowcount
+        if done:
+            _event(session, job.id, "state", CANCELLED, now)
     expired = session.scalars(
         select(Job).where(
             Job.status == RUNNING, Job.lease_expires_at < now)).all()
@@ -390,15 +460,18 @@ def reap():
     _function_: `mast.jobs.queue.reap()`
 
     Declare each running job whose worker is silent for longer than
-    its lease `lost`. Return the ids of those jobs. `claim` does this
-    too, so only a program that never claims needs to call it.
+    its lease `lost`, and return the ids of those jobs. Also cancel
+    each queued job whose submitter waited for it and went away.
+    `claim` does this too, so only a program that never claims needs
+    to call it.
     """
     with db.session() as session:
         return _reap(session, _now())
 
 
-def _next_job():
-    """The query for the oldest queued job that can start now."""
+def _next_job(worker_id):
+    """The query for the oldest queued job that `worker_id` can start
+    now."""
     mine = aliased(JobTarget)
     theirs = aliased(JobTarget)
     other = aliased(Job)
@@ -422,14 +495,17 @@ def _next_job():
         .exists())
     return (
         select(Job.id)
-        .where(Job.status == QUEUED, ~blocked)
+        .where(Job.status == QUEUED, ~blocked,
+               or_(Job.reserved_for.is_(None),
+                   Job.reserved_for == worker_id))
         .order_by(Job.created_at, Job.id)
         .limit(1))
 
 
-def claim(worker_id, lease_seconds=None):
+def claim(worker_id, lease_seconds=None, job_id=None):
     """
-    _function_: `mast.jobs.queue.claim(worker_id, lease_seconds=None)`
+    _function_: `mast.jobs.queue.claim(worker_id, lease_seconds=None,
+    job_id=None)`
 
     Take the oldest job that can start now. Return its id, or `None`
     if there is no such job. The job is `running` and belongs to
@@ -441,25 +517,29 @@ def claim(worker_id, lease_seconds=None):
     * `worker_id`: A name that only this worker uses.
     * `lease_seconds`: How long the worker may be silent. The default
     is in `jobs.conf`.
+    * `job_id`: Take only this job. It still waits for its turn: the
+    result is `None` while the job cannot start.
     """
-    query = _next_job()
+    query = _next_job(worker_id)
+    if job_id is not None:
+        query = query.where(Job.id == job_id)
     with db.session() as session:
         db.lock_queue(session.connection())
         now = _now()
         _reap(session, now)
         while True:
-            job_id = session.scalar(query)
-            if job_id is None:
+            found = session.scalar(query)
+            if found is None:
                 return None
             claimed = session.execute(
                 update(Job)
-                .where(Job.id == job_id, Job.status == QUEUED)
+                .where(Job.id == found, Job.status == QUEUED)
                 .values(status=RUNNING, worker_id=worker_id, started_at=now,
                         lease_expires_at=_lease(now, lease_seconds))).rowcount
             if claimed:
-                _event(session, job_id, "state",
+                _event(session, found, "state",
                        "{} on {}".format(RUNNING, worker_id), now)
-                return job_id
+                return found
             # The job was cancelled after the query saw it. Look again.
 
 

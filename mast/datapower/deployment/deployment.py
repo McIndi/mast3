@@ -36,7 +36,7 @@ from mast.logging import make_logger, logged
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
-cli = Cli()
+cli = Cli(namespace="deployment")
 
 
 def system_call(

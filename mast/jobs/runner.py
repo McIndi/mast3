@@ -76,11 +76,14 @@ def _beat(job_id, worker_id, lease_seconds, stop):
                 "The heartbeat for the job {} failed".format(job_id))
 
 
-def _execute(job_id, worker_id):
+def _execute(job_id, worker_id, echo=None):
     """Call the command of the job. Return the arguments for
     `queue.finish`."""
     def store(message):
-        if queue.add_event(job_id, message):
+        cancelled = queue.add_event(job_id, message)
+        if echo is not None:
+            echo(message)
+        if cancelled:
             raise JobCancelled()
 
     try:
@@ -114,10 +117,10 @@ def _execute(job_id, worker_id):
                 "history": traceback.format_exc()}
 
 
-def run_job(job_id, worker_id, lease_seconds=None):
+def run_job(job_id, worker_id, lease_seconds=None, echo=None):
     """
     _function_: `mast.jobs.runner.run_job(job_id, worker_id,
-    lease_seconds=None)`
+    lease_seconds=None, echo=None)`
 
     Run a job that `worker_id` claimed, and store its progress and its
     result. Heartbeats are sent from another thread while the command
@@ -126,6 +129,10 @@ def run_job(job_id, worker_id, lease_seconds=None):
 
     An exception from the command does not come out of this function.
     The job is `failed` and the traceback is in its history.
+
+    `echo`, if given, is called with each line of progress from the
+    command after the line is stored. A program that runs its own job
+    shows the progress this way.
     """
     logger = make_logger("mast.jobs")
     if lease_seconds is None:
@@ -138,7 +145,7 @@ def run_job(job_id, worker_id, lease_seconds=None):
     logger.info("The worker {} starts the job {}".format(worker_id, job_id))
     try:
         try:
-            outcome = _execute(job_id, worker_id)
+            outcome = _execute(job_id, worker_id, echo)
         except BaseException as exc:
             # Ctrl-C, for example. Record it, then let it continue.
             queue.finish(

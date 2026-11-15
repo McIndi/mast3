@@ -112,6 +112,13 @@ class Job(Base):
     # The worker must send a heartbeat before this time
     lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancel_requested: Mapped[bool] = mapped_column(Boolean)
+    # If set, only this worker may claim the job. A program that does
+    # its own job reserves it.
+    reserved_for: Mapped[str | None] = mapped_column(String(200))
+    # If set, a program waits for the job, and says so again and again
+    # while the job is queued. If the program is silent past this
+    # time, the job is cancelled.
+    attached_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # One line that says why the job failed
     error: Mapped[str | None] = mapped_column(Text)
 

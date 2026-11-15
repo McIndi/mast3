@@ -22,6 +22,8 @@ against PostgreSQL as well, set MAST_TEST_JOBS_DB_URL to the URL of an
 empty database that the tests may erase, for example
 `postgresql+psycopg://mast:mast@localhost/mast_test`.
 """
+import contextlib
+import io
 import multiprocessing
 import os
 import shutil
@@ -42,7 +44,8 @@ from sqlalchemy import func, select, text
 
 from mast import jobs
 from mast.cli import Cli, Option, Params, Text, say
-from mast.jobs import db, queue, registry, secrets
+from mast.jobs import client, db, queue, registry, secrets
+from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Base, Job, JobTarget
 from mast.jobs.worker import Plugin, Worker
 
@@ -61,7 +64,7 @@ class Work(Params):
 
 
 def make_cli():
-    cli = Cli()
+    cli = Cli(namespace="test")
 
     @cli.command("work")
     def work(params: Work):
@@ -94,6 +97,11 @@ def make_cli():
                 pass
             time.sleep(0.05)
         return Text("all steps done")
+
+    @cli.command("look", exclusive=False)
+    def look(params: Work):
+        """Only read from the appliances."""
+        return Text("looked")
 
     @cli.command("quiet")
     def quiet(params: Work):
@@ -172,6 +180,23 @@ class TestSchema(SqliteCase):
         with db.engine().connect() as connection:
             context = MigrationContext.configure(connection)
             self.assertEqual(compare_metadata(context, Base.metadata), [])
+
+    def test_head_is_the_newest_migration(self):
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+        cfg = Config()
+        cfg.set_main_option("script_location", "mast.jobs:migrations")
+        self.assertEqual(
+            db.HEAD, ScriptDirectory.from_config(cfg).get_current_head())
+
+    def test_alembic_is_not_imported_for_a_current_database(self):
+        submit("dp1")
+        code = ("import sys; from mast import jobs; "
+                "assert len(jobs.list_jobs()) == 1; "
+                "assert 'alembic' not in sys.modules")
+        subprocess.run(
+            [sys.executable, "-c", code], check=True,
+            env=dict(os.environ, MAST_JOBS_DB_URL=self.url))
 
     def test_upgrade_twice_changes_nothing(self):
         job_id = submit("dp1")
@@ -708,6 +733,384 @@ class TestWorkerProcess(SqliteCase):
         self.assertIn("--concurrency", process.stdout.read())
 
 
+class CliCase(SqliteCase):
+    """Runs command lines in this process and collects what they print."""
+
+    def setUp(self):
+        super().setUp()
+        self.cli = make_cli()
+        registry.register("test", self.cli)
+
+    def run_cli(self, *argv, cli=None):
+        """Return (exit status, standard output, standard error)."""
+        out, err = io.StringIO(), io.StringIO()
+        status = 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                (cli or self.cli).run(list(argv))
+            except SystemExit as exc:
+                status = exc.code
+        return status, out.getvalue(), err.getvalue()
+
+    def start_worker(self, **kwargs):
+        kwargs.setdefault("poll_seconds", 0.02)
+        worker = Worker(**kwargs)
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(worker.stop)
+        self.assertTrue(wait_for(lambda: jobs.workers()))
+        return worker
+
+    def only_job(self):
+        found = jobs.list_jobs()
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+
+class TestCommandLine(CliCase):
+    def test_a_command_does_its_own_job_when_there_is_no_worker(self):
+        status, out, err = self.run_cli(
+            "work", "-a", "dp1", "-c", "admin:hunter2")
+        self.assertEqual(
+            (status, out, err),
+            (0, "working on dp1\nworked with admin:hunter2\n", ""))
+        job = self.only_job()
+        self.assertEqual(job.command, "test.work")
+        self.assertEqual(job.status, jobs.SUCCEEDED)
+        self.assertEqual(job.targets, ["dp1"])
+        self.assertEqual(job.params["credentials"], {"$secret": None})
+        self.assertEqual(
+            [e.message for e in jobs.events(job.id) if e.kind == "say"],
+            ["working on dp1"])
+
+    def test_a_worker_does_the_job_when_one_is_alive(self):
+        worker = self.start_worker()
+        status, out, err = self.run_cli("work", "-a", "dp1", "-c", "u:p")
+        self.assertEqual(
+            (status, out, err), (0, "working on dp1\nworked with u:p\n", ""))
+        self.assertTrue(self.only_job().worker_id.startswith(worker.id))
+
+    def test_local_does_the_job_here(self):
+        worker = self.start_worker()
+        for _ in range(10):
+            status, out, _ = self.run_cli("work", "-a", "dp1", "--local")
+            self.assertEqual(
+                (status, out), (0, "working on dp1\nworked with \n"))
+        for job in jobs.list_jobs():
+            self.assertEqual(job.status, jobs.SUCCEEDED)
+            self.assertFalse(job.worker_id.startswith(worker.id))
+
+    def test_a_reserved_job_is_only_for_its_worker(self):
+        reserved = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, reserved_for="me")
+        other = submit("dp2")
+        self.assertEqual(jobs.claim("w1"), other)
+        self.assertIsNone(jobs.claim("w1"))
+        self.assertEqual(jobs.claim("me"), reserved)
+
+    def test_a_job_whose_submitter_went_away_is_cancelled(self):
+        clock = self.use_clock()
+        jobs.submit("test.work", {"appliances": ["dp1"]}, reserved_for="x")
+        waiting = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, attached=True)
+        detached = submit("dp1")
+        clock.advance(50)
+        jobs.attach(waiting)
+        jobs.attach(detached)
+        clock.advance(50)
+        jobs.reap()
+        self.assertEqual(jobs.get(waiting).status, jobs.QUEUED)
+        clock.advance(61)
+        # Its submitter is silent. Any look at the queue removes it.
+        self.assertIsNone(jobs.claim("w1"))
+        info = jobs.get(waiting)
+        self.assertEqual(info.status, jobs.CANCELLED)
+        self.assertIn("stopped before the job started", info.error)
+        # A job that nobody waits for stays
+        self.assertEqual(jobs.get(detached).status, jobs.QUEUED)
+
+    def test_a_command_keeps_its_job_while_it_waits(self):
+        clock = self.use_clock()
+        ahead = submit("dp1")
+        jobs.claim("somebody", lease_seconds=100000)
+        result = []
+        thread = threading.Thread(
+            target=lambda: result.append(self.run_cli("work", "-a", "dp1")))
+        with mock.patch.object(client, "_note"), mock.patch(
+                "mast.jobs.config.lease_seconds", return_value=0.3):
+            thread.start()
+            self.assertTrue(wait_for(lambda: len(jobs.list_jobs()) == 2))
+            mine = jobs.list_jobs()[0].id
+            for _ in range(10):
+                time.sleep(0.1)
+                clock.advance(0.1)
+            self.assertEqual(jobs.get(mine).status, jobs.QUEUED)
+            jobs.finish(ahead, "somebody", jobs.SUCCEEDED)
+            thread.join(10)
+        self.assertEqual(jobs.get(mine).status, jobs.SUCCEEDED)
+
+    def test_a_failed_command(self):
+        status, out, err = self.run_cli("work", "-a", "dp1", "--fail")
+        self.assertEqual(status, 1)
+        self.assertEqual(out, "working on dp1\n")
+        self.assertIn("Traceback", err)
+        self.assertIn("failed: RuntimeError: the appliance said no", err)
+        self.assertEqual(self.only_job().status, jobs.FAILED)
+
+    def test_bad_options_do_not_make_a_job(self):
+        status, out, err = self.run_cli("work", "--seconds", "soon")
+        self.assertEqual(status, 2)
+        self.assertIn("--seconds", err)
+        self.assertEqual(jobs.list_jobs(), [])
+
+    def test_detach_prints_the_id_and_returns(self):
+        status, out, err = self.run_cli("work", "-a", "dp1", "--detach")
+        job = self.only_job()
+        self.assertEqual((status, out), (0, job.id + "\n"))
+        self.assertEqual(job.status, jobs.QUEUED)
+        self.assertIn("No worker is running", err)
+        self.assertIn("mast-jobs show -j " + job.id[:8], err)
+
+    def test_the_queue_options_are_in_the_help(self):
+        status, out, _ = self.run_cli("work", "-h")
+        self.assertIn("--detach", out)
+        self.assertIn("--local", out)
+
+    def test_a_cli_with_no_namespace_calls_the_command(self):
+        cli = Cli()
+
+        @cli.command("work")
+        def work(params: Work):
+            return Text("called")
+
+        status, out, err = self.run_cli("work", cli=cli)
+        self.assertEqual((status, out), (0, "called\n"))
+        self.assertEqual(jobs.list_jobs(), [])
+        status, _, err = self.run_cli("work", "--detach", cli=cli)
+        self.assertEqual(status, 2)
+        with self.assertRaises(ValueError):
+            Cli(main=work, namespace="test")
+
+    def test_a_job_waits_for_its_appliance(self):
+        ahead = submit("dp1")
+        jobs.claim("somebody")
+        result = []
+        thread = threading.Thread(
+            target=lambda: result.append(self.run_cli("work", "-a", "dp1")))
+        with mock.patch.object(client, "_note") as note:
+            thread.start()
+            self.assertTrue(wait_for(lambda: len(jobs.list_jobs()) == 2))
+            time.sleep(0.6)
+            mine = jobs.list_jobs()[0]
+            self.assertEqual(jobs.get(mine.id).status, jobs.QUEUED)
+            jobs.finish(ahead, "somebody", jobs.SUCCEEDED)
+            thread.join(10)
+        self.assertEqual(jobs.get(mine.id).status, jobs.SUCCEEDED)
+        self.assertEqual(note.call_count, 0)
+
+    def test_ctrl_c_cancels_a_job_that_waits(self):
+        submit("dp1")
+        jobs.claim("somebody")
+        with mock.patch.object(
+                client.time, "sleep", side_effect=KeyboardInterrupt):
+            status, out, err = self.run_cli("work", "-a", "dp1")
+        self.assertEqual((status, out), (client.INTERRUPTED, ""))
+        self.assertIn("cancelled", err)
+        self.assertEqual(jobs.list_jobs()[0].status, jobs.CANCELLED)
+
+    def test_ctrl_c_cancels_a_job_on_a_worker(self):
+        self.start_worker()
+        real, calls = time.sleep, []
+
+        def sleep(seconds):
+            # time.sleep is the same function for the command, which
+            # runs in the thread of the worker
+            if threading.current_thread() is threading.main_thread():
+                calls.append(seconds)
+                if len(calls) == 3:
+                    raise KeyboardInterrupt
+            real(seconds)
+
+        with mock.patch.object(client.time, "sleep", sleep):
+            status, out, err = self.run_cli("steps", "--steps", "400")
+        self.assertEqual(status, client.INTERRUPTED)
+        self.assertIn("Asked to cancel", err)
+        self.assertIn("cancelled", err)
+        self.assertNotIn("all steps done", out)
+        self.assertEqual(self.only_job().status, jobs.CANCELLED)
+
+    def test_ctrl_c_twice_leaves_the_job(self):
+        ahead = submit("dp1")
+        jobs.claim("somebody")
+        # The job that runs is followed, and does not end
+        with mock.patch.object(
+                client.time, "sleep", side_effect=KeyboardInterrupt):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(err):
+                status = client.follow(ahead)
+        self.assertEqual(status, client.INTERRUPTED)
+        self.assertIn("continues", err.getvalue())
+        info = jobs.get(ahead)
+        self.assertEqual(info.status, jobs.RUNNING)
+        self.assertTrue(info.cancel_requested)
+
+    def test_a_lost_job(self):
+        clock = self.use_clock()
+        job_id = submit("dp1")
+        jobs.claim("somebody", lease_seconds=60)
+        clock.advance(61)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            # follow has no worker, and its own look at the queue
+            # finds the dead job
+            jobs.reap()
+            status = client.follow(job_id)
+        self.assertEqual(status, 1)
+        self.assertIn("lost", err.getvalue())
+
+    def test_commands_that_only_read_are_not_exclusive(self):
+        self.run_cli("look", "-a", "dp1", "--detach")
+        self.assertFalse(self.only_job().exclusive)
+        self.assertFalse(jobs.resolve("system.get-status").exclusive)
+        self.assertFalse(jobs.resolve("accounts.list-users").exclusive)
+        self.assertTrue(jobs.resolve("system.save").exclusive)
+        self.assertTrue(jobs.resolve("backups.normal-backup").exclusive)
+
+    def test_every_plugin_command_can_be_a_job(self):
+        import importlib
+        for plugin in ("accounts", "backups", "crypto", "deployment",
+                       "developer", "network", "system"):
+            module = importlib.import_module("mast.datapower." + plugin)
+            self.assertEqual(module.cli.namespace, plugin)
+            for name in module.cli.commands:
+                self.assertIs(
+                    jobs.resolve("{}.{}".format(plugin, name)),
+                    module.cli.commands[name])
+
+
+class TestMastJobs(CliCase):
+    def mast_jobs(self, *argv):
+        return self.run_cli(*argv, cli=jobs_cli)
+
+    def test_list(self):
+        first = submit("dp1")
+        second = submit("dp2", "dp3")
+        jobs.cancel(first)
+        status, out, _ = self.mast_jobs("list")
+        self.assertEqual(status, 0)
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("Job"))
+        self.assertIn(second, lines[2])
+        self.assertIn("queued", lines[2])
+        self.assertIn("dp2 dp3", lines[2])
+        self.assertIn(first, lines[3])
+        status, out, _ = self.mast_jobs("list", "-s", "cancelled", "-n", "5")
+        self.assertIn(first, out)
+        self.assertNotIn(second, out)
+        self.assertEqual(self.mast_jobs("list", "-s", "nothing")[0], 2)
+
+    def test_show(self):
+        job_id = submit("dp1", credentials=["admin:hunter2"])
+        jobs.run_next("w1")
+        status, out, _ = self.mast_jobs("show", "-j", job_id[:6])
+        self.assertEqual(status, 0)
+        for expected in (job_id, "test.work", "succeeded", "by local",
+                         "Worker:     w1", "credentials: (secret)",
+                         "working on dp1", "[running on w1]",
+                         "worked with admin:hunter2"):
+            self.assertIn(expected, out)
+        self.assertNotIn("the history", out)
+        status, out, _ = self.mast_jobs("show", "-j", job_id, "-H")
+        self.assertIn("the history", out)
+
+    def test_a_job_that_does_not_exist(self):
+        for command in ("show", "cancel", "follow"):
+            for prefix in ("0000", "not-an-id", "%"):
+                status, out, err = self.mast_jobs(command, "-j", prefix)
+                self.assertEqual(status, 1)
+                self.assertIn("There is no job", err)
+
+    def test_a_prefix_must_name_one_job(self):
+        with db.session() as session:
+            for job_id in ("ab" + "0" * 30, "ab" + "1" * 30):
+                session.add(Job(
+                    id=job_id, command="test.work", params={},
+                    status=jobs.QUEUED, exclusive=True, submitted_by="local",
+                    created_at=queue._now(), cancel_requested=False))
+        self.assertEqual(jobs.find("AB0"), "ab" + "0" * 30)
+        status, _, err = self.mast_jobs("show", "-j", "ab")
+        self.assertEqual(status, 1)
+        self.assertIn("more than one job", err)
+
+    def test_cancel(self):
+        job_id = submit("dp1")
+        status, out, _ = self.mast_jobs("cancel", "-j", job_id)
+        self.assertEqual(status, 0)
+        self.assertIn("is cancelled", out)
+        running = submit("dp2")
+        jobs.claim("w1")
+        status, out, _ = self.mast_jobs("cancel", "-j", running)
+        self.assertIn("Asked to cancel", out)
+        self.assertTrue(jobs.get(running).cancel_requested)
+        status, out, _ = self.mast_jobs("show", "-j", running)
+        self.assertIn("running (cancel requested)", out)
+
+    def test_follow(self):
+        status, out, _ = self.run_cli("work", "-a", "dp1", "--detach")
+        job_id = out.strip()
+        self.start_worker()
+        status, out, err = self.mast_jobs("follow", "-j", job_id)
+        self.assertEqual(
+            (status, out, err), (0, "working on dp1\nworked with \n", ""))
+        # A job that ended can be followed again
+        self.assertEqual(self.mast_jobs("follow", "-j", job_id)[1], out)
+
+    def test_workers(self):
+        status, out, _ = self.mast_jobs("workers")
+        self.assertIn("No worker is running", out)
+        worker = self.start_worker(concurrency=2)
+        status, out, _ = self.mast_jobs("workers")
+        self.assertIn(worker.id, out)
+        self.assertIn(str(os.getpid()), out)
+
+
+class TestCommandLineProcess(SqliteCase):
+    def mast(self, *argv):
+        return subprocess.run(
+            [sys.executable, "-m"] + list(argv), text=True,
+            capture_output=True, timeout=120,
+            env=dict(os.environ, MAST_JOBS_DB_URL=self.url))
+
+    def test_a_plugin_command_is_a_job(self):
+        from mast.xor import xorencode
+        done = self.mast("mast.datapower.system", "xor", "-s", "user:pass")
+        self.assertEqual(
+            (done.returncode, done.stdout, done.stderr),
+            (0, xorencode("user:pass") + "\n", ""))
+        job = jobs.list_jobs()[0]
+        self.assertEqual((job.command, job.status),
+                         ("system.xor", jobs.SUCCEEDED))
+        listed = self.mast("mast.jobs", "list")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn(job.id, listed.stdout)
+        self.assertIn("system.xor", listed.stdout)
+
+    def test_a_detached_job_is_done_by_a_worker(self):
+        from mast.xor import xorencode
+        done = self.mast(
+            "mast.datapower.system", "xor", "-s", "user:pass", "--detach")
+        job_id = done.stdout.strip()
+        self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
+        worker = self.mast("mast.jobs.worker", "--drain", "-p", "0.05")
+        self.assertEqual(worker.returncode, 0, worker.stdout + worker.stderr)
+        shown = self.mast("mast.jobs", "follow", "-j", job_id[:8])
+        self.assertEqual(
+            (shown.returncode, shown.stdout),
+            (0, xorencode("user:pass") + "\n"))
+
+
 def _compete(url, worker_id, start, claimed, overlaps):
     """Run in another process: claim jobs until there are none."""
     db.configure(url)
@@ -814,6 +1217,18 @@ class TestWorkerPostgres(PostgresMixin, TestWorker):
 
 
 class TestWorkerProcessPostgres(PostgresMixin, TestWorkerProcess):
+    pass
+
+
+class TestCommandLinePostgres(PostgresMixin, TestCommandLine):
+    pass
+
+
+class TestMastJobsPostgres(PostgresMixin, TestMastJobs):
+    pass
+
+
+class TestCommandLineProcessPostgres(PostgresMixin, TestCommandLineProcess):
     pass
 
 

@@ -28,11 +28,7 @@ import sqlite3
 import threading
 import time
 
-from alembic import command as alembic_command
-from alembic.config import Config
-from alembic.runtime.migration import MigrationContext
-from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -41,6 +37,11 @@ from mast.jobs import config
 __all__ = ["configure", "engine", "session", "upgrade", "lock_queue"]
 
 SUPPORTED = ("sqlite", "postgresql")
+
+# The newest revision in mast/jobs/migrations/versions. Alembic is only
+# imported if the database is at another revision, because every MAST
+# command opens the database and Alembic is slow to import.
+HEAD = "0001"
 
 # An arbitrary number. Every process that changes the schema or claims
 # a job takes the PostgreSQL advisory lock with this key.
@@ -152,10 +153,13 @@ def lock_queue(connection):
             {"key": _ADVISORY_LOCK})
 
 
-def _alembic_config():
-    cfg = Config()
-    cfg.set_main_option("script_location", "mast.jobs:migrations")
-    return cfg
+def _revision(connection):
+    """Return the revision of the tables in the database, or `None`
+    if there are no tables."""
+    if not inspect(connection).has_table("alembic_version"):
+        return None
+    return connection.execute(
+        text("SELECT version_num FROM alembic_version")).scalar()
 
 
 def upgrade(target=None):
@@ -167,12 +171,13 @@ def upgrade(target=None):
     at the same time.
     """
     target = target if target is not None else engine()
-    cfg = _alembic_config()
-    head = ScriptDirectory.from_config(cfg).get_current_head()
     with target.connect() as connection:
-        current = MigrationContext.configure(connection).get_current_revision()
-    if current == head:
-        return
+        if _revision(connection) == HEAD:
+            return
+    from alembic import command as alembic_command
+    from alembic.config import Config
+    cfg = Config()
+    cfg.set_main_option("script_location", "mast.jobs:migrations")
     with target.begin() as connection:
         lock_queue(connection)
         # The migration reads the revision again, inside the lock

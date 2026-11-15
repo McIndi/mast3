@@ -36,7 +36,7 @@ from mast.plugin_utils.results import (
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
-cli = Cli()
+cli = Cli(namespace="developer")
 
 # Caches
 # ======
@@ -286,7 +286,7 @@ class ListProbes(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('list-probes', category='services/objects')
+@cli.command('list-probes', category='services/objects', exclusive=False)
 def list_probes(params: ListProbes):
     """Lists all enabled probes in all specified domains"""
     env = params.environment()

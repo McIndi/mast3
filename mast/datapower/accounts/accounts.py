@@ -32,11 +32,11 @@ from mast.plugin_utils.steps import save_config as _save_config
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
-cli = Cli()
+cli = Cli(namespace="accounts")
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-groups', category='users/groups')
+@cli.command('list-groups', category='users/groups', exclusive=False)
 def list_groups(params: ApplianceParams):
     """Display a list of all configured user groups on the specified
 appliances, along with a list of the groups common to all
@@ -109,7 +109,7 @@ def del_group(params: DelGroup):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-users', category='users/groups')
+@cli.command('list-users', category='users/groups', exclusive=False)
 def list_users(params: ApplianceParams):
     """Lists the users on the specified appliances as well as a list
 of users common to all appliances."""
@@ -252,7 +252,7 @@ def force_change_password(params: UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-rbm-fallback', category='users/groups')
+@cli.command('list-rbm-fallback', category='users/groups', exclusive=False)
 def list_rbm_fallback_users(params: ApplianceParams):
     """Lists the current RBM Fallback Users for the specified appliances,
 as well as the fallback users which are common to all appliances."""
