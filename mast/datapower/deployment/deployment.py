@@ -593,12 +593,16 @@ Here is what is possible (will be done in this order):
                 remove=remove_secure_backup,
                 quiesce_before=False,
                 unquiesce_after=False,
-                no_check_hostname=no_check_hostname,
-                web=web)
+                no_check_hostname=no_check_hostname)
 
+            # A backups command returns a mast.cli.Result, not the
+            # (html, history) pair of the commands that still take a
+            # web parameter
             if web:
-                output += _out[0]
-                history += _out[1]
+                output += _out.html()
+                history += _out.history
+            else:
+                _out.emit()
 
             logger.info("Finished Secure Backup for {}".format(
                 appliance.hostname))
@@ -622,16 +626,20 @@ Here is what is possible (will be done in this order):
                 no_check_hostname=no_check_hostname,
                 Domain=domains,
                 comment=comment,
-                out_dir=out_dir,
-                web=web)
+                out_dir=out_dir)
 
             logger.info(
                 "Pre-Deployment backups finished at {}".format(
                     str(Timestamp())))
 
+            # A backups command returns a mast.cli.Result, not the
+            # (html, history) pair of the commands that still take a
+            # web parameter
             if web:
-                output += _out[0]
-                history += _out[1]
+                output += _out.html()
+                history += _out.history
+            else:
+                _out.emit()
 
         # Checkpoints
         if set_checkpoints:
@@ -650,16 +658,20 @@ Here is what is possible (will be done in this order):
                 no_check_hostname=no_check_hostname,
                 Domain=domains,
                 comment=comment,
-                remove_oldest=remove_oldest_checkpoint,
-                web=web)
+                remove_oldest=remove_oldest_checkpoint)
 
             logger.info(
                 "Pre-Deployment checkpoints finished at {}".format(
                     str(Timestamp())))
 
+            # A backups command returns a mast.cli.Result, not the
+            # (html, history) pair of the commands that still take a
+            # web parameter
             if web:
-                output += _out[0]
-                history += _out[1]
+                output += _out.html()
+                history += _out.history
+            else:
+                _out.emit()
 
     if predeploy_command:
         logger.info(

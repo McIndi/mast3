@@ -45,7 +45,7 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import PydanticUndefined
 
 __all__ = ["Params", "Option", "OptionSpec", "options"]
@@ -59,8 +59,24 @@ class Params(BaseModel):
 
     The base class for the parameters of a command. A parameter that
     the model does not declare is an error.
+
+    One string is accepted where a list is expected, and becomes a list
+    of that one string. Python code that calls a command often has only
+    one value (`appliances=appliance.hostname`).
     """
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_string_is_a_list(cls, values):
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        for name, field in cls.model_fields.items():
+            if isinstance(values.get(name), str) \
+                    and _classify(field.annotation)[0] == "list":
+                values[name] = [values[name]]
+        return values
 
 
 def Option(default=PydanticUndefined, *, help="", short=None, widget=None,

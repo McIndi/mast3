@@ -25,7 +25,7 @@ from mast.datapower.datapower import Environment
 __all__ = [
     "ApplianceParams",
     "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
-    "STATUS_PROVIDER", "OBJECT_CLASS", "configured",
+    "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
 ]
 
 # Widgets
@@ -62,6 +62,24 @@ def configured(object_class):
     return "configured:" + object_class
 
 
+def timeout_option(default=120):
+    """
+    _function_: `mast.plugin_utils.params.timeout_option(default=120)`
+
+    Return the `timeout` option of `ApplianceParams` with another
+    default, for a command that needs longer:
+
+        :::python
+        class SecureBackup(ApplianceParams):
+            timeout: int = timeout_option(1200)
+    """
+    return Option(
+        default, short="t",
+        help="The timeout in seconds to wait for a response from an "
+             "appliance for any single request. __NOTE__ Program "
+             "execution may halt if a timeout is reached.")
+
+
 class ApplianceParams(Params):
     """
     _class_: `mast.plugin_utils.params.ApplianceParams`
@@ -83,11 +101,7 @@ class ApplianceParams(Params):
              "appliance, in the same order as the appliances. If you "
              "would prefer to not use plain-text passwords, you can use "
              "the output of `mast-system xor <username:password>`.")
-    timeout: int = Option(
-        120, short="t",
-        help="The timeout in seconds to wait for a response from an "
-             "appliance for any single request. __NOTE__ Program "
-             "execution may halt if a timeout is reached.")
+    timeout: int = timeout_option()
     no_check_hostname: bool = Option(
         False, short="n",
         help="If specified SSL verification will be turned off when "

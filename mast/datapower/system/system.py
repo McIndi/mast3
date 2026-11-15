@@ -2248,13 +2248,16 @@ DO NOT USE.__"""
                 no_check_hostname=no_check_hostname,
                 Domain="all-domains",
                 comment="pre-firmware_upgrade_backup",
-                out_dir=out_dir,
-                web=web)
+                out_dir=out_dir)
 
+            # get_normal_backup returns a mast.cli.Result, not the
+            # (html, history) pair of the commands that still take a
+            # web parameter
             if web:
-                output += _out[0]
-                history += _out[1]
+                output += _out.html()
+                history += _out.history
             else:
+                _out.emit()
                 print("\t\tDone.")
 
         if cleanup:

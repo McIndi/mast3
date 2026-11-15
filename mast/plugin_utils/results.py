@@ -27,7 +27,7 @@ from mast.pprint import format_xml
 
 __all__ = [
     "history", "ActionResults", "Report", "CommonItems", "SeeDownload",
-    "ListResults",
+    "ListResults", "StatusResults",
 ]
 
 
@@ -100,14 +100,17 @@ class Report(_EnvironmentResult):
     command adds the result of each step with `add`. The terminal gets
     each step when it is added, so the user sees progress. The web GUI
     shows all the steps when the command finishes.
+
+    A step that the command already reported in its own words is added
+    with `show=False`.
     """
     def __init__(self, env=None):
         self.env = env
         self.steps = []
 
-    def add(self, result):
+    def add(self, result, show=True):
         self.steps.append(result)
-        text = result.text()
+        text = result.text() if show else ""
         if text:
             say(text)
         return result
@@ -170,14 +173,18 @@ class SeeDownload(_EnvironmentResult):
 
 class ListResults(_EnvironmentResult):
     """
-    _class_: `mast.plugin_utils.results.ListResults(results, env=None)`
+    _class_: `mast.plugin_utils.results.ListResults(results, env=None,
+    title="Result", suffix=None)`
 
     A list of items for each key. `results` maps each key (usually a
-    hostname) to a list of strings.
+    hostname) to a list of strings. `title` is the heading of the
+    items in the web GUI.
     """
-    def __init__(self, results, env=None):
+    def __init__(self, results, env=None, title="Result", suffix=None):
         self.results = results
         self.env = env
+        self.title = title
+        self.suffix = suffix
 
     def text(self):
         lines = []
@@ -188,6 +195,31 @@ class ListResults(_EnvironmentResult):
 
     def html(self):
         return Table(
-            ("Appliance", "Result"),
-            [(key, "\n".join(items))
+            ("Appliance", self.title),
+            [(_label(key, self.suffix), "\n".join(items))
              for key, items in self.results.items()]).html()
+
+
+class StatusResults(_EnvironmentResult):
+    """
+    _class_: `mast.plugin_utils.results.StatusResults(results, env=None, suffix=None)`
+
+    One word of status ("Verified", "Failed") for each key. `results`
+    maps each key (usually a hostname) to its status.
+    """
+    def __init__(self, results, env=None, suffix=None):
+        self.results = results
+        self.env = env
+        self.suffix = suffix
+
+    def text(self):
+        lines = []
+        for key, status in self.results.items():
+            lines += ["", key, "=" * len(key), str(status), ""]
+        return "\n".join(lines)
+
+    def html(self):
+        return Table(
+            ("Appliance", "Result"),
+            [(_label(key, self.suffix), status)
+             for key, status in self.results.items()]).html()
