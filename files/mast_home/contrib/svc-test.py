@@ -1,6 +1,7 @@
 from mast.logging import make_logger
 from mast.datapower import datapower
 from mast.cli import Cli
+from mast.cli import Params, Option
 from lxml import etree
 import io
 
@@ -31,17 +32,38 @@ remove_namespaces_xslt = '''<xsl:stylesheet version="1.0" xmlns:xsl="http://www.
 remove_namespaces_xslt = etree.parse(io.BytesIO(str.encode(remove_namespaces_xslt)))
 REMOVE_NAMESPACES = etree.XSLT(remove_namespaces_xslt)
 
-def main(
-        appliances=[],
-        credentials=[],
-        domains=[],
-        timeout=120,
-        no_check_hostname=False,
-        test_files=[],
-    ):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    test_files: list[str] = Option(default_factory=list, short="T")
+
+
+def main(params: Main):
     """svc-test a utility for testing DataPower configuration and
-    status. Tests are determined
-    """
+status. Tests are determined"""
+    appliances = params.appliances
+    credentials = params.credentials
+    domains = params.domains
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    test_files = params.test_files
     check_hostname = not no_check_hostname
     env = datapower.Environment(appliances,
                                 credentials,

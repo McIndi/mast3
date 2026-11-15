@@ -2,6 +2,7 @@ import os
 import openpyxl
 from time import sleep
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 from mast.datapower import datapower
 from mast.timestamp import Timestamp
@@ -132,16 +133,44 @@ def create_workbook(
     wb.save(out_file)
 
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=["default"],
-         providers=[],
-         delay=0.5,
-         out_file="./status.xlsx",
-         by_appliance=False,
-         no_prepend_timestamp=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=lambda: ["default"], short="d")
+    providers: list[str] = Option(default_factory=list, short="p")
+    delay: float = Option(0.5, short="D")
+    out_file: str = Option("./status.xlsx", short="o")
+    by_appliance: bool = Option(False, short="b")
+    no_prepend_timestamp: bool = Option(False, short="N")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    providers = params.providers
+    delay = params.delay
+    out_file = params.out_file
+    by_appliance = params.by_appliance
+    no_prepend_timestamp = params.no_prepend_timestamp
 
     prepend_timestamp = not no_prepend_timestamp
     t = Timestamp()

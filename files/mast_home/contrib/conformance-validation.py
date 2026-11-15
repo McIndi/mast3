@@ -2,16 +2,41 @@ import os
 import openpyxl
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.datapower import datapower
 from mast.logging import make_logger
 from mast.datapower.datapower import MGMT_NAMESPACE
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=[],
-         out_file="tmp/conformance-validation.xlsx"):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    out_file: str = Option("tmp/conformance-validation.xlsx", short="o")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    out_file = params.out_file
     check_hostname = not no_check_hostname
     env = datapower.Environment(appliances,
                                 credentials,

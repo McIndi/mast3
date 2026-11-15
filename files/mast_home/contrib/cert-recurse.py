@@ -3,6 +3,7 @@ import json
 import OpenSSL
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.util import _s, _b
 from datetime import datetime
 from dateutil import parser, tz
@@ -16,17 +17,44 @@ def insert_newlines(string, every=64):
 def tree():
     return defaultdict(tree)
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=[],
-         out_file="tmp/cert-audit.json",
-         delay=0.5,
-         date_time_format="%A, %B %d, %Y, %X",
-         localtime=False,
-         limit=30,
-     ):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    out_file: str = Option("tmp/cert-audit.json", short="o")
+    delay: float = Option(0.5, short="D")
+    date_time_format: str = Option("%A, %B %d, %Y, %X")
+    localtime: bool = Option(False, short="l")
+    limit: int = Option(30, short="L")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    out_file = params.out_file
+    delay = params.delay
+    date_time_format = params.date_time_format
+    localtime = params.localtime
+    limit = params.limit
     logger = make_logger("cert-recurse")
     if out_file is None:
         logger.error("Must specify out file")

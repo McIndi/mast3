@@ -62,6 +62,7 @@ from itertools import groupby
 from mast.datapower import datapower
 from mast.logging import make_logger
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.pprint import pprint_xml_str, pprint_xml
 from mast.datapower.datapower import MGMT_NAMESPACE
 from lxml import etree
@@ -72,17 +73,46 @@ def tree():
     return defaultdict(tree)
 
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=[],
-         obj_class="",
-         obj_name_filter="",
-         obj_filter="",
-         mods=[],
-         dry_run=False,
-         save_config=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    obj_class: str = Option("", short="o")
+    obj_name_filter: str = Option("", short="O")
+    obj_filter: str = Option("")
+    mods: list[str] = Option(default_factory=list, short="m")
+    dry_run: bool = Option(False, short="D")
+    save_config: bool = Option(False, short="s")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    obj_class = params.obj_class
+    obj_name_filter = params.obj_name_filter
+    obj_filter = params.obj_filter
+    mods = params.mods
+    dry_run = params.dry_run
+    save_config = params.save_config
     log = make_logger("modify-config")
     check_hostname = not no_check_hostname
     env = datapower.Environment(appliances,

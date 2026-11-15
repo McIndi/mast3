@@ -1,4 +1,5 @@
 import mast.cli
+from mast.cli import Params, Option
 import mast.config
 import mast.cron
 import mast._daemon
@@ -229,7 +230,14 @@ def generate_markdown(objects):
                 for item in _v:
                     # Functions
                     md += "\n## {}\n".format(escape(item[0]))
-                    if item[1].__doc__:
+                    model = mast.cli.params_model(item[1])
+                    if model is not None:
+                        # A command: its parameters are in its model
+                        md += "\n\n{}\n\nParameters:\n\n".format(
+                            textwrap.dedent(item[1].__doc__ or "").strip())
+                        for spec in mast.cli.params.options(model):
+                            md += "* `{}`: {}\n".format(spec.name, spec.help)
+                    elif item[1].__doc__:
                         regex = re.compile(r"(\*\s`.*?--(.*?)`)")
                         doc = item[1].__doc__
                         for match in regex.findall(item[1].__doc__):
@@ -315,7 +323,12 @@ def generate_cli_reference():
     return ret
 
 
-def main(out_dir="doc"):
+class Main(Params):
+    out_dir: str = Option("doc", short="o")
+
+
+def main(params: Main):
+    out_dir = params.out_dir
     global tpl
     template_dir = os.path.join(os.environ["MAST_HOME"],
                                 "contrib",

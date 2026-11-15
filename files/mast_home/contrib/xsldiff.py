@@ -5,6 +5,7 @@ import difflib
 import hashlib
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.hashes import get_sha256
 from mast.logging import make_logger
 from itertools import groupby, combinations
@@ -67,14 +68,22 @@ TABLE_ROW = """
 """
 
 
-def main(
-        xsl_globs=[],
-        out_dir="tmp",
-        wrapcolumn=80,
-        tabsize=4,
-        no_only_differences=False,
-        no_same_filenames=False,
-    ):
+class Main(Params):
+    xsl_globs: list[str] = Option(default_factory=list, short="x")
+    out_dir: str = Option("tmp", short="o")
+    wrapcolumn: int = Option(80, short="w")
+    tabsize: int = Option(4, short="t")
+    no_only_differences: bool = Option(False, short="n")
+    no_same_filenames: bool = Option(False, short="N")
+
+
+def main(params: Main):
+    xsl_globs = params.xsl_globs
+    out_dir = params.out_dir
+    wrapcolumn = params.wrapcolumn
+    tabsize = params.tabsize
+    no_only_differences = params.no_only_differences
+    no_same_filenames = params.no_same_filenames
     only_differences = not no_only_differences
     same_filenames = not no_same_filenames
     if not os.path.exists(out_dir):

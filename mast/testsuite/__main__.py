@@ -18,6 +18,7 @@ import sys
 import unittest
 from mast import __version__
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 
 here = os.path.dirname(__file__)
@@ -37,27 +38,38 @@ regression_suite = unittest.defaultTestLoader.discover(
     start_dir=regression_dir,
     top_level_dir=regression_dir)
 
-def main(out_file="stdout",
-         unit=False,
-         integration=False,
-         regression=False,
-         All=False,
-         version=False):
-    """
-    mast.testsuite
+class Main(Params):
+    out_file: str = Option(
+        "stdout", short="o",
+        help='If given, the path and filename of where you would like '
+             'the results written. Defaults to `stdout`. Will overwrite '
+             'given file')
+    unit: bool = Option(
+        False, short="u",
+        help='If specified, run the unit tests')
+    integration: bool = Option(
+        False, short="i",
+        help='If specified, run the integration tests')
+    regression: bool = Option(
+        False, short="r",
+        help='If specified, run the regression tests')
+    All: bool = Option(False, short="A")
+    version: bool = Option(
+        False, short="v",
+        help='Print version number and exit')
 
-    A testsuite for MAST for IBM DataPower. This module is executable
-    from mast, the following options can be specified:
 
-    * `-u, --unit`: If specified, run the unit tests
-    * `-i, --integration`: If specified, run the integration tests
-    * `-r, --regression`: If specified, run the regression tests
-    * `-o, --out-file`: If given, the path and filename of where you
-    would like the results written. Defaults to `stdout`. Will overwrite
-    given file
-    * `-h, --help`: Print this help message and exit
-    * `-v, --version`: Print version number and exit
-    """
+def main(params: Main):
+    """mast.testsuite
+
+A testsuite for MAST for IBM DataPower. This module is executable
+from mast, the following options can be specified:"""
+    out_file = params.out_file
+    unit = params.unit
+    integration = params.integration
+    regression = params.regression
+    All = params.All
+    version = params.version
     if version:
         print("mast.testsuite - version {}".format(__version__))
         sys.exit(0)

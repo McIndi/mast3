@@ -6,6 +6,7 @@ import urllib.request, urllib.error, urllib.parse
 from glob import glob
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from collections import defaultdict
 from mast.logging import make_logger
 from mast.datapower import datapower
@@ -36,17 +37,33 @@ XCFG_TEMPLATE = """<datapower-configuration version="3">
   </configuration>
 </datapower-configuration>"""
 
-def main(
-        credentials="",
-        service_csv="",
-        out_dir="",
-        appliance_dir="",
-        wrapcolumn=80,
-        tabsize=4,
-        no_only_differences=False,
-        no_remove_namespaces=False,
-        no_same_filenames=False,
-    ):
+class Main(Params):
+    credentials: str = Option(
+        "", short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    service_csv: str = Option("", short="s")
+    out_dir: str = Option("", short="o")
+    appliance_dir: str = Option("", short="a")
+    wrapcolumn: int = Option(80, short="w")
+    tabsize: int = Option(4, short="t")
+    no_only_differences: bool = Option(False, short="n")
+    no_remove_namespaces: bool = Option(False, short="N")
+    no_same_filenames: bool = Option(False)
+
+
+def main(params: Main):
+    credentials = params.credentials
+    service_csv = params.service_csv
+    out_dir = params.out_dir
+    appliance_dir = params.appliance_dir
+    wrapcolumn = params.wrapcolumn
+    tabsize = params.tabsize
+    no_only_differences = params.no_only_differences
+    no_remove_namespaces = params.no_remove_namespaces
+    no_same_filenames = params.no_same_filenames
     parser = etree.XMLParser(
         remove_blank_text=True,
         strip_cdata=False,

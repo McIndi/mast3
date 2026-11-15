@@ -18,15 +18,23 @@ combined output from the two previous commands.
 import os
 import sys
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 from mast.util import require_optional
 
 # pandas is not installed with MAST.
 pd = require_optional("pandas")
 
-def main(config_xlsx="",
-         status_xlsx="",
-         out_file=""):
+class Main(Params):
+    config_xlsx: str = Option("", short="c")
+    status_xlsx: str = Option("", short="s")
+    out_file: str = Option("", short="o")
+
+
+def main(params: Main):
+    config_xlsx = params.config_xlsx
+    status_xlsx = params.status_xlsx
+    out_file = params.out_file
     config = pd.read_excel(config_xlsx)
     status = pd.read_excel(status_xlsx)
     status.rename(
