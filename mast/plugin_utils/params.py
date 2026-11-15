@@ -23,7 +23,7 @@ from mast.cli import Params, Option
 from mast.datapower.datapower import Environment
 
 __all__ = [
-    "ApplianceParams",
+    "ApplianceParams", "SaveConfigParams",
     "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
     "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
 ]
@@ -119,3 +119,16 @@ class ApplianceParams(Params):
             self.credentials,
             timeout=self.timeout,
             check_hostname=not self.no_check_hostname)
+
+
+class SaveConfigParams(ApplianceParams):
+    """
+    _class_: `mast.plugin_utils.params.SaveConfigParams`
+
+    The parameters of a command that can save the configuration after
+    it changes it.
+    """
+    save_config: bool = Option(
+        False, short="s",
+        help="If specified the configuration on the appliances will be "
+             "saved")

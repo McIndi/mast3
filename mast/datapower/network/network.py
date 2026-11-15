@@ -19,19 +19,55 @@ mast network:
 A set of tools for automating routine network administration
 tasks associated with IBM DataPower appliances.
 """
-import flask
-from mast.cli import Cli
+from typing import Literal
 from importlib.resources import files
 import urllib.request, urllib.error, urllib.parse
+from pydantic import field_validator
+from mast.cli import Cli, Option, Table, say
 from mast.plugins.web import Plugin
 import mast.datapower.datapower as datapower
 from mast.logging import make_logger, logged
-import mast.plugin_utils.plugin_utils as util
+from mast.plugin_utils.params import (
+    ApplianceParams, SaveConfigParams, configured)
+from mast.plugin_utils.results import ActionResults, Report, history
+from mast.plugin_utils.steps import perform, save_config
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
 
 cli = Cli()
+
+
+def _change(params, action, description, **kwargs):
+    """Perform action, which changes the configuration, on each
+    appliance in params, then save the configuration if params asks
+    for that. Return the report."""
+    logger = make_logger("mast.network")
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to {} on {}".format(description, str(env.appliances))
+    logger.info(msg)
+    say(msg)
+    perform(env, report, logger, action, action, **kwargs)
+
+    if params.save_config:
+        save_config(env, report, logger)
+    return report
+
+
+def _flush(params, action, **kwargs):
+    """Perform action, which flushes a cache, on each appliance in
+    params. Return the responses."""
+    logger = make_logger("mast.network")
+    env = params.environment()
+    msg = "Attempting {} on {}".format(action, str(env.appliances))
+    logger.info(msg)
+    say(msg)
+    responses = env.perform_action(action, **kwargs)
+    logger.debug("Responses received {}".format(str(responses)))
+    return ActionResults(responses, env)
+
 
 # network tests
 # =============
@@ -49,149 +85,63 @@ cli = Cli()
 
 @logged("mast.datapower.network")
 @cli.command('check-connectivity', category='network tests')
-def check_connectivity(appliances=[],
-                       credentials=[],
-                       timeout=120,
-                       no_check_hostname=False,
-                       web=False):
+def check_connectivity(params: ApplianceParams):
     """Check the connectivity of the three mgmt interfaces (xml, web and cli)
-on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+on the specified appliances."""
     logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     logger.info(
         "Attempting to check connectivity of {}".format(str(env.appliances)))
 
-    if web:
-        return util.render_connectivity_table(env), util.render_history(env)
-
-    print('\nhostname\t\txml\t\tweb\t\tcli')
-    print('-' * 80)
+    rows = []
     for appliance in env.appliances:
-        resp = []
-        resp.append(appliance.hostname)
         xml = str(appliance.check_xml_mgmt())
         logger.debug("connectivity to xml mgmt interface: {}".format(xml))
         web = str(appliance.check_web_mgmt())
         logger.debug("connectivity to Web GUI: {}".format(web))
-        cli = str(appliance.check_cli_mgmt())
-        logger.debug("connectivity to cli mgmt interface: {}".format(cli))
-        resp.append(xml)
-        resp.append(web)
-        resp.append(cli)
-        print('\t\t'.join(resp))
-    print()
+        _cli = str(appliance.check_cli_mgmt())
+        logger.debug("connectivity to cli mgmt interface: {}".format(_cli))
+        rows.append((appliance.hostname, xml, web, _cli))
+    return Table(("Appliance", "XML", "Web", "CLI"), rows, history(env))
+
+
+class TCPConnectionTest(ApplianceParams):
+    remote_hosts: list[str] = Option(
+        default_factory=list, short="r",
+        help="The remote hosts to test for connectivity")
+    remote_ports: list[str] = Option(
+        default_factory=list, short="R",
+        help="The ports on the remote hosts to test")
 
 
 @logged("mast.datapower.network")
 @cli.command('tcp-connection-test', category='network tests')
-def tcp_connection_test(appliances=[],
-                        credentials=[],
-                        timeout=120,
-                        no_check_hostname=False,
-                        remote_hosts=[],
-                        remote_ports=[],
-                        web=False):
-    """Perform a TCP Connection Test from each appliance to each remote_host
-    at each remote_port
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-r, --remote-hosts`: The remote hosts to test for connectivity
-* `-R, --remote-ports`: The ports on the remote hosts to test
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def tcp_connection_test(params: TCPConnectionTest):
+    """Perform a TCP Connection Test from each appliance to each remote
+host at each remote port."""
     logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     logger.info(
         "Performing TCP Connection Test from {} to {} on ports {}".format(
             str(env.appliances),
-            str(remote_hosts),
-            str(remote_ports)))
+            str(params.remote_hosts),
+            str(params.remote_ports)))
 
-    if web:
-        return util.render_tcp_connection_test_table(
-            env, remote_hosts, remote_ports), util.render_history(env)
-
-    print('appliance\t\tremote host\tremote port\tSuccess\n')
-    print('-' * 80)
+    rows = []
     for appliance in env.appliances:
-        for host in remote_hosts:
-            for port in remote_ports:
+        for host in params.remote_hosts:
+            for port in params.remote_ports:
                 resp = appliance.TCPConnectionTest(
                     RemoteHost=host,
                     RemotePort=port)
                 success = bool(resp)
                 logger.debug(
                     "Response from {} for test to {}:{}: {}".format(
-                        appliance.hostname,
-                        host,
-                        port,
-                        success))
-                line = '{0}\t\t{1}\t{2}\t\t{3}'.format(
-                    appliance.hostname,
-                    host,
-                    port,
-                    str(success))
-                print(line)
+                        appliance.hostname, host, port, success))
+                rows.append((appliance.hostname, host, port, success))
+    return Table(
+        ("Appliance", "Remote Host", "Remote Port", "Success"),
+        rows, history(env))
 #
 # ~#~#~#~#~#~#~#
 
@@ -216,50 +166,14 @@ DO NOT USE.__"""
 
 @logged("mast.datapower.network")
 @cli.command("display-routing-table", category="network config")
-def display_routing_table(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          web=False):
+def display_routing_table(params: ApplianceParams):
     """Display the routing table for the specified appliances
 
 __NOTE__: This will try the RoutingStatus3 status provider and
 it will fall back to RoutingStatus2 if the appliance doesn't
-support RoutingStatus3.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+support RoutingStatus3."""
     logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     logger.info(
         "Attempting to retrieve routing table from {}".format(
             str(env.appliances)))
@@ -273,7 +187,7 @@ DO NOT USE.__"""
             provider="RoutingStatus3")
         xpath = datapower.STATUS_XPATH + "RoutingStatus3"
     except urllib.error.HTTPError:
-        logger.warn(
+        logger.warning(
             "RoutingStatus3 unavailable, falling back to RoutingStatus2")
         resp = env.perform_action(
             "get_status",
@@ -282,153 +196,77 @@ DO NOT USE.__"""
         xpath = datapower.STATUS_XPATH + "RoutingStatus2"
     logger.debug("Response received: {}".format(resp))
 
-    header_row = []
-    for host, l in list(resp.items()):
-        if not web:
-            print(host, "\n", "=" * len(host), "\n")
-        fields = [child.tag for child in l.xml.find(xpath)]
+    header = []
+    rows = []
+    for host, response in resp.items():
+        for route in response.xml.findall(xpath):
+            if not header:
+                header = ["Appliance"] + [child.tag for child in route]
+            rows.append([host] + [child.text or "" for child in route])
+    return Table(header or ["Appliance"], rows, history(env))
 
-        if web:
-            if not header_row:
-                header_row = list(fields)
-                header_row.insert(0, "Appliance")
-                rows = []
 
-        width = len(max(fields, key=len))
-        template = "{:<{width}} " * len(fields)
-        header = template.format(*fields, width=width)
-        if not web:
-            print(header)
+class EthernetInterfaceResults(ActionResults):
+    """The configuration of an ethernet interface on each appliance.
+    The web GUI shows one row for each setting."""
 
-        for item in l.xml.findall(xpath):
-            values = [child.text for child in item]
-            line = template.format(*values, width=width)
-            if web:
-                _row = list(values)
-                _row.insert(0, host)
-                rows.append(_row)
-            if not web:
-                print(line)
-    if web:
-        return flask.render_template(
-            "results_table.html",
-            header_row=header_row,
-            rows=rows), util.render_history(env)
-        print()
+    def html(self):
+        rows = []
+        for host, response in self.responses.items():
+            config = response.xml.find(datapower.CONFIG_XPATH)
+            if config is None:
+                continue
+            for index, child in enumerate(config):
+                if not index:
+                    rows.append((host, config.get("name") or "", "", ""))
+                if not list(child):
+                    rows.append(("", "", child.tag, child.text or ""))
+                for node in child:
+                    rows.append((
+                        "", "", "{}.{}".format(child.tag, node.tag),
+                        node.text or ""))
+        return Table(
+            ("Appliance", "EthernetInterface", "Key", "Value"), rows).html()
+
+
+class DisplayEthernetInterface(ApplianceParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The EthernetInterface to examine")
+    persisted: bool = Option(
+        True,
+        help="Give `--no-persisted` to get the running configuration. "
+             "Otherwise the persisted configuration is returned.")
 
 
 @logged("mast.datapower.network")
 @cli.command('display-ethernet-interface', category='network config')
-def display_ethernet_interface(appliances=[],
-                               credentials=[],
-                               timeout=120,
-                               no_check_hostname=False,
-                               EthernetInterface="",
-                               persisted=True,
-                               web=False):
+def display_ethernet_interface(params: DisplayEthernetInterface):
     """This will display the details of the specified ethernet interface
-on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-E, --EthernetInterface`: The EthernetInterface to examine
-* `-p, --persisted`: Whether to get the persisted configuration, otherwise
-the running configuration will be returned
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+on the specified appliances."""
     logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout=120,
-        check_hostname=check_hostname)
+    env = params.environment()
     logger.info(
         "Attempting to Retrieve EthernetInterface configuration for "
         "{} {}".format(
-            str(env.appliances), EthernetInterface))
+            str(env.appliances), params.EthernetInterface))
 
     resp = env.perform_action(
         "get_config",
         _class="EthernetInterface",
-        name=EthernetInterface,
-        persisted=persisted)
+        name=params.EthernetInterface,
+        persisted=params.persisted)
     logger.debug("Response received: {}".format(str(resp)))
-    if web:
-        return (
-            util.render_ethernet_interface_results_table(resp),
-            util.render_history(env))
-    for host, r in list(resp.items()):
-        print(host, "\n", "=" * len(host), "\n")
-        print(r)
-        print()
+    return EthernetInterfaceResults(resp, env)
 
 
 @logged("mast.datapower.network")
 @cli.command('list-host-aliases', category='network config')
-def list_host_aliases(appliances=[],
-                      credentials=[],
-                      timeout=120,
-                      no_check_hostname=False,
-                      web=False):
+def list_host_aliases(params: ApplianceParams):
     """Lists the host aliases of the specified appliances as well as
-the host aliases common to all specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-textpasswords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+the host aliases common to all specified appliances."""
     logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     logger.info(
         "Attempting to find host aliases for {}".format(
             str(env.appliances)))
@@ -436,753 +274,242 @@ DO NOT USE.__"""
     resp = env.perform_action('get_host_aliases')
     logger.debug("Received Responses: {}".format(str(resp)))
 
-    if web:
-        return util.render_host_alias_table(resp), util.render_history(env)
-
+    rows = []
     sets = []
-    for host, l in list(resp.items()):
-        sets.append(set(l))
-        print(host)
-        print("=" * len(host))
-        for item in l:
-            print(" ".join(item))
-        print()
-
-    common = sets[0].intersection(*sets[1:])
+    for host, aliases in resp.items():
+        sets.append(set(aliases))
+        rows.extend((host,) + tuple(alias) for alias in aliases)
+    common = sorted(sets[0].intersection(*sets[1:])) if sets else []
     logger.info("Host Aliases common to {}: {}".format(
         str(env.appliances),
         str(common)))
-    print('\n', "common\n", "=" * len("common"))
-    for item in common:
-        print(" ".join(item))
+    rows.extend(("common",) + tuple(alias) for alias in common)
+    return Table(
+        ("Appliance", "Host Alias", "IPAddress", "AdminState"),
+        rows, history(env))
+
+
+class AddHostAlias(SaveConfigParams):
+    name: str = Option(short="N", help="The name of the host alias")
+    ip: str = Option(short="i", help="The IP address for the host alias")
+    admin_state: Literal["enabled", "disabled"] = Option(
+        "enabled", short="A", help="The admin state for the host alias")
 
 
 @logged("mast.datapower.network")
 @cli.command('add-host-alias', category='network config')
-def add_host_alias(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   save_config=False,
-                   name=None,
-                   ip=None,
-                   admin_state='enabled',
-                   web=False):
-    """Adds a host alias to the specified appliances.
+def add_host_alias(params: AddHostAlias):
+    """Adds a host alias to the specified appliances."""
+    return _change(
+        params, 'add_host_alias',
+        "add host alias {} {}".format(params.name, params.ip),
+        name=params.name, ip=params.ip, admin_state=params.admin_state)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration will be saved
-after adding the host alias
-* `-N, --name`: The name of the host alias
-* `-i, --ip`: The IP address for the host alias
-* `-A, --admin-state`: The admin state for the host alias
-(enabled or disabled) [DEFAULT: enabled]
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.network")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to add host alias {} {} to {}".format(
-        name, ip, str(env.appliances)))
-
-    kwargs = {'name': name, 'ip': ip, 'admin_state': admin_state}
-    resp = env.perform_async_action('add_host_alias', **kwargs)
-    logger.debug("Responses received: {}".format(str(resp)))
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="add_host_alias")
-
-    if save_config:
-        kwargs = {'domain': 'default'}
-        resp = env.perform_async_action('SaveConfig', **kwargs)
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class DelHostAlias(SaveConfigParams):
+    HostAlias: str = Option(
+        "", short="H", widget=configured("HostAlias"),
+        help="The name of the host alias to remove")
 
 
 @logged("mast.datapower.network")
 @cli.command('del-host-alias', category='network config')
-def del_host_alias(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   save_config=False,
-                   HostAlias="",
-                   web=False):
-    """Removes a host alias from the specified appliances.
+def del_host_alias(params: DelHostAlias):
+    """Removes a host alias from the specified appliances."""
+    return _change(
+        params, 'del_host_alias',
+        "remove host alias {}".format(params.HostAlias),
+        name=params.HostAlias)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-H, --HostAlias`: The name of the host alias to remove
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {'name': HostAlias}
-    resp = env.perform_async_action('del_host_alias', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="del_host_alias")
-
-    if save_config:
-        kwargs = {'domain': 'default'}
-        env.perform_async_action('SaveConfig', **kwargs)
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class ListSecondaryAddresses(ApplianceParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The ethernet interface to examine for secondary addresses")
 
 
 @logged("mast.datapower.network")
 @cli.command('list-secondary-addresses', category='network config')
-def list_secondary_addresses(appliances=[],
-                             credentials=[],
-                             timeout=120,
-                             no_check_hostname=False,
-                             EthernetInterface="",
-                             web=False):
+def list_secondary_addresses(params: ListSecondaryAddresses):
     """This will list the secondary IP Addresses on the specified
-Ethernet Interface for the specified appliances.
+Ethernet Interface for the specified appliances."""
+    env = params.environment()
+    resp = env.perform_action(
+        'get_secondary_addresses', interface=params.EthernetInterface)
+    return Table(
+        ("Appliance", "Secondary Address"),
+        [(host, address)
+         for host, addresses in resp.items() for address in addresses],
+        history(env))
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-E, --EthernetInterface`: The ethernet interface to examine for secondary
-addresses
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    kwargs = {'interface': EthernetInterface}
-
-    resp = env.perform_action('get_secondary_addresses', **kwargs)
-
-    if web:
-        return util.render_secondary_address_table(
-            resp), util.render_history(env)
-
-    for host, l in list(resp.items()):
-        print(host)
-        print('=' * len(host), '\n')
-        for item in l:
-            print(item)
-        print()
+class AddSecondaryAddress(SaveConfigParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The ethernet interface to which to add the secondary "
+             "address")
+    secondary_address: str = Option(
+        short="S",
+        help="The secondary IP address to add to the ethernet interface")
 
 
 @logged("mast.datapower.network")
 @cli.command('add-secondary-address', category='network config')
-def add_secondary_address(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          save_config=False,
-                          EthernetInterface="",
-                          secondary_address=None,
-                          web=False):
+def add_secondary_address(params: AddSecondaryAddress):
     """Adds a secondary IP address to the specified appliances on the
-specified ethernet interface
+specified ethernet interface"""
+    return _change(
+        params, 'add_secondary_address',
+        "add secondary address {} to {}".format(
+            params.secondary_address, params.EthernetInterface),
+        ethernet_interface=params.EthernetInterface,
+        secondary_address=params.secondary_address)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-E, --EthernetInterface`: The ethernet interface to which to add the
-secondary address
-* `-S, --secondary-address`: The secondary IP address to add to the ethernet
-interface
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        'ethernet_interface': EthernetInterface,
-        'secondary_address': secondary_address}
-    resp = env.perform_async_action('add_secondary_address', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="add_secondary_address")
-
-    if save_config:
-        kwargs = {'domain': 'default'}
-        env.perform_async_action('SaveConfig', **kwargs)
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class DelSecondaryAddress(SaveConfigParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The ethernet interface to remove the secondary address "
+             "from")
+    secondary_address: str = Option(
+        short="S",
+        help="The secondary IP address to remove from the ethernet "
+             "interface")
 
 
 @logged("mast.datapower.network")
 @cli.command('del-secondary-address', category='network config')
-def del_secondary_address(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          save_config=False,
-                          EthernetInterface="",
-                          secondary_address=None,
-                          web=False):
+def del_secondary_address(params: DelSecondaryAddress):
     """Removes a secondary IP address from the specified appliances on the
-specified ethernet interface
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-E, --EthernetInterface`: The ethernet interface to remove the
-secondary address from
-* `-S, --secondary-address`: The secondary IP address to remove from the
-ethernet interface
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    kwargs = {
-        'ethernet_interface': EthernetInterface,
-        'secondary_address': secondary_address}
-    resp = env.perform_async_action('del_secondary_address', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="del_secondary_address")
-
-    if save_config:
-        kwargs = {'domain': 'default'}
-        env.perform_async_action('SaveConfig', **kwargs)
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+specified ethernet interface"""
+    return _change(
+        params, 'del_secondary_address',
+        "remove secondary address {} from {}".format(
+            params.secondary_address, params.EthernetInterface),
+        ethernet_interface=params.EthernetInterface,
+        secondary_address=params.secondary_address)
 
 
 @logged("mast.datapower.network")
 @cli.command('list-static-hosts', category='network config')
-def list_static_hosts(appliances=[],
-                      credentials=[],
-                      timeout=120,
-                      no_check_hostname=False,
-                      web=False):
-    """This will list the static hosts on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
+def list_static_hosts(params: ApplianceParams):
+    """This will list the static hosts on the specified appliances."""
+    env = params.environment()
     resp = env.perform_async_action('get_static_hosts')
+    return Table(
+        ("Appliance", "Hostname", "IP Address"),
+        [(host,) + tuple(item)
+         for host, items in resp.items() for item in items],
+        history(env))
 
-    if web:
-        return util.render_static_hosts_table(resp), util.render_history(env)
 
-    for host, l in list(resp.items()):
-        print(host)
-        print('=' * len(host))
-        print()
-        for item in l:
-            print(' - '.join(item))
-        print()
+class AddStaticHost(SaveConfigParams):
+    hostname: str = Option(
+        short="H", help="The hostname of the static host")
+    ip: str = Option(short="i", help="The IP address of the static host")
 
 
 @logged("mast.datapower.network")
 @cli.command('add-static-host', category='network config')
-def add_static_host(appliances=[], credentials=[],
-                    timeout=120, save_config=False,
-                    hostname=None, ip=None, web=False,
-                    no_check_hostname=False):
-    """Adds a static host to  the specified appliances
+def add_static_host(params: AddStaticHost):
+    """Adds a static host to the specified appliances"""
+    return _change(
+        params, 'add_static_host',
+        "add static host {} {}".format(params.hostname, params.ip),
+        hostname=params.hostname, ip=params.ip)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-H, --hostname`: The hostname of the static host
-* `-i, --ip`: The IP address of the static host
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        'hostname': hostname,
-        'ip': ip}
-    resp = env.perform_async_action('add_static_host', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="add_static_host")
-
-    if save_config:
-        kwargs = {'domain': 'default'}
-        env.perform_async_action('SaveConfig', **kwargs)
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class DelStaticHost(SaveConfigParams):
+    hostname: str = Option(
+        short="H", help="The hostname of the static host")
 
 
 @logged("mast.datapower.network")
 @cli.command('del-static-host', category='network config')
-def del_static_host(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    save_config=False,
-                    hostname=None,
-                    web=False):
-    """Removes a static host from the specified appliances
+def del_static_host(params: DelStaticHost):
+    """Removes a static host from the specified appliances"""
+    return _change(
+        params, 'del_static_host',
+        "remove static host {}".format(params.hostname),
+        hostname=params.hostname)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-H, --hostname`: The hostname of the static host
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    resp = env.perform_async_action(
-        'del_static_host',
-        **{'hostname': hostname})
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="del_static_host")
-
-    if save_config:
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class ListStaticRoutes(ApplianceParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The EthernetInterface to examine for static routes")
 
 
 @logged("mast.datapower.network")
 @cli.command('list-static-routes', category='network config')
-def list_static_routes(appliances=[],
-                       credentials=[],
-                       no_check_hostname=False,
-                       timeout=120,
-                       EthernetInterface="",
-                       web=False):
+def list_static_routes(params: ListStaticRoutes):
     """This will list all of the static routes on the specified
-EthernetInterface on the specified appliances.
+EthernetInterface on the specified appliances."""
+    env = params.environment()
+    resp = env.perform_action(
+        'get_static_routes', interface=params.EthernetInterface)
+    return Table(
+        ("Appliance", "Destination", "Gateway", "Metric"),
+        [(host,) + tuple(item)
+         for host, items in resp.items() for item in items],
+        history(env))
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-E, --EthernetInterface`: The EthernetInterface to examine for static routes
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+class AddStaticRoute(SaveConfigParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The ethernet interface to add the static route to")
+    destination: str = Option(
+        short="d", help="The destination for the static route")
+    gateway: str = Option(
+        short="g", help="The gateway to use for this static route")
+    metric: int = Option(
+        short="m",
+        help="The metric (priority) of this static route, from 0 to 255")
 
-    kwargs = {'interface': EthernetInterface}
-    resp = env.perform_action('get_static_routes', **kwargs)
-
-    if web:
-        return util.render_static_routes_table(resp), util.render_history(env)
-
-    for host, l in list(resp.items()):
-        print(host)
-        print('=' * len(host))
-        print()
-        for item in l:
-            print(' - '.join(item))
-        print()
+    @field_validator("metric")
+    @classmethod
+    def _metric_in_range(cls, metric):
+        if not 0 <= metric <= 255:
+            raise ValueError("must be a number from 0 to 255")
+        return metric
 
 
 @logged("mast.datapower.network")
 @cli.command('add-static-route', category='network config')
-def add_static_route(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     save_config=False,
-                     EthernetInterface="",
-                     destination=None,
-                     gateway=None,
-                     metric=None,
-                     web=False):
+def add_static_route(params: AddStaticRoute):
     """Adds a static route to the specified appliance on the specified
-ethernet interface
+ethernet interface"""
+    return _change(
+        params, 'add_static_route',
+        "add static route to {} through {} on {}".format(
+            params.destination, params.gateway, params.EthernetInterface),
+        ethernet_interface=params.EthernetInterface,
+        destination=params.destination,
+        gateway=params.gateway,
+        metric=str(params.metric))
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-E, --EthernetInterface`: The ethernet interface to add the static route to
-* `-d, --destination`: The destination for the static route
-* `-g, --gateway`: The gateway to use for this static route
-* `-m, --metric`: Set the metric (priority) for this static route.
-(The higher the metric the more prefered that route will be (range 0-255))
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    if not isinstance(metric, str) and metric.isdigit():
-        print("metric must be provided and must be a number >= 0")
-        import sys
-        sys.exit(-1)
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        'ethernet_interface': EthernetInterface,
-        'destination': destination,
-        'gateway': gateway,
-        'metric': metric}
-    resp = env.perform_async_action('add_static_route', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="add_static_route")
-
-    if save_config:
-        env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save config")
-    if web:
-        return output, util.render_history(env)
+class DelStaticRoute(SaveConfigParams):
+    EthernetInterface: str = Option(
+        "", short="E", widget=configured("EthernetInterface"),
+        help="The ethernet interface to remove the static route from")
+    destination: str = Option(
+        short="d",
+        help="The destination for the static route to be removed")
 
 
 @logged("mast.datapower.network")
 @cli.command('del-static-route', category='network config')
-def del_static_route(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     save_config=False,
-                     EthernetInterface="",
-                     destination=None,
-                     web=False):
+def del_static_route(params: DelStaticRoute):
     """Removes a static route from the specified appliance on the specified
-ethernet interface
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-E, --EthernetInterface`: The ethernet interface to remove the
-static route from
-* `-d, --destination`: The destination for the static route
-to be removed
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        'ethernet_interface': EthernetInterface,
-        'destination': destination}
-    resp = env.perform_async_action('del_static_route', **kwargs)
-
-    if web:
-        output = util.render_boolean_results_table(
-            resp, suffix="del_static_route")
-
-    if save_config:
-        env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        if web:
-            output += util.render_boolean_results_table(
-                resp, suffix="save config")
-    if web:
-        return output, util.render_history(env)
+ethernet interface"""
+    return _change(
+        params, 'del_static_route',
+        "remove static route to {} from {}".format(
+            params.destination, params.EthernetInterface),
+        ethernet_interface=params.EthernetInterface,
+        destination=params.destination)
 #
 # ~#~#~#~#~#~#~#
 
@@ -1205,242 +532,37 @@ DO NOT USE.__"""
 
 @logged("mast.datapower.network")
 @cli.command('flush-arp-cache', category='caches')
-def flush_arp_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    web=False):
-    """This will flush the ARP Cache on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    responses = env.perform_action('FlushArpCache')
-
-    if web:
-        return util.render_boolean_results_table(
-            responses), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+def flush_arp_cache(params: ApplianceParams):
+    """This will flush the ARP Cache on the specified appliances."""
+    return _flush(params, 'FlushArpCache')
 
 
 @logged("mast.datapower.network")
 @cli.command('flush-dns-cache', category='caches')
-def flush_dns_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    web=False):
-    """This will flush the DNS Cache for the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    responses = env.perform_action('FlushDNSCache')
-
-    if web:
-        return util.render_boolean_results_table(
-            responses), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+def flush_dns_cache(params: ApplianceParams):
+    """This will flush the DNS Cache for the specified appliances."""
+    return _flush(params, 'FlushDNSCache')
 
 
 @logged("mast.datapower.network")
 @cli.command('flush-nd-cache', category='caches')
-def flush_nd_cache(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   web=False):
-    """This will flush the ND cache on the specified appliances.
+def flush_nd_cache(params: ApplianceParams):
+    """This will flush the ND cache on the specified appliances."""
+    return _flush(params, 'FlushNDCache')
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    responses = env.perform_action('FlushNDCache')
-
-    if web:
-        return util.render_boolean_results_table(
-            responses), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+class FlushPDPCache(ApplianceParams):
+    XACMLPDP: str = Option(
+        "", short="X", widget=configured("XACMLPDP"),
+        help="The XACMLPDP for which to flush the PDP cache")
 
 
 @logged("mast.datapower.network")
 @cli.command('flush-pdp-cache', category='caches')
-def flush_pdp_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    XACMLPDP="",
-                    web=False):
+def flush_pdp_cache(params: FlushPDPCache):
     """This will flush the PDP cache on the specified appliances
-for the specified XACMLPDP.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-X, --XACMLPDP`: The XACMLPDP for which to flush the PDP cache
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {"XACMLPDP": XACMLPDP}
-    responses = env.perform_action('FlushPDPCache', **kwargs)
-
-    if web:
-        return util.render_boolean_results_table(
-            responses), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+for the specified XACMLPDP."""
+    return _flush(params, 'FlushPDPCache', XACMLPDP=params.XACMLPDP)
 
 
 def get_data_file(f):
@@ -1459,12 +581,3 @@ class WebPlugin(Plugin):
 
     def js(self):
         return get_data_file('plugin.js')
-
-
-if __name__ == '__main__':
-    try:
-        cli.run()
-    except AttributeError as e:
-        if "'NoneType' object has no attribute 'app'" in str(e):
-            raise NotImplementedError(
-                "HTML formatted output is not supported on the CLI")

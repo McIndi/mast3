@@ -24,40 +24,15 @@ from mast.cli import Cli, Option, say
 from importlib.resources import files
 from mast.plugins.web import Plugin
 from mast.logging import make_logger, logged
-from mast.plugin_utils.params import ApplianceParams, configured
+from mast.plugin_utils.params import (
+    ApplianceParams, SaveConfigParams, configured)
 from mast.plugin_utils.results import ActionResults, CommonItems, Report
+from mast.plugin_utils.steps import perform as _perform
+from mast.plugin_utils.steps import save_config as _save_config
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
 cli = Cli()
-
-
-class SaveConfigParams(ApplianceParams):
-    """The parameters of a command that can save the configuration
-    after it changes it."""
-    save_config: bool = Option(
-        False, short="s",
-        help="If specified the configuration on the appliances will be "
-             "saved")
-
-
-def _perform(env, report, logger, action, suffix, **kwargs):
-    """Perform action on each appliance in env and add the responses
-    to report."""
-    resp = env.perform_async_action(action, **kwargs)
-    logger.debug("Responses received {}".format(str(resp)))
-    report.add(ActionResults(resp, suffix=suffix))
-
-
-def _save_config(env, report, logger):
-    """Save the configuration of the default domain on each appliance
-    in env and add the responses to report."""
-    msg = "Attempting to save config of default domain on {}".format(
-        str(env.appliances))
-    logger.info(msg)
-    say(msg)
-    _perform(env, report, logger, 'SaveConfig', "save_config",
-             domain='default')
 
 
 @logged("mast.datapower.accounts")
