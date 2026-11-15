@@ -40,6 +40,7 @@ import inspect
 import zipfile
 import markdown
 from markupsafe import Markup
+from html import escape as html_escape
 import html.entities as html_entities
 from textwrap import dedent
 from mast.config import get_config
@@ -47,6 +48,10 @@ from mast.datapower.datapower import Environment
 from mast.xor import xordecode, xorencode
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
+from mast.cli import Result, captured
+from mast.cli import params as cli_params
+from mast.plugin_utils import params as widgets
+from pydantic import ValidationError
 
 OBJECT_STATUS_ARGS = [
 	"AAAPolicy",
@@ -700,12 +705,10 @@ def html(plugin):
     htm = []
     module = get_module(plugin.replace("mast.datapower.", ""))
     last_category = ''
-    command_list = module.cli._command_list
-    # print(module.cli._command_list)
+    command_list = module.cli.categories()
     for category in sorted(command_list):
-        # print(type(category))
-        for index, item in enumerate(command_list[category]):
-            callable_name = item.__name__.replace('_', ' ')
+        for command in command_list[category]:
+            callable_name = command.key.replace('_', ' ')
             if category != last_category:
                 htm.append(
                     flask.render_template(
@@ -718,21 +721,19 @@ def html(plugin):
         'dynplugin.html', plugin=plugin, buttons=''.join(htm)))
 
 
+def _get_command(plugin, fn_name):
+    """Return the `mast.cli.Command` of plugin whose function is named
+    fn_name."""
+    return get_module(plugin).cli.find(fn_name)
+
+
 def _get_arguments(plugin, fn_name):
     """Return a list of two-tuples containing the argument names and
-    default values for function name and the actual function."""
-    module = get_module(plugin)
-    found = False
-    for category, items in module.cli._command_list.items():
-        if found:
-            break
-        for item in items:
-            # print(fn_name, category, item.__name__)
-            # print(item.__name__ == fn_name)
-            if item.__name__ == fn_name:
-                args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(item)
-                found = True
-                break
+    default values for function name and the actual function. This is
+    for legacy commands, which declare their parameters with their
+    signature."""
+    item = _get_command(plugin, fn_name).fn
+    args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(item)
     return (list(zip(args, defaults)), item)
 
 
@@ -818,9 +819,69 @@ def render_select_object_class(key):
         name=key, disclaimer=False)
 
 
+def _model_form(plugin, command, env):
+    """Return the form for a command that declares its parameters with
+    a model. Each control comes from the type and the widget of one
+    parameter."""
+    textboxes = []
+    checkboxes = []
+    file_uploads = []
+    selects = []
+    for spec in cli_params.options(command.model):
+        key, widget, many = spec.name, spec.widget or "", spec.kind == "list"
+        if widget in (widgets.APPLIANCES, widgets.CREDENTIALS,
+                      widgets.OUT_DIR, widgets.OUT_FILE):
+            # The web GUI supplies these, see _model_values
+            continue
+        elif widget == widgets.UPLOAD:
+            file_uploads.append(render_file_upload(plugin, key))
+        elif widget.startswith("configured:"):
+            selects.append(_render_select(
+                key, env.common_config(widget.split(":", 1)[1]),
+                many, disclaimer=True))
+        elif widget == widgets.STATUS_PROVIDER:
+            selects.append(_render_select(key, STATUS_PROVIDERS, many))
+        elif widget == widgets.OBJECT_CLASS:
+            selects.append(_render_select(key, OBJECT_STATUS_ARGS, many))
+        elif spec.kind == "flag":
+            checkboxes.append(render_checkbox(key, checked=bool(spec.default)))
+        elif spec.choices:
+            selects.append(_render_select(key, spec.choices, many))
+        elif many:
+            textboxes.append(render_multitext(key))
+        elif spec.secret:
+            textboxes.append(render_password_box(key, spec.default or ""))
+        else:
+            textboxes.append(render_textbox(
+                key, "" if spec.default is None else spec.default))
+    return textboxes + selects + file_uploads + checkboxes
+
+
+def _render_select(key, options, many=False, disclaimer=False):
+    if many:
+        return flask.render_template(
+            "multiselect.html", options=options, key=key,
+            disclaimer=disclaimer)
+    return flask.render_template(
+        "dynselect.html", options=options, name=key, disclaimer=disclaimer)
+
+
 def get_form(plugin, fn_name, appliances, credentials, no_check_hostname=True):
     """Return a form suitable for gathering arguments to function name"""
     check_hostname = not no_check_hostname
+    command = _get_command(plugin, fn_name)
+    if command.model is not None:
+        env = Environment(appliances, credentials, check_hostname=check_hostname)
+        forms = ['<div class="{0}Form"><div name="{1}">'.format(plugin, fn_name)]
+        forms.append(flask.render_template(
+            'formlabel.html', label=fn_name.replace('_', ' ')))
+        forms.append('<a href="#" class="help">help</a>')
+        forms.append('<div class="hidden help_content">{}</div>'.format(
+            Markup(markdown.markdown(command.doc))))
+        forms.extend(_model_form(plugin, command, env))
+        forms.append(flask.render_template('submitbutton.html', plugin=plugin))
+        forms.append('</div></div>')
+        return '<br />\n'.join(forms)
     textboxes = []
     checkboxes = []
     file_uploads = []
@@ -917,7 +978,10 @@ def _call_method(func, kwargs):
         func = _func
     if "web" in kwargs:
         try:
-            out, hist = func(**kwargs)
+            # A legacy command can call a command that reports its
+            # progress with mast.cli.say, which is for the terminal
+            with captured():
+                out, hist = func(**kwargs)
         except Exception as e:
             # The actions implemented should handle their own exceptions,
             # but if one makes it's way up here, we need to let the user know
@@ -928,18 +992,90 @@ def _call_method(func, kwargs):
             msg += "performing action:\n\n\t {}".format(str(e))
             out, hist = msg, traceback.format_exc()
             sys.stderr.write(traceback.format_exc())
-        t = Timestamp()
+        return Markup(out), _save_history(hist)
 
-        filename = os.path.join(
-            "var", "www", "static", "tmp", "request_history", t.timestamp)
-        if not os.path.exists(filename):
-            os.makedirs(filename)
-        rand = random.randint(10000, 99999)
-        _id = "{}-{}.log".format(str(t.timestamp), str(rand))
-        filename = os.path.join(filename, _id)
-        with open(filename, 'wb') as fout:
-            fout.write(hist.encode())
-        return Markup(out), _id
+
+def _save_history(hist):
+    """Write the request history to a file for the history download and
+    return the id of the file."""
+    import random
+    random.seed()
+    t = Timestamp()
+
+    filename = os.path.join(
+        "var", "www", "static", "tmp", "request_history", t.timestamp)
+    if not os.path.exists(filename):
+        os.makedirs(filename)
+    rand = random.randint(10000, 99999)
+    _id = "{}-{}.log".format(str(t.timestamp), str(rand))
+    filename = os.path.join(filename, _id)
+    with open(filename, 'wb') as fout:
+        fout.write(hist.encode())
+    return _id
+
+
+def _model_values(command, form, t):
+    """Gather the values for a command that declares its parameters
+    with a model. Return a dict to build the model from. A value that
+    the user left empty is left out, so that the model uses its
+    default."""
+    name = command.key
+    values = {}
+    for spec in cli_params.options(command.model):
+        key, widget = spec.name, spec.widget
+        if widget == widgets.CREDENTIALS:
+            values[key] = [
+                xordecode(
+                    _.encode(), key=xorencode(
+                        flask.request.cookies["9x4h/mmek/j.ahba.ckhafn"], key="_"))
+                for _ in form.getlist(key + '[]')]
+        elif widget == widgets.OUT_DIR:
+            values[key] = os.path.join('tmp', 'web', name, t.timestamp)
+        elif widget == widgets.OUT_FILE:
+            extension = os.path.splitext(str(spec.default or ""))[1]
+            values[key] = "/".join((
+                "tmp", "web", name,
+                "{}-{}{}".format(t.timestamp, name, extension)))
+        elif spec.kind == "flag":
+            values[key] = form.get(key) == 'true'
+        elif spec.kind == "list":
+            values[key] = form.getlist(key + '[]')
+        elif form.get(key) not in (None, ""):
+            values[key] = form.get(key)
+    return values
+
+
+def _call_command(command, values):
+    """Call a command that declares its parameters with a model. Return
+    the html of its result and the id of the saved request history."""
+    appliances = [
+        spec.name for spec in cli_params.options(command.model)
+        if spec.widget == widgets.APPLIANCES]
+    if appliances and not any(values.get(appliances[0], [])):
+        out = hist = "Must select at least one appliance."
+        return Markup(out), _save_history(hist)
+    try:
+        params = command.model(**values)
+    except ValidationError as exc:
+        out = hist = "; ".join(cli_params.error_messages(
+            command.model, exc, flags=False))
+        return Markup(html_escape(out)), _save_history(hist)
+    try:
+        # The progress messages are for the terminal
+        with captured():
+            result = command.fn(params)
+        if isinstance(result, Result):
+            out, hist = result.html(), result.history
+        else:
+            out, hist = "", ""
+    except Exception as e:
+        # See the comment in _call_method
+        import traceback
+        msg = "Sorry, an unhandled exception occurred while "
+        msg += "performing action:\n\n\t {}".format(str(e))
+        out, hist = html_escape(msg), traceback.format_exc()
+        sys.stderr.write(traceback.format_exc())
+    return Markup(out), _save_history(hist)
 
 
 def call_method(plugin, form):
@@ -947,6 +1083,11 @@ def call_method(plugin, form):
     _call_method. Wrap the results in html and return them."""
     t = Timestamp()
     name = form.get("callable")
+    command = _get_command(plugin, name)
+    if command.model is not None:
+        kwargs = _model_values(command, form, t)
+        out, history_id = _call_command(command, kwargs)
+        return _render_output(name, t, kwargs, out, history_id)
     arguments, func = _get_arguments(plugin, name)
     kwargs = {}
     for arg, default in arguments:
@@ -988,6 +1129,12 @@ def call_method(plugin, form):
         elif default is None:
             kwargs[arg] = form.get(arg) or default
     out, history_id = _call_method(func, kwargs)
+    return _render_output(name, t, kwargs, out, history_id)
+
+
+def _render_output(name, t, kwargs, out, history_id):
+    """Wrap the output of a command in html, with a link to download
+    what the command wrote to out_dir or out_file."""
     link = ""
     if 'out_dir' in kwargs:
         config = get_config("server.conf")
