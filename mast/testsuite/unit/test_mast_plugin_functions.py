@@ -28,7 +28,7 @@ import mock
 import mast.plugin_utils.plugin_functions as pf
 from mast.cli import Cli, Option, Table, say
 from mast.plugin_utils.params import (
-    ApplianceParams, OBJECT_CLASS, OUT_DIR, UPLOAD, configured)
+    ApplianceParams, OBJECT_CLASS, OUT_DIR, OUT_FILE, UPLOAD, configured)
 from mast.xor import xorencode
 
 COOKIE = "9x4h/mmek/j.ahba.ckhafn"
@@ -65,6 +65,43 @@ def example(params: Example):
 @cli.command("broken", category="examples")
 def broken(params: ApplianceParams):
     raise RuntimeError("it broke")
+
+
+class FileExample(ApplianceParams):
+    out_file: str = Option("tmp/result.txt", widget=OUT_FILE)
+    fail: bool = Option(False)
+
+
+@cli.command("file-example", category="examples")
+def file_example(params: FileExample):
+    calls.append(params)
+    if params.fail:
+        raise RuntimeError("it broke before writing the file")
+    os.makedirs(os.path.dirname(params.out_file), exist_ok=True)
+    with open(params.out_file, "w") as fout:
+        fout.write("the result")
+    return Table(("Appliance", "Result"), [("dp1", "Done")])
+
+
+class DirExample(ApplianceParams):
+    out_dir: str = Option("tmp", widget=OUT_DIR)
+
+
+# The web GUI names out_dir after the command and the second, so the
+# command that writes and the command that does not are two commands.
+@cli.command("partial", category="examples")
+def partial(params: DirExample):
+    """A command that fails after it writes a file."""
+    os.makedirs(params.out_dir, exist_ok=True)
+    with open(os.path.join(params.out_dir, "part.txt"), "w") as fout:
+        fout.write("part of the result")
+    raise RuntimeError("it broke in the middle")
+
+
+@cli.command("nothing", category="examples")
+def nothing(params: DirExample):
+    """A command that fails before it writes anything."""
+    raise RuntimeError("it broke at the start")
 
 
 class FakeEnvironment(object):
@@ -168,6 +205,49 @@ class WebFormTestCase(unittest.TestCase):
     def test_exception_is_reported(self):
         html = self.post(callable="broken")
         self.assertIn("it broke", html)
+
+    def test_output_file_errors_are_reported_without_a_download(self):
+        cases = (
+            ({"appliances[]": ""}, "Must select at least one appliance."),
+            ({"timeout": "many"}, "valid integer"),
+            ({"fail": "true"}, "it broke before writing the file"),
+        )
+        for form, message in cases:
+            with self.subTest(form=form):
+                html = self.post(callable="file_example", **form)
+                self.assertIn(message, html)
+                self.assertNotIn("static/tmp/", html)
+
+    def test_output_dir_errors_are_reported_without_a_download(self):
+        cases = (
+            ({"appliances[]": ""}, "Must select at least one appliance."),
+            ({"timeout": "many"}, "valid integer"),
+            ({}, "it broke at the start"),
+        )
+        for form, message in cases:
+            with self.subTest(form=form):
+                html = self.post(callable="nothing", **form)
+                self.assertIn(message, html)
+                self.assertNotIn("static/tmp/", html)
+
+    def test_output_dir_is_downloaded_if_the_command_wrote_to_it(self):
+        # What a command wrote before it failed is still offered
+        html = self.post(callable="partial")
+        self.assertIn("it broke in the middle", html)
+        self.assertIn("static/tmp/", html)
+        self.assertIn("partial-dp1.zip", html)
+
+    def test_output_file_is_downloaded_when_it_exists(self):
+        html = self.post(callable="file_example")
+        (params,) = calls
+        self.addCleanup(os.remove, params.out_file)
+        filename = os.path.basename(params.out_file)
+        download = os.path.join("var", "www", "static", "tmp", filename)
+        self.addCleanup(os.remove, download)
+        self.assertIn(filename, html)
+        self.assertIn("Done", html)
+        with open(download) as fin:
+            self.assertEqual("the result", fin.read())
 
 
 if __name__ == "__main__":

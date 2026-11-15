@@ -143,6 +143,26 @@ class TestAccountsCommands(unittest.TestCase):
                 self.assertIn("dp1-save_config", result.html())
                 self.assertEqual("", result.text())
 
+    def test_a_response_can_be_none(self):
+        # DataPower.add_static_route returns None without making a
+        # request when the ethernet interface does not exist.
+        result = ActionResults({"dp1": None})
+        self.assertEqual("dp1\n===\nFailed", result.text())
+        self.assertEqual(1, result.html().count("Failed"))
+
+    def test_add_user_can_report_plain_boolean_responses(self):
+        # DataPower.add_user returns False without making a request
+        # when neither a group nor privileged access is supplied.
+        with mock.patch.object(
+                FakeEnvironment, "perform_async_action",
+                return_value={"dp1": False, "dp2": True}):
+            result, messages = self.call(accounts.add_user, username="u")
+        self.assertIn("dp1\n===\nFailed", messages[1])
+        self.assertIn("dp2\n===\nSucceeded", messages[1])
+        html = result.html()
+        self.assertEqual(1, html.count("Failed"))
+        self.assertEqual(1, html.count("Succeeded"))
+
     def test_flush_caches(self):
         cases = (
             (accounts.flush_aaa_cache, {"Domain": "d", "aaa_policy": "a"},

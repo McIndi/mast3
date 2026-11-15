@@ -659,6 +659,11 @@ def _zipdir(path, z):
             z.write(os.path.join(root, f), filename)
 
 
+def _has_files(path):
+    """Return True if there is a file in path or below it."""
+    return any(files for _, _, files in os.walk(path))
+
+
 def get_module(plugin):
     """Return the imported objects which correspond to plugin.
     These are all from bin (which is a module itself)."""
@@ -931,7 +936,9 @@ def _render_output(name, t, kwargs, out, history_id):
     """Wrap the output of a command in html, with a link to download
     what the command wrote to out_dir or out_file."""
     link = ""
-    if 'out_dir' in kwargs:
+    # Validation or execution may have failed before the command wrote
+    # anything. A download is only offered if there is something in it.
+    if 'out_dir' in kwargs and _has_files(kwargs['out_dir']):
         config = get_config("server.conf")
         static_dir = config.get('dirs', 'static')
 
@@ -948,7 +955,7 @@ def _render_output(name, t, kwargs, out, history_id):
         zip_file.close()
         #filename = '%s-%s.zip' % (t.timestamp, name)
         link = Markup(flask.render_template('link.html', filename=fname))
-    if 'out_file' in kwargs and kwargs["out_file"] is not None:
+    if kwargs.get("out_file") and os.path.isfile(kwargs["out_file"]):
         import shutil
         config = get_config("server.conf")
         static_dir = config.get('dirs', 'static')
@@ -966,8 +973,6 @@ def _render_output(name, t, kwargs, out, history_id):
         timestamp=str(t),
         history_id=history_id,
         link=link)
-    if 'out_dir' in kwargs:
-        out = out
     return out
 
 

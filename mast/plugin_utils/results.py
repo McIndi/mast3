@@ -81,7 +81,12 @@ class ActionResults(_EnvironmentResult):
         lines = []
         for host, response in self.responses.items():
             lines.append("{}\n{}".format(host, "=" * len(host)))
-            lines.append(format_xml(response.xml))
+            if getattr(response, "xml", None) is None:
+                # Some methods of an appliance return True, False or
+                # None and make no request
+                lines.append("Succeeded" if response else "Failed")
+            else:
+                lines.append(format_xml(response.xml))
         return "\n".join(lines)
 
     def html(self):
