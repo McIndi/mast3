@@ -62,13 +62,6 @@ def example(params: Example):
     return Table(("Appliance", "Result"), [("dp1", "<ok>")], history="the history")
 
 
-@cli.command("legacy", category="examples")
-def legacy(appliances=[], credentials=[], name="", web=False):
-    """A legacy command."""
-    calls.append((appliances, credentials, name, web))
-    return "legacy output", "legacy history"
-
-
 @cli.command("broken", category="examples")
 def broken(params: ApplianceParams):
     raise RuntimeError("it broke")
@@ -115,7 +108,7 @@ class WebFormTestCase(unittest.TestCase):
     def test_buttons(self):
         with self.app.test_request_context("/"):
             html = pf.html("mast.datapower.example")
-        for name in ("example", "legacy", "broken"):
+        for name in ("example", "broken"):
             self.assertIn(name, html)
 
     def test_form_for_a_model_command(self):
@@ -175,15 +168,6 @@ class WebFormTestCase(unittest.TestCase):
     def test_exception_is_reported(self):
         html = self.post(callable="broken")
         self.assertIn("it broke", html)
-
-    def test_legacy_command_still_works(self):
-        with self.app.test_request_context("/"):
-            form = pf.get_form("example", "legacy", ["dp1"], ["user:pass"])
-        self.assertIn('name="name"', form)
-        html = self.post(callable="legacy", name="x")
-        self.assertIn("legacy output", html)
-        # The legacy path passes the credentials on as bytes
-        self.assertEqual([(["dp1"], [b"user:pass"], "x", True)], calls)
 
 
 if __name__ == "__main__":

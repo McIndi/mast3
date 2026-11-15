@@ -25,14 +25,9 @@ There are two main methods in the one class provided (Cli):
 * `run`: A method which parses the command line arguments and
 executes the appropriate function
 
-A command declares its parameters in one of two ways:
-
-* With a model (preferred). The function takes one parameter, which
-is annotated with a subclass of `mast.cli.Params`. The options, their
-help and their validation come from the model. See `mast.cli.params`.
-* With its signature (legacy). The options are derived from the default
-values of the function's parameters. Commands move from this form to
-the model form one plugin at a time, and this form will then be removed.
+A command is a function that takes one parameter, which is annotated
+with a subclass of `mast.cli.Params`. The options, their help and their
+validation come from that model. See `mast.cli.params`.
 """
 import sys
 import inspect
@@ -59,7 +54,7 @@ def params_model(fn):
     _function_: `mast.cli.params_model(fn)`
 
     Return the `Params` subclass that `fn` takes, or `None` if `fn`
-    declares its parameters with its signature (the legacy form).
+    is not a command.
     """
     parameters = list(inspect.signature(fn).parameters.values())
     if len(parameters) != 1:
@@ -82,12 +77,12 @@ class Command(object):
     * `name`: The name on the command line, for example `fetch-logs`.
     * `key`: The name of the function, which the web GUI uses.
     * `category`: The heading under which the web GUI lists the command.
-    * `fn`: The function to call. For a model command it takes either
-    one `Params` instance or the fields as keyword arguments.
-    * `model`: The `Params` subclass, or `None` for a legacy command.
+    * `fn`: The function to call. It takes either one `Params`
+    instance or the fields of the model as keyword arguments.
+    * `model`: The `Params` subclass.
     * `parser`: The `argparse` parser for this command.
     """
-    def __init__(self, name, fn, category=None, model=None, parser=None):
+    def __init__(self, name, fn, category, model, parser):
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -98,14 +93,12 @@ class Command(object):
     @property
     def doc(self):
         """The help for the command, as markdown."""
-        if self.model is None:
-            return str(self.fn.__doc__)
         return _params.describe(self.model, self.fn.__doc__)
 
 
 def _accept_keywords(fn, model):
-    """Wrap a model command so that it can also be called with the
-    fields of the model as keyword arguments. Other Python code calls
+    """Wrap a command so that it can also be called with the fields
+    of its model as keyword arguments. Other Python code calls
     commands this way, and the arguments are validated the same as
     arguments from the command line."""
     @functools.wraps(fn)
@@ -127,8 +120,7 @@ class Cli(object):
     This is a class which generates a command line interface for
     functions.
 
-    The preferred way to declare the parameters of a function is a
-    `mast.cli.Params` model:
+    A function declares its parameters with a `mast.cli.Params` model:
 
         :::python
         from mast.cli import Cli, Params, Option, Text
@@ -145,72 +137,34 @@ class Cli(object):
             text = "Hello, {}".format(params.name)
             return Text(text.upper() if params.shout else text)
 
+        if __name__ == "__main__":
+            cli.run()
+
     The function returns a `mast.cli.Result` (or `None`) and `run`
     prints it. The function can also be called from Python as
     `greet(name="World")`.
 
-    The rest of this description is about the legacy form, in which the
-    options are derived from the function's signature.
-
-    To define an argument to the command line program, you must set
-    a default value for the function's parameter. The supported types
-    of default arguments are:
-
-    * `str` - When the default argument is a string, a string will be
-    expected from the command line
-    * `list` - When the default argument is a list, multiple values
-    will be accepted from the command line
-    * `int` - When the default argument is an integer, an integer
-    will be expected from the command line
-    * `float` - When the default argument is a float, a float will
-    be expected from the command line
-    * `bool` - When the default argument is a boolean value, the option
-    will be a flag, which when present will provide the oposite value
-    as the default argument
-
-    There are two main ways to use this library:
-
-    Many functions as sub-commands:
+    There are two ways to use this library. The example above has many
+    functions as sub-commands (`program greet -n World`). A program
+    that does one thing gives its one function as `main`, and has no
+    sub-commands (`program -n World`):
 
         :::python
-        from mast.cli import Cli
+        from mast.cli import Cli, Params, Option
 
-        cli = Cli()
+        class Main(Params):
+            name: str = Option(short="n", help="Who to greet")
 
-        @cli.command
-        def subcommand_one(arg_1="", arg_2=10):
-            do_something(arg_1, arg_2)
-
-        @cli.command
-        def subcommand_two(arg_1=20, flag_1=False):
-            do_something_else(arg_1, flag_1)
-
-        if __name__ == "__main__":
-            try:
-                cli.run()
-            except Exception:
-                log_something()
-                raise
-
-    One `main` function as the program:
-
-        :::python
-        from mast.cli import Cli
-
-        def main(arg_1=[], arg_2=2.0, flag_1=True):
-            do_something()
+        def main(params: Main):
+            print("Hello, {}".format(params.name))
 
         if __name__ == "__main__":
             cli = Cli(main=main)
-            try:
-                cli.run()
-            except Exception:
-                log_something()
-                raise
+            cli.run()
     """
-    def __init__(self, description="", main=None, optionals=None):
+    def __init__(self, description="", main=None):
         """
-        _method_: `mast.cli.Cli.__init__(self, description="", main=None, optionals=None)`
+        _method_: `mast.cli.Cli.__init__(self, description="", main=None)`
 
         This is the constructor for this class. A few options are
         available which allows defining how the program will appear
@@ -228,15 +182,9 @@ class Cli(object):
         is called from the command line. __NOTE__ that if `main` is
         provided, you cannot create sub-commands using the `command`
         decorator.
-        * `optionals`: If provided, `optionals` should be a `dict`
-        containing the name and value of optional arguments. Any parameter
-        not in this `dict` will be considered required by your program.
         """
         self.main = main
-        self.optionals = optionals or {}
-        self.functions = {}
         self.commands = {}
-        self._command_list = defaultdict(list)
         self.parser = argparse.ArgumentParser(
             description=description,
             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -277,13 +225,17 @@ class Cli(object):
         __Internal use only__
 
         collects information about decorated function, builds a
-        subparser then returns the function to register. A legacy
-        function is returned unchanged. A model function is returned
-        wrapped, so that it also accepts keyword arguments.
+        subparser then returns the function to register. The function
+        is returned wrapped, so that it also accepts the fields of its
+        model as keyword arguments.
 
         Parameters:
 
         * `fn`: The function to create a sub-command for.
+        * `name`: The name of the sub-command. The default is the name
+        of the function.
+        * `category`: The heading under which the web GUI lists the
+        command.
         """
         if not name:
             name = fn.__name__
@@ -291,10 +243,11 @@ class Cli(object):
         if name in self.commands:
             raise ValueError("the command {} is already defined".format(name))
         model = params_model(fn)
-        if model is not None:
-            fn = _accept_keywords(fn, model)
-        self.functions[name] = fn
-        self._command_list[category].append(fn)
+        if model is None:
+            raise TypeError(
+                "{}: a command takes one parameter, annotated with a "
+                "subclass of mast.cli.Params".format(fn.__name__))
+        fn = _accept_keywords(fn, model)
 
         desc = fn.__doc__
 
@@ -312,52 +265,7 @@ class Cli(object):
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
-        if model is not None:
-            _params.add_arguments(_parser, model)
-            return fn
-
-        args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(fn)
-
-        args = [] if not args else args
-        defaults = [] if not defaults else defaults
-
-        positionals = args[:len(args) - len(defaults)]
-        keywords = [x for x in zip(args[len(args) - len(defaults):], defaults)]
-
-        for arg in positionals:
-            if arg in self.optionals:
-                _parser.add_argument(
-                    arg, nargs='?', default=self.optionals[arg])
-            else:
-                _parser.add_argument(arg)
-
-        for arg, default in keywords:
-            _arg = arg.replace("_", "-")
-            # Try the lower case first letter for the short option first
-            params = _parser._option_string_actions
-            if '-{}'.format(arg[0]) not in params:
-                flag = ('-{}'.format(arg[0]), '--{}'.format(_arg))
-            # Then the upper-case first letter for the short option
-            elif '-{}'.format(arg[0]).upper() not in params:
-                flag = ('-{}'.format(arg[0]).upper(), '--{}'.format(_arg))
-            # otherwise no short option
-            else:
-                flag = ('--{}'.format(_arg), )
-            if isinstance(default, (str, type(None))):
-                _parser.add_argument(*flag, type=str, default=default)
-            elif isinstance(default, list):
-                _parser.add_argument(*flag, action='append')
-            elif isinstance(default, bool):
-                if default:
-                    _parser.add_argument(
-                        '--no-{}'.format(_arg), dest=arg, action='store_false', default=default)
-                else:
-                    _parser.add_argument(
-                        *flag, action='store_true', dest=arg, default=default)
-            elif isinstance(default, int):
-                _parser.add_argument(*flag, type=int, dest=arg, default=default)
-            elif isinstance(default, float):
-                _parser.add_argument(*flag, type=float, dest=arg, default=default)
+        _params.add_arguments(_parser, model)
         return fn
 
     def command(self, name=None, category=None):
@@ -374,28 +282,6 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
-
-        Usage
-
-            :::python
-            from mast.cli import Cli
-
-            cli = Cli()
-
-            @cli.command
-            def function_1(param=""):
-                do_something()
-
-            @cli.command
-            def function_2(param=""):
-                do_something()
-
-            if __name__ == "__main__":
-                try:
-                    cli.run()
-                except Exception:
-                    logger.exception()
-                    raise
         """
         def inner(fn):
             if self.main is not None:
@@ -424,25 +310,9 @@ class Cli(object):
         command = getattr(args, "_command", None)
         if command is None:
             self.parser.error("a command is required")
-        if command.model is not None:
-            return self._run_model_command(command, args, log)
-        func = args.func
-        log.debug(f"Found func: {func}")
-        _args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(func)
-        log.debug(f"Found argspec: {_args}, {_}, {__}, {defaults}, {___}, {____}, {_____}")
-        kwargs = {}
-        for arg in _args:
-            kwargs[arg] = getattr(args, arg)
-        # Uncomment for debugging purposes only, will log credentials
-        # log.debug(f"Built kwargs: {kwargs}")
-        log.info(f"Attempting to execute func: {func}")
-        try:
-            func(**kwargs)
-        except Exception as e:
-            log.exception(f"Found exception: {e}")
-            raise
+        return self._run_command(command, args, log)
 
-    def _run_model_command(self, command, args, log):
+    def _run_command(self, command, args, log):
         try:
             values = _params.from_namespace(command.model, args)
         except ValidationError as exc:

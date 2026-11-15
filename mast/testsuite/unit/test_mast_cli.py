@@ -14,8 +14,8 @@
 #
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
-Unit tests for mast.cli: commands that declare their parameters with a
-model, and the legacy commands that declare them with their signature.
+Unit tests for mast.cli: commands, which declare their parameters with
+a model.
 """
 import contextlib
 import io
@@ -52,10 +52,10 @@ def make_cli():
         calls.append(params)
         return Text("hello " + params.name)
 
-    @cli.command("old-style", category="words")
-    def old_style(name="", count=1, flag=False, items=[]):
-        """A legacy command."""
-        calls.append((name, count, flag, items))
+    @cli.command("part", category="words")
+    def part(params: Greet):
+        """Say goodbye."""
+        calls.append(params)
 
     return cli, calls, greet
 
@@ -165,12 +165,11 @@ class TestModelCommand(unittest.TestCase):
 
     def test_registry(self):
         cli, _, _ = make_cli()
-        self.assertEqual(["greet", "old-style"], list(cli.commands))
+        self.assertEqual(["greet", "part"], list(cli.commands))
         self.assertEqual(
-            ["greet", "old_style"],
+            ["greet", "part"],
             [c.key for c in cli.categories()["words"]])
         self.assertIs(Greet, cli.find("greet").model)
-        self.assertIsNone(cli.find("old_style").model)
         with self.assertRaises(KeyError):
             cli.find("missing")
         self.assertIn("* `-n, --name`: Who to greet", cli.find("greet").doc)
@@ -229,24 +228,29 @@ class TestDeclarationErrors(unittest.TestCase):
                 pass
 
 
-class TestLegacyCommand(unittest.TestCase):
+class TestNotACommand(unittest.TestCase):
 
-    def test_options_from_the_signature(self):
-        cli, calls, _ = make_cli()
-        status, _, err = run(
-            cli, "old-style", "-n", "x", "-c", "2", "-f", "-i", "a", "-i", "b")
-        self.assertEqual(0, status, err)
-        self.assertEqual([("x", 2, True, ["a", "b"])], calls)
+    def test_a_function_without_a_model_is_refused(self):
+        cli, _, _ = make_cli()
 
-    def test_main_function(self):
-        seen = []
+        def options_from_the_signature(name="", count=1):
+            pass
 
-        def main(out_file="stdout", verbose=False):
-            seen.append((out_file, verbose))
+        def not_a_model(params: dict):
+            pass
 
-        status, _, err = run(Cli(main=main), "-o", "x", "-v")
-        self.assertEqual(0, status, err)
-        self.assertEqual([("x", True)], seen)
+        def two_parameters(params: Greet, other: Greet):
+            pass
+
+        for fn in (options_from_the_signature, not_a_model, two_parameters):
+            with self.subTest(fn=fn.__name__):
+                with self.assertRaises(TypeError) as caught:
+                    cli.command()(fn)
+                self.assertIn(fn.__name__, str(caught.exception))
+                self.assertIn("mast.cli.Params", str(caught.exception))
+                with self.assertRaises(TypeError):
+                    Cli(main=fn)
+        self.assertEqual(["greet", "part"], list(cli.commands))
 
 
 class TestResults(unittest.TestCase):

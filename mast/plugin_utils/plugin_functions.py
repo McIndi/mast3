@@ -36,18 +36,16 @@ import re
 import os
 import sys
 import flask
-import inspect
 import zipfile
 import markdown
 from markupsafe import Markup
 from html import escape as html_escape
 import html.entities as html_entities
-from textwrap import dedent
 from mast.config import get_config
 from mast.datapower.datapower import Environment
 from mast.xor import xordecode, xorencode
 from mast.timestamp import Timestamp
-from mast.logging import make_logger, logged
+from mast.logging import make_logger
 from mast.cli import Result, captured
 from mast.cli import params as cli_params
 from mast.plugin_utils import params as widgets
@@ -727,16 +725,6 @@ def _get_command(plugin, fn_name):
     return get_module(plugin).cli.find(fn_name)
 
 
-def _get_arguments(plugin, fn_name):
-    """Return a list of two-tuples containing the argument names and
-    default values for function name and the actual function. This is
-    for legacy commands, which declare their parameters with their
-    signature."""
-    item = _get_command(plugin, fn_name).fn
-    args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(item)
-    return (list(zip(args, defaults)), item)
-
-
 def render_textbox(key, value):
     """Render a textbox for a dynamic form."""
     name = key
@@ -781,47 +769,8 @@ def render_file_upload(plugin, key):
         label=label, plugin=plugin)
 
 
-def render_select_object_status(key, env):
-    options = env.common_config(key)
-    return flask.render_template(
-        'dynselect.html',
-        options=options,
-        name=key,
-        disclaimer=True)
-
-
-def render_multiselect_object_status(key, env):
-    options = env.common_config(key)
-    return flask.render_template(
-        "multiselect.html",
-        options=options,
-        key=key,
-        disclaimer=True)
-
-
-def render_multiselect_status_provider(key):
-    return flask.render_template("multiselect.html", options=STATUS_PROVIDERS,
-        key=key, disclaimer=False)
-
-
-def render_select_status_provider(key):
-    return flask.render_template("dynselect.html", options=STATUS_PROVIDERS,
-        name=key, disclaimer=False)
-
-
-def render_multiselect_object_class(key):
-    return flask.render_template("multiselect.html", options=OBJECT_STATUS_ARGS,
-        key=key, disclaimer=False)
-
-
-def render_select_object_class(key):
-    return flask.render_template("dynselect.html", options=OBJECT_STATUS_ARGS,
-        name=key, disclaimer=False)
-
-
 def _model_form(plugin, command, env):
-    """Return the form for a command that declares its parameters with
-    a model. Each control comes from the type and the widget of one
+    """Return the controls of the form for a command. Each control comes from the type and the widget of one
     parameter."""
     textboxes = []
     checkboxes = []
@@ -870,129 +819,17 @@ def get_form(plugin, fn_name, appliances, credentials, no_check_hostname=True):
     """Return a form suitable for gathering arguments to function name"""
     check_hostname = not no_check_hostname
     command = _get_command(plugin, fn_name)
-    if command.model is not None:
-        env = Environment(appliances, credentials, check_hostname=check_hostname)
-        forms = ['<div class="{0}Form"><div name="{1}">'.format(plugin, fn_name)]
-        forms.append(flask.render_template(
-            'formlabel.html', label=fn_name.replace('_', ' ')))
-        forms.append('<a href="#" class="help">help</a>')
-        forms.append('<div class="hidden help_content">{}</div>'.format(
-            Markup(markdown.markdown(command.doc))))
-        forms.extend(_model_form(plugin, command, env))
-        forms.append(flask.render_template('submitbutton.html', plugin=plugin))
-        forms.append('</div></div>')
-        return '<br />\n'.join(forms)
-    textboxes = []
-    checkboxes = []
-    file_uploads = []
-    selects = []
-
     env = Environment(appliances, credentials, check_hostname=check_hostname)
-
     forms = ['<div class="{0}Form"><div name="{1}">'.format(plugin, fn_name)]
-
-    label = fn_name.replace('_', ' ')
-    forms.append(flask.render_template('formlabel.html', label=label))
-
-    #md = markdown.Markdown(extensions=['markdown.extensions.extra'])
-    arguments, fn = _get_arguments(plugin, fn_name)
+    forms.append(flask.render_template(
+        'formlabel.html', label=fn_name.replace('_', ' ')))
     forms.append('<a href="#" class="help">help</a>')
     forms.append('<div class="hidden help_content">{}</div>'.format(
-        Markup(markdown.markdown(dedent(str(fn.__doc__))))))
-    for arg in arguments:
-        key, value = arg
-        if isinstance(value, bool):
-            if key == "web":
-                continue
-            if value:
-                checkboxes.append(render_checkbox(key, checked=True))
-                continue
-            else:
-                checkboxes.append(render_checkbox(key))
-                continue
-        elif isinstance(value, list):
-            if key == 'appliances' or key == 'credentials':
-                continue
-            elif key in OBJECT_STATUS_ARGS:
-                selects.append(render_multiselect_object_status(key, env))
-                continue
-            elif key == "StatusProvider":
-                selects.append(render_multiselect_status_provider(key))
-                continue
-            elif key == "ObjectClass":
-                selects.append(render_multiselect_object_class(key))
-                continue
-            textboxes.append(render_multitext(key))
-        elif isinstance(value, str):
-            if key == 'out_dir':
-                continue
-            elif key == 'out_file':
-                continue
-            elif key in OBJECT_STATUS_ARGS:
-                selects.append(render_select_object_status(key, env))
-                continue
-            elif key == "StatusProvider":
-                selects.append(render_select_status_provider(key))
-                continue
-            elif key == "ObjectClass":
-                selects.append(render_select_object_class(key))
-                continue
-            elif "password" in key:
-                textboxes.append(render_password_box(key, value))
-                continue
-            textboxes.append(render_textbox(key, value))
-        elif isinstance(value, int):
-            textboxes.append(render_textbox(key, value))
-        elif value is None:
-            if key == 'out_file':
-                continue
-            elif key == 'file_in':
-                file_uploads.append(render_file_upload(plugin, key))
-                continue
-            textboxes.append(render_textbox(key, ''))
-
-    forms.extend(textboxes)
-    forms.extend(selects)
-    forms.extend(file_uploads)
-    forms.extend(checkboxes)
+        Markup(markdown.markdown(command.doc))))
+    forms.extend(_model_form(plugin, command, env))
     forms.append(flask.render_template('submitbutton.html', plugin=plugin))
     forms.append('</div></div>')
     return '<br />\n'.join(forms)
-
-
-def _call_method(func, kwargs):
-    """Call func with kwargs if web is in kwargs, func should return a
-    two-tupple containing (html, request_history). Here, we write the hsitory
-    to a file and return the html for inclusion in the web GUI."""
-    import random
-    random.seed()
-    if "appliances" not in kwargs:
-        pass
-    elif not kwargs["appliances"][0]:
-        # Kind of a hack to return the response we want in case no appliances
-        # were checked in the gui
-        def _func(*args, **kwargs):
-            return (
-                "Must select at least one appliance.",
-                "Must select at least one appliance.")
-        func = _func
-    if "web" in kwargs:
-        try:
-            # A legacy command can call a command that reports its
-            # progress with mast.cli.say, which is for the terminal
-            with captured():
-                out, hist = func(**kwargs)
-        except Exception as e:
-            # The actions implemented should handle their own exceptions,
-            # but if one makes it's way up here, we need to let the user know
-            # part of that is suppressing the exception (because otherwise
-            # we have no way of sending back the details)
-            import traceback
-            msg = "Sorry, an unhandled exception occurred while "
-            msg += "performing action:\n\n\t {}".format(str(e))
-            out, hist = msg, traceback.format_exc()
-            sys.stderr.write(traceback.format_exc())
-        return Markup(out), _save_history(hist)
 
 
 def _save_history(hist):
@@ -1046,8 +883,7 @@ def _model_values(command, form, t):
 
 
 def _call_command(command, values):
-    """Call a command that declares its parameters with a model. Return
-    the html of its result and the id of the saved request history."""
+    """Call a command. Return the html of its result and the id of the saved request history."""
     appliances = [
         spec.name for spec in cli_params.options(command.model)
         if spec.widget == widgets.APPLIANCES]
@@ -1069,7 +905,9 @@ def _call_command(command, values):
         else:
             out, hist = "", ""
     except Exception as e:
-        # See the comment in _call_method
+        # A command should handle its own exceptions. If one reaches
+        # this point, the user must be told, and the only way to send
+        # the details back is to catch it here.
         import traceback
         msg = "Sorry, an unhandled exception occurred while "
         msg += "performing action:\n\n\t {}".format(str(e))
@@ -1079,56 +917,13 @@ def _call_command(command, values):
 
 
 def call_method(plugin, form):
-    """Gather the arguments and function name from form then invoke
-    _call_method. Wrap the results in html and return them."""
+    """Gather the arguments and function name from form then call
+    the command. Wrap the results in html and return them."""
     t = Timestamp()
     name = form.get("callable")
     command = _get_command(plugin, name)
-    if command.model is not None:
-        kwargs = _model_values(command, form, t)
-        out, history_id = _call_command(command, kwargs)
-        return _render_output(name, t, kwargs, out, history_id)
-    arguments, func = _get_arguments(plugin, name)
-    kwargs = {}
-    for arg, default in arguments:
-        if isinstance(default, bool):
-            if arg == "web":
-                kwargs[arg] = True
-                continue
-            value = form.get(arg)
-            if value == 'true':
-                kwargs[arg] = True
-            else:
-                kwargs[arg] = False
-        elif isinstance(default, list):
-            if arg == 'appliances':
-                kwargs[arg] = form.getlist(arg + '[]')
-            elif arg == 'credentials':
-                kwargs[arg] = [
-                    xordecode(
-                        _.encode(), key=xorencode(
-                            flask.request.cookies["9x4h/mmek/j.ahba.ckhafn"], key="_"))
-                            for _ in form.getlist(arg + '[]')]
-            else:
-                kwargs[arg] = form.getlist(arg + '[]')
-        elif isinstance(default, str):
-            if arg == 'out_dir':
-                kwargs[arg] = os.path.join('tmp', 'web', name, t.timestamp)
-            elif arg == 'out_file' and default is not None:
-                kwargs[arg] = os.path.join("tmp",
-                                           "web",
-                                           name,
-                                           "{}-{}{}".format(t.timestamp,
-                                                            name,
-                                                            os.path.splitext(default)[1])
-                ).replace(os.path.sep, "/")
-            else:
-                kwargs[arg] = form.get(arg) or default
-        elif isinstance(default, int):
-            kwargs[arg] = int(form.get(arg)) or default
-        elif default is None:
-            kwargs[arg] = form.get(arg) or default
-    out, history_id = _call_method(func, kwargs)
+    kwargs = _model_values(command, form, t)
+    out, history_id = _call_command(command, kwargs)
     return _render_output(name, t, kwargs, out, history_id)
 
 
