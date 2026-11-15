@@ -16,7 +16,7 @@
 from mast.datapower.datapower import Environment
 from mast.logging import make_logger
 from getpass import getpass
-from mast.cli import Cli
+from mast.cli import Cli, Params, Option
 import sys
 import os
 
@@ -129,11 +129,36 @@ def display_output(string):
     sys.stdout.flush()
 
 
-def main(appliances=[],
-         credentials=[],
-         domain="default",
-         input_file="",
-         timeout=120):
+class SSH(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help="The hostname(s), ip addresse(s), environment name(s) or "
+             "alias(es) of the appliances you would like to affect. "
+             "Environments are configured in `environments.conf` and "
+             "aliases in `hosts.conf`, both located in "
+             "`$MAST_HOME/etc/default`.")
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help="The credentials to use for authenticating to the "
+             "appliances, in the form `username:password`. Give either "
+             "one set to use for all appliances or one set for each "
+             "appliance. If you would prefer to not use plain-text "
+             "passwords, you can use the output of "
+             "`mast-system xor <username:password>`.")
+    domain: str = Option("default", short="d", help="The domain to log into")
+    input_file: str = Option(
+        "", short="i",
+        help="If provided, it should point to a text file which "
+             "contains cli commands (one-per-line) which will be "
+             "executed in order on each appliance")
+    timeout: int = Option(
+        120, short="t",
+        help="The timeout in seconds to wait for a response from an "
+             "appliance for any single request. __NOTE__ Program "
+             "execution may halt if a timeout is reached.")
+
+
+def main(params: SSH):
     """A multi-box ssh client, designed specifically for IBM DataPower
 appliances.
 
@@ -141,32 +166,12 @@ __IMPORTANT__: This will not work for other types of machines, this is
 because since the DataPower doesn't follow the SSH spec exactly,
 special care was taken so we would properly handle their implementation.
 The steps which were taken to achieve this handling prevent it from
-being reliably used for other machine types
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip addresse(s), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases please see the comments in `hosts.conf` located
-in `$MAST_HOME/etc/default`.
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password` and should be provided in a space-seperated list
-if multiple are provided. If you would prefer to not use plain-text
-passwords, you can use the output of `$ mast-system xor <username:password>`.
-* `-d, --domain`: The domain to log into
-* `-i, --input-file`: If provided, it should point to a text file which
-contains cli commands (one-per-line) which will be executed in order on
-each appliance
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-"""
+being reliably used for other machine types"""
+    domain = params.domain
+    input_file = params.input_file
+    timeout = params.timeout
     log = make_logger("ssh")
-    env = Environment(appliances, credentials)
+    env = Environment(params.appliances, params.credentials)
     prompt = initialize_appliances(env, domain, timeout=timeout)
     log.info(f"Found prompt: {prompt}")
     global _input
@@ -174,7 +179,7 @@ halt if a timeout is reached.
     if input_file:
         log.info(f"Found input_file: {input_file}")
         display_output(f"Found input_file: {input_file}")
-        if not os.path.exists(input_file) and os.path.isfile(input_file):
+        if not os.path.isfile(input_file):
             display_output("input_file must be a file containing cli commands to issue")
             sys.exit(-1)
         with open(input_file, "r") as fin:

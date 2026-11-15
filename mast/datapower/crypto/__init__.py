@@ -17,21 +17,20 @@ import os
 import re
 import csv
 import sys
-import flask
 import OpenSSL
 import openpyxl
 from importlib.resources import files
 from .utils import *
 from time import sleep
-from mast.cli import Cli
+from mast.cli import Cli, Option, Table, say
 from datetime import datetime
-from mast.pprint import print_table, html_table
 from mast.plugins.web import Plugin
 from mast.logging import make_logger
 from mast.timestamp import Timestamp
 import xml.etree.cElementTree as etree
 import mast.datapower.datapower as datapower
-import mast.plugin_utils.plugin_utils as util
+from mast.plugin_utils.params import ApplianceParams, OUT_DIR, OUT_FILE
+from mast.plugin_utils.results import Report, SeeDownload, history
 from functools import partial, update_wrapper
 from dateutil import parser, tz, relativedelta
 import mast.plugin_utils.plugin_functions as pf
@@ -40,85 +39,64 @@ from mast import __version__
 cli = Cli()
 
 
+class CertAudit(ApplianceParams):
+    domains: list[str] = Option(
+        default_factory=list, short="d",
+        help="The domains to audit, to audit all domains, provide "
+             "`all-domains`")
+    out_file: str = Option(
+        "tmp/cert-audit.xlsx", short="o", widget=OUT_FILE,
+        help="The spreadsheet to output, use either relative or "
+             "absolute path. The file should end in `.xlsx` or `.csv`")
+    delay: float = Option(
+        0.5, short="D",
+        help="The amount of time in seconds to wait between auditing each "
+             "certificate. If you are experiencing intermitten "
+             "`AuthenticationFailure`s, it is a good idea to increase "
+             "this parameter.")
+    date_time_format: str = Option(
+        "%A, %B %d, %Y, %X",
+        help="The format for date-timestamps. Refer to [this document]"
+             "(https://docs.python.org/3/library/time.html#time.strftime) "
+             "for information on using this parameter")
+    localtime: bool = Option(
+        False, short="l",
+        help="If specified, the date-timestamps will be output in local "
+             "time instead of UTC.")
+    days_only: bool = Option(
+        False,
+        help="If specified, only the number of days (floored) will be "
+             "reported in the `time-since-expiration` and "
+             "`time-until-expiration` columns.")
+
+
 @cli.command("cert-audit", category="certificates")
-def cert_audit(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               domains=[],
-               out_file="tmp/cert-audit.xlsx",
-               delay=0.5,
-               date_time_format="%A, %B %d, %Y, %X",
-               localtime=False,
-               days_only=False,
-               web=False):
+def cert_audit(params: CertAudit):
     """Perform an audit of all CryptoCertificate objects which are
 up and enabled for the specified appliances and domains.
 
 Output:
 
-A table and an excel spreadsheet.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --domains`: The domains to audit, to audit all domains, provide
-`all-domains`, to specify multiple domains use multiple entries of the
-form `[-d domain1 [-d domain2...]]`.
-* `-o, --out-file`: The excel spreadsheet to output, use either relative
-or absolute path. The file should end in `.xlsx`
-* `-D, --delay`: The amount of time in seconds to wait between auditing
-each certificate. If you are experiencing intermitten `AuthenticationFailure`s,
-it is a good idea to increase this parameter.
-* `--date-time-format`: The format for date-timestamps. Refer to
-[this document](https://docs.python.org/2/library/time.html#time.strftime)
-for information on using this parameter
-* `-l, --localtime`: If specified, the date-timestamps will be output in
-local time instead of UTC.
-* `--days-only`: If specified, only the number of days (floored) will be
-reported in the `time-since-expiration` and `time-until-expiration` columns.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+A spreadsheet. The web GUI also shows a table."""
+    domains = params.domains
+    out_file = params.out_file
+    delay = params.delay
+    date_time_format = params.date_time_format
+    localtime = params.localtime
+    days_only = params.days_only
     logger = make_logger("cert-audit")
     if out_file is None:
         logger.error("Must specify out file")
-        if not web:
-            print("Must specify out_file")
+        say("Must specify out_file")
         sys.exit(2)
     fname, extension = os.path.splitext(out_file)
-    print(f"Found filename: {fname}, extension: {extension}")
+    say(f"Found filename: {fname}, extension: {extension}")
     if extension not in [".csv", ".xlsx"]:
         raise ValueError("out_file must be either csv or xlsx")
 
     if not os.path.exists(os.path.dirname(out_file)):
         os.makedirs(os.path.dirname(out_file))
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
     header_row = [
         "appliance",
@@ -140,15 +118,13 @@ DO NOT USE.__"""
     rows = [header_row]
     for appliance in env.appliances:
         logger.info("Checking appliance {}".format(appliance.hostname))
-        if not web:
-            print(appliance.hostname)
+        say(appliance.hostname)
         _domains = domains
         if "all-domains" in domains:
             _domains = appliance.domains
         for domain in _domains:
             logger.info("In domain {}".format(domain))
-            if not web:
-                print("\t", domain)
+            say("\t", domain)
             config = appliance.get_config("CryptoCertificate", domain=domain, persisted=False)
             certs = [x for x in config.xml.findall(datapower.CONFIG_XPATH)]
 
@@ -162,7 +138,7 @@ DO NOT USE.__"""
                     filename = cert.find("Filename").text
                 except Exception:
                     rows.append([appliance.hostname, domain, name])
-                    print(f"Skipping cert: {cert}")
+                    say(f"Skipping cert: {cert}")
                     logger.exception(f"An exception has occurred. The certificate {cert.get('name')} is being skipped and the error is being ignored")
                     continue
                 name = cert.get("name")
@@ -170,8 +146,7 @@ DO NOT USE.__"""
                 password_alias = cert.find("Alias")
                 if password_alias is not None:
                     password_alias = password_alias.text
-                if not web:
-                    print("\t\t", name)
+                say("\t\t", name)
                 row = [appliance.hostname, domain, name, password_alias, filename]
 
                 try:
@@ -181,8 +156,7 @@ DO NOT USE.__"""
                         )
                 except Exception as exception:
                     logger.exception(f"An exception has occurred. The certificate {name} is being skipped and the error is being ignored")
-                    if not web:
-                        print(f"Skipping Cert: {name}, exception: {exception}")
+                    say(f"Skipping Cert: {name}, exception: {exception}")
                     rows.append(row)
                     continue
                 try:
@@ -194,16 +168,14 @@ DO NOT USE.__"""
                     notAfter = details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='NotAfter']/text()")[0]
                 except Exception:
                     logger.exception(f"Could not parse details for cert {name}, received response {details}, skipping.")
-                    if not web:
-                        print(f"Skipping Cert: {name}, details: {details}")
+                    say(f"Skipping Cert: {name}, details: {details}")
                     rows.append(row)
                     continue
                 try:
                     sans = ',\r\n'.join(details.xml.xpath(r"//*[local-name()='CertificateDetails']/*[local-name()='Extensions']/*[local-name()='Extension' and @name='subjectAltName']/*[local-name()='item']/text()"))
                 except Exception:
                     logger.exception(f"Could not parse SANs for cert {name}, received response {details}, skipping.")
-                    if not web:
-                        print(f"Skipping Cert: {name}")
+                    say(f"Skipping Cert: {name}")
                     rows.append(row)
                     continue
                 local_tz = tz.tzlocal()
@@ -263,83 +235,46 @@ DO NOT USE.__"""
             try:
                 ws.append(row)
             except Exception:
-                print("Error Adding certificate: '{}'".format(row))
+                say("Error Adding certificate: '{}'".format(row))
         wb.save(out_file)
     else:
         # This should not happen
-        print("ERROR: out_file must have an xlsx or csv file extension.")
+        say("ERROR: out_file must have an xlsx or csv file extension.")
         raise ValueError("ERROR: out_file must have an xlsx or csv file extension.")
     # wb.save(out_file)
-    if not web:
-        print("\n\nCertificate Report (available at {}):".format(os.path.abspath(out_file)))
-        # print_table(rows)
-        print()
-    else:
-        return (html_table(rows,
-                           table_class="width-100",
-                           header_row_class="results_table_header_row",
-                           header_cell_class="results_table_header_column",
-                           body_row_class="result_table_row",
-                           body_cell_class="result_table_cell"),
-                util.render_history(env))
+    say("\n\nCertificate Report (available at {}):".format(os.path.abspath(out_file)))
+    # The terminal gets the name of the spreadsheet, not the table
+    report = Report(env)
+    report.add(Table(rows[0], rows[1:]), show=False)
+    return report
+
+
+class CertFileAudit(ApplianceParams):
+    out_file: str = Option(
+        os.path.join("tmp", "cert-file-audit.xlsx"), short="o",
+        widget=OUT_FILE,
+        help="The excel spreadsheet to output, use either relative or "
+             "absolute path. The file should end in `.xlsx`")
 
 
 @cli.command("cert-file-audit", category="certificates")
-def cert_file_audit(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    out_file=os.path.join("tmp", "cert-file-audit.xlsx"),
-                    web=False):
+def cert_file_audit(params: CertFileAudit):
     """Perform an audit of all files which reside in `cert:`, `pubcert:`
 and `sharedcert:` on the specified appliances.
 
 Output:
 
-A table and an excel spreadsheet.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-file`: The excel spreadsheet to output, use either relative
-or absolute path. The file should end in `.xlsx`
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+A table and an excel spreadsheet."""
+    out_file = params.out_file
     logger = make_logger("cert-file-audit")
     if out_file is None:
         logger.error("Must specify out file")
-        if not web:
-            print("Must specify out_file")
+        say("Must specify out_file")
         sys.exit(2)
     if not os.path.exists(os.path.dirname(out_file)):
         os.makedirs(os.path.dirname(out_file))
     locations = ["cert:", "pubcert:", "sharedcert:"]
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(appliances,
-                                credentials,
-                                timeout,
-                                check_hostname=check_hostname)
+    env = params.environment()
 
     header_row = ["appliance",
                   "domain",
@@ -350,13 +285,11 @@ DO NOT USE.__"""
     rows = [header_row]
 
     for appliance in env.appliances:
-        if not web:
-            print(appliance.hostname)
+        say(appliance.hostname)
         domain = "default"
 
         for location in locations:
-            if not web:
-                print("\t{}".format(location))
+            say("\t{}".format(location))
             filestore = appliance.get_filestore(domain=domain,
                                                 location=location)
             _location = filestore.xml.find(datapower.FILESTORE_XPATH)
@@ -366,8 +299,7 @@ DO NOT USE.__"""
                 for _file in _location.findall("./file"):
                     dir_name = _location.get("name")
                     filename = _file.get("name")
-                    if not web:
-                        print("\t\t{}".format(filename))
+                    say("\t\t{}".format(filename))
                     size = _file.find("size").text
                     modified = _file.find("modified").text
                     rows.append([appliance.hostname,
@@ -378,12 +310,10 @@ DO NOT USE.__"""
                                  modified])
             for directory in _location.findall(".//directory"):
                 dir_name = directory.get("name")
-                if not web:
-                    print("\t\t{}".format(dir_name))
+                say("\t\t{}".format(dir_name))
                 for _file in directory.findall(".//file"):
                     filename = _file.get("name")
-                    if not web:
-                        print("\t\t\t{}".format(filename))
+                    say("\t\t\t{}".format(filename))
                     size = _file.find("size").text
                     modified = _file.find("modified").text
 
@@ -399,79 +329,42 @@ DO NOT USE.__"""
     for row in rows:
         ws.append(row)
     wb.save(out_file)
-    if not web:
-        print_table(rows)
-    else:
-        return (html_table(rows,
-                           table_class="width-100",
-                           header_row_class="results_table_header_row",
-                           header_cell_class="results_table_header_column",
-                           body_row_class="result_table_row",
-                           body_cell_class="result_table_cell"),
-               util.render_history(env))
+    return Table(rows[0], rows[1:], history(env))
+
+
+class ExportCerts(ApplianceParams):
+    domains: list[str] = Option(
+        default_factory=list, short="d",
+        help="The domains to export from, to export from all domains, provide "
+             "`all-domains`")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory to which to download the certificates.")
+    delay: float = Option(
+        0.5, short="D",
+        help="The amount of time in seconds to wait between exporting each "
+             "certificate. If you are experiencing intermitten "
+             "`AuthenticationFailure`s, it is a good idea to increase "
+             "this parameter.")
 
 
 @cli.command("export-certs", category="certificates")
-def export_certs(appliances=[],
-                 credentials=[],
-                 timeout=120,
-                 no_check_hostname=False,
-                 domains=[],
-                 out_dir="tmp",
-                 delay=0.5,
-                 web=False):
+def export_certs(params: ExportCerts):
     """Export all CryptoCertificate objects which are up and enabled
 from the specified domains on the specified appliances in PEM format
 and download them to `out-dir`
 
 Output:
 
-Downloaded files
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --domains`: The domains to audit, to audit all domains, provide
-`all-domains`, to specify multiple domains use multiple entries of the
-form `[-d domain1 [-d domain2...]]`.
-* `-o, --out-dir`: The directory to which to download the certificates.
-* `-D, --delay`: The amount of time in seconds to wait between exporting each
-certificate. If you are experiencing intermitten `AuthenticationFailure`s,
-it is a good idea to increase this parameter.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+Downloaded files"""
+    domains = params.domains
+    out_dir = params.out_dir
     logger = make_logger("export-certs")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(appliances,
-                                credentials,
-                                timeout,
-                                check_hostname=check_hostname)
+    env = params.environment()
 
     for appliance in env.appliances:
         logger.info("Checking appliance {}".format(appliance.hostname))
-        if not web:
-            print(appliance.hostname)
+        say(appliance.hostname)
 
         _domains = domains
         if "all-domains" in domains:
@@ -479,8 +372,7 @@ DO NOT USE.__"""
 
         for domain in _domains:
             logger.info("In domain {}".format(domain))
-            if not web:
-                print("\t", domain)
+            say("\t", domain)
 
             # Get a list of all certificates in this domain
             config = appliance.get_config("CryptoCertificate", domain=domain)
@@ -514,8 +406,7 @@ DO NOT USE.__"""
                     os.makedirs(_out_dir)
 
                 name = cert.get("name")
-                if not web:
-                    print("\t\t", name)
+                say("\t\t", name)
                 export = appliance.CryptoExport(domain=domain,
                                                 ObjectType="cert",
                                                 ObjectName=name,
@@ -538,8 +429,7 @@ DO NOT USE.__"""
                         "Finished deleting file temporary:///{}".format(name))
                 except Exception:
                     logger.exception("An unhandled exception has occurred")
-                    if not web:
-                        print("SKIPPING CERT")
+                    say("SKIPPING CERT")
                     continue
                 cert = etree.fromstring(cert)
                 with open(out_file, "w") as fout:
@@ -549,10 +439,9 @@ DO NOT USE.__"""
                         _contents,
                         "-----END CERTIFICATE-----")
                     fout.write(contents)
-    if web:
-        return (util.render_see_download_table({k.hostname: "" for k in env.appliances},
-                                              "export-certs"),
-               util.render_history(env))
+    return SeeDownload(
+        [appliance.hostname for appliance in env.appliances],
+        env, suffix="export-certs")
 
 
 def get_data_file(f):
@@ -573,9 +462,4 @@ class WebPlugin(Plugin):
         return get_data_file('plugin.js')
 
 if __name__ == "__main__":
-    try:
-        cli.run()
-    except AttributeError as e:
-        if "'NoneType' object has no attribute 'app'" in str(e):
-            raise NotImplementedError(
-                "HTML formatted output is not supported on the CLI")
+    cli.run()
