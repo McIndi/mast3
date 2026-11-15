@@ -1,10 +1,16 @@
 from glob import glob
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 
 parser = etree.XMLParser(remove_blank_text=True)
 
-def main(glob_pattern=""):
+class Main(Params):
+    glob_pattern: str = Option("", short="g")
+
+
+def main(params: Main):
+    glob_pattern = params.glob_pattern
     for filename in glob(glob_pattern):
         print(filename)
         doc = etree.parse(filename, parser)

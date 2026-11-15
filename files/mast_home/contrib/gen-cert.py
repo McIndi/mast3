@@ -3,23 +3,37 @@
 from OpenSSL import crypto, SSL
 
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 
-def main(
-    emailAddress="emailAddress",
-    commonName="commonName",
-    countryName="NT",
-    localityName="localityName",
-    stateOrProvinceName="stateOrProvinceName",
-    organizationName="organizationName",
-    organizationUnitName="organizationUnitName",
-    serialNumber=0,
-    validityStartInSeconds=0,
-    validityEndInSeconds=365*24*60*60,
-    KEY_FILE = "etc/crypto/private/mast.key",
-    CERT_FILE="etc/crypto/cert/mast.crt"
-):
-    #can look at generated file using openssl:
+class Main(Params):
+    emailAddress: str = Option("emailAddress", short="e")
+    commonName: str = Option("commonName", short="c")
+    countryName: str = Option("NT", short="C")
+    localityName: str = Option("localityName", short="l")
+    stateOrProvinceName: str = Option("stateOrProvinceName", short="s")
+    organizationName: str = Option("organizationName", short="o")
+    organizationUnitName: str = Option("organizationUnitName", short="O")
+    serialNumber: int = Option(0, short="S")
+    validityStartInSeconds: int = Option(0, short="v")
+    validityEndInSeconds: str = Option(365*24*60*60, short="V")
+    KEY_FILE: str = Option("etc/crypto/private/mast.key", short="K")
+    CERT_FILE: str = Option("etc/crypto/cert/mast.crt")
+
+
+def main(params: Main):
+    emailAddress = params.emailAddress
+    commonName = params.commonName
+    countryName = params.countryName
+    localityName = params.localityName
+    stateOrProvinceName = params.stateOrProvinceName
+    organizationName = params.organizationName
+    organizationUnitName = params.organizationUnitName
+    serialNumber = params.serialNumber
+    validityStartInSeconds = params.validityStartInSeconds
+    validityEndInSeconds = params.validityEndInSeconds
+    KEY_FILE = params.KEY_FILE
+    CERT_FILE = params.CERT_FILE
     #openssl x509 -inform pem -in selfsigned.crt -noout -text
     # create a key pair
     k = crypto.PKey()

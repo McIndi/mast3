@@ -7,19 +7,46 @@ from mast.pprint import pprint_xml_str, pprint_xml
 from mast.util import _b
 from collections import defaultdict
 from mast.cli import Cli
+from mast.cli import Params, Option
 from fnmatch import fnmatch
 from lxml import etree
 import os
 import re
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=[],
-         paths=[],
-         force=False,
-         dry_run=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    paths: list[str] = Option(default_factory=list, short="p")
+    force: bool = Option(False, short="f")
+    dry_run: bool = Option(False, short="D")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    paths = params.paths
+    force = params.force
+    dry_run = params.dry_run
     check_hostname = not no_check_hostname
     env = datapower.Environment(appliances,
                                 credentials,

@@ -36,17 +36,20 @@ import re
 import os
 import sys
 import flask
-import inspect
 import zipfile
 import markdown
 from markupsafe import Markup
+from html import escape as html_escape
 import html.entities as html_entities
-from textwrap import dedent
 from mast.config import get_config
 from mast.datapower.datapower import Environment
 from mast.xor import xordecode, xorencode
 from mast.timestamp import Timestamp
-from mast.logging import make_logger, logged
+from mast.logging import make_logger
+from mast.cli import Result, captured
+from mast.cli import params as cli_params
+from mast.plugin_utils import params as widgets
+from pydantic import ValidationError
 
 OBJECT_STATUS_ARGS = [
 	"AAAPolicy",
@@ -656,6 +659,11 @@ def _zipdir(path, z):
             z.write(os.path.join(root, f), filename)
 
 
+def _has_files(path):
+    """Return True if there is a file in path or below it."""
+    return any(files for _, _, files in os.walk(path))
+
+
 def get_module(plugin):
     """Return the imported objects which correspond to plugin.
     These are all from bin (which is a module itself)."""
@@ -700,12 +708,10 @@ def html(plugin):
     htm = []
     module = get_module(plugin.replace("mast.datapower.", ""))
     last_category = ''
-    command_list = module.cli._command_list
-    # print(module.cli._command_list)
+    command_list = module.cli.categories()
     for category in sorted(command_list):
-        # print(type(category))
-        for index, item in enumerate(command_list[category]):
-            callable_name = item.__name__.replace('_', ' ')
+        for command in command_list[category]:
+            callable_name = command.key.replace('_', ' ')
             if category != last_category:
                 htm.append(
                     flask.render_template(
@@ -718,22 +724,10 @@ def html(plugin):
         'dynplugin.html', plugin=plugin, buttons=''.join(htm)))
 
 
-def _get_arguments(plugin, fn_name):
-    """Return a list of two-tuples containing the argument names and
-    default values for function name and the actual function."""
-    module = get_module(plugin)
-    found = False
-    for category, items in module.cli._command_list.items():
-        if found:
-            break
-        for item in items:
-            # print(fn_name, category, item.__name__)
-            # print(item.__name__ == fn_name)
-            if item.__name__ == fn_name:
-                args, _, __, defaults, ___, ____, _____ = inspect.getfullargspec(item)
-                found = True
-                break
-    return (list(zip(args, defaults)), item)
+def _get_command(plugin, fn_name):
+    """Return the `mast.cli.Command` of plugin whose function is named
+    fn_name."""
+    return get_module(plugin).cli.find(fn_name)
 
 
 def render_textbox(key, value):
@@ -780,216 +774,171 @@ def render_file_upload(plugin, key):
         label=label, plugin=plugin)
 
 
-def render_select_object_status(key, env):
-    options = env.common_config(key)
+def _model_form(plugin, command, env):
+    """Return the controls of the form for a command. Each control comes from the type and the widget of one
+    parameter."""
+    textboxes = []
+    checkboxes = []
+    file_uploads = []
+    selects = []
+    for spec in cli_params.options(command.model):
+        key, widget, many = spec.name, spec.widget or "", spec.kind == "list"
+        if widget in (widgets.APPLIANCES, widgets.CREDENTIALS,
+                      widgets.OUT_DIR, widgets.OUT_FILE):
+            # The web GUI supplies these, see _model_values
+            continue
+        elif widget == widgets.UPLOAD:
+            file_uploads.append(render_file_upload(plugin, key))
+        elif widget.startswith("configured:"):
+            selects.append(_render_select(
+                key, env.common_config(widget.split(":", 1)[1]),
+                many, disclaimer=True))
+        elif widget == widgets.STATUS_PROVIDER:
+            selects.append(_render_select(key, STATUS_PROVIDERS, many))
+        elif widget == widgets.OBJECT_CLASS:
+            selects.append(_render_select(key, OBJECT_STATUS_ARGS, many))
+        elif spec.kind == "flag":
+            checkboxes.append(render_checkbox(key, checked=bool(spec.default)))
+        elif spec.choices:
+            selects.append(_render_select(key, spec.choices, many))
+        elif many:
+            textboxes.append(render_multitext(key))
+        elif spec.secret:
+            textboxes.append(render_password_box(key, spec.default or ""))
+        else:
+            textboxes.append(render_textbox(
+                key, "" if spec.default is None else spec.default))
+    return textboxes + selects + file_uploads + checkboxes
+
+
+def _render_select(key, options, many=False, disclaimer=False):
+    if many:
+        return flask.render_template(
+            "multiselect.html", options=options, key=key,
+            disclaimer=disclaimer)
     return flask.render_template(
-        'dynselect.html',
-        options=options,
-        name=key,
-        disclaimer=True)
-
-
-def render_multiselect_object_status(key, env):
-    options = env.common_config(key)
-    return flask.render_template(
-        "multiselect.html",
-        options=options,
-        key=key,
-        disclaimer=True)
-
-
-def render_multiselect_status_provider(key):
-    return flask.render_template("multiselect.html", options=STATUS_PROVIDERS,
-        key=key, disclaimer=False)
-
-
-def render_select_status_provider(key):
-    return flask.render_template("dynselect.html", options=STATUS_PROVIDERS,
-        name=key, disclaimer=False)
-
-
-def render_multiselect_object_class(key):
-    return flask.render_template("multiselect.html", options=OBJECT_STATUS_ARGS,
-        key=key, disclaimer=False)
-
-
-def render_select_object_class(key):
-    return flask.render_template("dynselect.html", options=OBJECT_STATUS_ARGS,
-        name=key, disclaimer=False)
+        "dynselect.html", options=options, name=key, disclaimer=disclaimer)
 
 
 def get_form(plugin, fn_name, appliances, credentials, no_check_hostname=True):
     """Return a form suitable for gathering arguments to function name"""
     check_hostname = not no_check_hostname
-    textboxes = []
-    checkboxes = []
-    file_uploads = []
-    selects = []
-
+    command = _get_command(plugin, fn_name)
     env = Environment(appliances, credentials, check_hostname=check_hostname)
-
     forms = ['<div class="{0}Form"><div name="{1}">'.format(plugin, fn_name)]
-
-    label = fn_name.replace('_', ' ')
-    forms.append(flask.render_template('formlabel.html', label=label))
-
-    #md = markdown.Markdown(extensions=['markdown.extensions.extra'])
-    arguments, fn = _get_arguments(plugin, fn_name)
+    forms.append(flask.render_template(
+        'formlabel.html', label=fn_name.replace('_', ' ')))
     forms.append('<a href="#" class="help">help</a>')
     forms.append('<div class="hidden help_content">{}</div>'.format(
-        Markup(markdown.markdown(dedent(str(fn.__doc__))))))
-    for arg in arguments:
-        key, value = arg
-        if isinstance(value, bool):
-            if key == "web":
-                continue
-            if value:
-                checkboxes.append(render_checkbox(key, checked=True))
-                continue
-            else:
-                checkboxes.append(render_checkbox(key))
-                continue
-        elif isinstance(value, list):
-            if key == 'appliances' or key == 'credentials':
-                continue
-            elif key in OBJECT_STATUS_ARGS:
-                selects.append(render_multiselect_object_status(key, env))
-                continue
-            elif key == "StatusProvider":
-                selects.append(render_multiselect_status_provider(key))
-                continue
-            elif key == "ObjectClass":
-                selects.append(render_multiselect_object_class(key))
-                continue
-            textboxes.append(render_multitext(key))
-        elif isinstance(value, str):
-            if key == 'out_dir':
-                continue
-            elif key == 'out_file':
-                continue
-            elif key in OBJECT_STATUS_ARGS:
-                selects.append(render_select_object_status(key, env))
-                continue
-            elif key == "StatusProvider":
-                selects.append(render_select_status_provider(key))
-                continue
-            elif key == "ObjectClass":
-                selects.append(render_select_object_class(key))
-                continue
-            elif "password" in key:
-                textboxes.append(render_password_box(key, value))
-                continue
-            textboxes.append(render_textbox(key, value))
-        elif isinstance(value, int):
-            textboxes.append(render_textbox(key, value))
-        elif value is None:
-            if key == 'out_file':
-                continue
-            elif key == 'file_in':
-                file_uploads.append(render_file_upload(plugin, key))
-                continue
-            textboxes.append(render_textbox(key, ''))
-
-    forms.extend(textboxes)
-    forms.extend(selects)
-    forms.extend(file_uploads)
-    forms.extend(checkboxes)
+        Markup(markdown.markdown(command.doc))))
+    forms.extend(_model_form(plugin, command, env))
     forms.append(flask.render_template('submitbutton.html', plugin=plugin))
     forms.append('</div></div>')
     return '<br />\n'.join(forms)
 
 
-def _call_method(func, kwargs):
-    """Call func with kwargs if web is in kwargs, func should return a
-    two-tupple containing (html, request_history). Here, we write the hsitory
-    to a file and return the html for inclusion in the web GUI."""
+def _save_history(hist):
+    """Write the request history to a file for the history download and
+    return the id of the file."""
     import random
     random.seed()
-    if "appliances" not in kwargs:
-        pass
-    elif not kwargs["appliances"][0]:
-        # Kind of a hack to return the response we want in case no appliances
-        # were checked in the gui
-        def _func(*args, **kwargs):
-            return (
-                "Must select at least one appliance.",
-                "Must select at least one appliance.")
-        func = _func
-    if "web" in kwargs:
-        try:
-            out, hist = func(**kwargs)
-        except Exception as e:
-            # The actions implemented should handle their own exceptions,
-            # but if one makes it's way up here, we need to let the user know
-            # part of that is suppressing the exception (because otherwise
-            # we have no way of sending back the details)
-            import traceback
-            msg = "Sorry, an unhandled exception occurred while "
-            msg += "performing action:\n\n\t {}".format(str(e))
-            out, hist = msg, traceback.format_exc()
-            sys.stderr.write(traceback.format_exc())
-        t = Timestamp()
+    t = Timestamp()
 
-        filename = os.path.join(
-            "var", "www", "static", "tmp", "request_history", t.timestamp)
-        if not os.path.exists(filename):
-            os.makedirs(filename)
-        rand = random.randint(10000, 99999)
-        _id = "{}-{}.log".format(str(t.timestamp), str(rand))
-        filename = os.path.join(filename, _id)
-        with open(filename, 'wb') as fout:
-            fout.write(hist.encode())
-        return Markup(out), _id
+    filename = os.path.join(
+        "var", "www", "static", "tmp", "request_history", t.timestamp)
+    if not os.path.exists(filename):
+        os.makedirs(filename)
+    rand = random.randint(10000, 99999)
+    _id = "{}-{}.log".format(str(t.timestamp), str(rand))
+    filename = os.path.join(filename, _id)
+    with open(filename, 'wb') as fout:
+        fout.write(hist.encode())
+    return _id
+
+
+def _model_values(command, form, t):
+    """Gather the values for a command that declares its parameters
+    with a model. Return a dict to build the model from. A value that
+    the user left empty is left out, so that the model uses its
+    default."""
+    name = command.key
+    values = {}
+    for spec in cli_params.options(command.model):
+        key, widget = spec.name, spec.widget
+        if widget == widgets.CREDENTIALS:
+            values[key] = [
+                xordecode(
+                    _.encode(), key=xorencode(
+                        flask.request.cookies["9x4h/mmek/j.ahba.ckhafn"], key="_"))
+                for _ in form.getlist(key + '[]')]
+        elif widget == widgets.OUT_DIR:
+            values[key] = os.path.join('tmp', 'web', name, t.timestamp)
+        elif widget == widgets.OUT_FILE:
+            extension = os.path.splitext(str(spec.default or ""))[1]
+            values[key] = "/".join((
+                "tmp", "web", name,
+                "{}-{}{}".format(t.timestamp, name, extension)))
+        elif spec.kind == "flag":
+            values[key] = form.get(key) == 'true'
+        elif spec.kind == "list":
+            values[key] = form.getlist(key + '[]')
+        elif form.get(key) not in (None, ""):
+            values[key] = form.get(key)
+    return values
+
+
+def _call_command(command, values):
+    """Call a command. Return the html of its result and the id of the saved request history."""
+    appliances = [
+        spec.name for spec in cli_params.options(command.model)
+        if spec.widget == widgets.APPLIANCES]
+    if appliances and not any(values.get(appliances[0], [])):
+        out = hist = "Must select at least one appliance."
+        return Markup(out), _save_history(hist)
+    try:
+        params = command.model(**values)
+    except ValidationError as exc:
+        out = hist = "; ".join(cli_params.error_messages(
+            command.model, exc, flags=False))
+        return Markup(html_escape(out)), _save_history(hist)
+    try:
+        # The progress messages are for the terminal
+        with captured():
+            result = command.fn(params)
+        if isinstance(result, Result):
+            out, hist = result.html(), result.history
+        else:
+            out, hist = "", ""
+    except Exception as e:
+        # A command should handle its own exceptions. If one reaches
+        # this point, the user must be told, and the only way to send
+        # the details back is to catch it here.
+        import traceback
+        msg = "Sorry, an unhandled exception occurred while "
+        msg += "performing action:\n\n\t {}".format(str(e))
+        out, hist = html_escape(msg), traceback.format_exc()
+        sys.stderr.write(traceback.format_exc())
+    return Markup(out), _save_history(hist)
 
 
 def call_method(plugin, form):
-    """Gather the arguments and function name from form then invoke
-    _call_method. Wrap the results in html and return them."""
+    """Gather the arguments and function name from form then call
+    the command. Wrap the results in html and return them."""
     t = Timestamp()
     name = form.get("callable")
-    arguments, func = _get_arguments(plugin, name)
-    kwargs = {}
-    for arg, default in arguments:
-        if isinstance(default, bool):
-            if arg == "web":
-                kwargs[arg] = True
-                continue
-            value = form.get(arg)
-            if value == 'true':
-                kwargs[arg] = True
-            else:
-                kwargs[arg] = False
-        elif isinstance(default, list):
-            if arg == 'appliances':
-                kwargs[arg] = form.getlist(arg + '[]')
-            elif arg == 'credentials':
-                kwargs[arg] = [
-                    xordecode(
-                        _.encode(), key=xorencode(
-                            flask.request.cookies["9x4h/mmek/j.ahba.ckhafn"], key="_"))
-                            for _ in form.getlist(arg + '[]')]
-            else:
-                kwargs[arg] = form.getlist(arg + '[]')
-        elif isinstance(default, str):
-            if arg == 'out_dir':
-                kwargs[arg] = os.path.join('tmp', 'web', name, t.timestamp)
-            elif arg == 'out_file' and default is not None:
-                kwargs[arg] = os.path.join("tmp",
-                                           "web",
-                                           name,
-                                           "{}-{}{}".format(t.timestamp,
-                                                            name,
-                                                            os.path.splitext(default)[1])
-                ).replace(os.path.sep, "/")
-            else:
-                kwargs[arg] = form.get(arg) or default
-        elif isinstance(default, int):
-            kwargs[arg] = int(form.get(arg)) or default
-        elif default is None:
-            kwargs[arg] = form.get(arg) or default
-    out, history_id = _call_method(func, kwargs)
+    command = _get_command(plugin, name)
+    kwargs = _model_values(command, form, t)
+    out, history_id = _call_command(command, kwargs)
+    return _render_output(name, t, kwargs, out, history_id)
+
+
+def _render_output(name, t, kwargs, out, history_id):
+    """Wrap the output of a command in html, with a link to download
+    what the command wrote to out_dir or out_file."""
     link = ""
-    if 'out_dir' in kwargs:
+    # Validation or execution may have failed before the command wrote
+    # anything. A download is only offered if there is something in it.
+    if 'out_dir' in kwargs and _has_files(kwargs['out_dir']):
         config = get_config("server.conf")
         static_dir = config.get('dirs', 'static')
 
@@ -1006,7 +955,7 @@ def call_method(plugin, form):
         zip_file.close()
         #filename = '%s-%s.zip' % (t.timestamp, name)
         link = Markup(flask.render_template('link.html', filename=fname))
-    if 'out_file' in kwargs and kwargs["out_file"] is not None:
+    if kwargs.get("out_file") and os.path.isfile(kwargs["out_file"]):
         import shutil
         config = get_config("server.conf")
         static_dir = config.get('dirs', 'static')
@@ -1024,8 +973,6 @@ def call_method(plugin, form):
         timestamp=str(t),
         history_id=history_id,
         link=link)
-    if 'out_dir' in kwargs:
-        out = out
     return out
 
 

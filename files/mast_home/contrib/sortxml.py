@@ -1,6 +1,7 @@
 import sys
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 from itertools import groupby
 from collections import OrderedDict
@@ -22,11 +23,17 @@ def sort_children(node, sort_attribute):
             node.append(child)
 
 
-def main(xml_file_glob="", sort_attribute="name"):
+class Main(Params):
+    xml_file_glob: str = Option("", short="x")
+    sort_attribute: str = Option("name", short="s")
+
+
+def main(params: Main):
     """sort xml nodes and attributes in alphabetical order and
-    normalize whitespace. Use sort-attribute (default "name") to define
-    the attribute to sort by within elements with the same tag name.
-    """
+normalize whitespace. Use sort-attribute (default "name") to define
+the attribute to sort by within elements with the same tag name."""
+    xml_file_glob = params.xml_file_glob
+    sort_attribute = params.sort_attribute
     parser = etree.XMLParser(remove_blank_text=True)
     for filename in glob(xml_file_glob):
         print(filename)

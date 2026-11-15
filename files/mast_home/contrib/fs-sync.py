@@ -2,7 +2,7 @@
 import re
 import os
 import sys
-from mast.cli import Cli
+from mast.cli import Cli, Params, Option
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
 from mast.logging import make_logger
@@ -14,23 +14,57 @@ def _exit(ret_code=-1):
 cli = Cli()
 
 
+class ApplianceParams(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help="The hostname(s), ip address(es), environment name(s) or "
+             "alias(es) of the appliances you would like to affect.")
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help="The credentials to use for authenticating to the "
+             "appliances, in the form `username:password`. Give either "
+             "one set to use for all appliances or one set for each "
+             "appliance.")
+    timeout: int = Option(
+        120, short="t",
+        help="The timeout in seconds to wait for a response from an "
+             "appliance for any single request.")
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help="If specified SSL verification will be turned off when "
+             "sending commands to the appliances.")
+
+
+class ToDP(ApplianceParams):
+    local_dir: str = Option("", short="l")
+    remote_dir: str = Option("", short="r")
+    domain: str = Option("default", short="d")
+    recursive: bool = Option(False, short="R")
+    overwrite: bool = Option(False, short="o")
+    create_dir: bool = Option(False, short="C")
+    followlinks: bool = Option(False, short="f")
+    dry_run: bool = Option(False, short="D")
+    ignore_errors: bool = Option(False, short="i")
+
+
 @cli.command()
-def to_dp(appliances=[],
-          credentials=[],
-          timeout=120,
-          no_check_hostname=False,
-          local_dir="",
-          remote_dir="",
-          domain="default",
-          recursive=False,
-          overwrite=False,
-          create_dir=False,
-          followlinks=False,
-          dry_run=False,
-          ignore_errors=False):
+def to_dp(params: ToDP):
     """Syncs files from local_dir to remote_dir in the specified
     domain. If the recursive flag is specified, then local_dir
     is recursed"""
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    local_dir = params.local_dir
+    remote_dir = params.remote_dir
+    domain = params.domain
+    recursive = params.recursive
+    overwrite = params.overwrite
+    create_dir = params.create_dir
+    followlinks = params.followlinks
+    dry_run = params.dry_run
+    ignore_errors = params.ignore_errors
     logger = make_logger("fs-sync")
     remote_dir = remote_dir.rstrip("/")
     location = remote_dir.split(":")[0] + ":"
@@ -85,18 +119,28 @@ def to_dp(appliances=[],
                         raise
 
 
+class FromDP(ApplianceParams):
+    location: str = Option("", short="l")
+    out_dir: str = Option("tmp", short="o")
+    domains: list[str] = Option(
+        default_factory=lambda: ["all-domains"], short="d")
+    recursive: bool = Option(False, short="r")
+    ignore_errors: bool = Option(False, short="i")
+
+
 @cli.command()
-def from_dp(appliances=[],
-            credentials=[],
-            timeout=120,
-            no_check_hostname=False,
-            location="",
-            out_dir="tmp",
-            domains=["all-domains"],
-            recursive=False,
-            ignore_errors=False):
+def from_dp(params: FromDP):
     """This will get all of the files from a directory on the appliances
     in the specified domain."""
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    location = params.location
+    out_dir = params.out_dir
+    domains = params.domains
+    recursive = params.recursive
+    ignore_errors = params.ignore_errors
     logger = make_logger("fs-sync")
     check_hostname = not no_check_hostname
     env = datapower.Environment(

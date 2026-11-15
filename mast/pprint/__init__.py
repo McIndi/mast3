@@ -262,14 +262,25 @@ def pprint_xml(elem, color=True, page_output=False):
     * `color`: If True the XML will be syntax highlighted
     * `page`: If True, the output will be paged
     """
-    pretty_print(elem)
-    text = etree.tostring(elem)
-    if color:
-        text = term_highlight(text)
+    text = format_xml(elem, color=color)
     if page_output:
         page(text)
     else:
         print(text)
+
+
+def format_xml(elem, color=True):
+    """
+    _function_: `mast.pprint.format_xml`
+
+    Return what `pprint_xml` sends to `stdout`: a pretty-printed version
+    of elem, syntax highlighted if `color` is True.
+    """
+    pretty_print(elem)
+    text = etree.tostring(elem)
+    if color:
+        text = term_highlight(text)
+    return text
 
 
 def pprint_xml_str(text, color=True, page_output=False):

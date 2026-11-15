@@ -20,898 +20,299 @@ A set of tools for automating routine user/group
 administration tasks associated with IBM DataPower
 appliances.
 """
-from mast.cli import Cli
+from mast.cli import Cli, Option, say
 from importlib.resources import files
 from mast.plugins.web import Plugin
-from mast.datapower import datapower
 from mast.logging import make_logger, logged
-import mast.plugin_utils.plugin_utils as util
+from mast.plugin_utils.params import (
+    ApplianceParams, SaveConfigParams, configured)
+from mast.plugin_utils.results import ActionResults, CommonItems, Report
+from mast.plugin_utils.steps import perform as _perform
+from mast.plugin_utils.steps import save_config as _save_config
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
-from mast.pprint import pprint_xml
 
 cli = Cli()
 
 
 @logged("mast.datapower.accounts")
 @cli.command('list-groups', category='users/groups')
-def list_groups(appliances=[],
-                credentials=[],
-                timeout=120,
-                no_check_hostname=False,
-                web=False):
+def list_groups(params: ApplianceParams):
     """Display a list of all configured user groups on the specified
 appliances, along with a list of the groups common to all
-appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-
+appliances."""
     logger = make_logger("mast.accounts")
+    env = params.environment()
 
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances, credentials, timeout, check_hostname=check_hostname)
-
-    if web:
-        return util.web_list_groups(env), util.render_history(env)
-
-    sets = []
+    groups = {}
     for appliance in env.appliances:
-        groups = appliance.groups
+        groups[appliance.hostname] = appliance.groups
         logger.info(
             "Groups {} found for appliance {}".format(
-                str(groups), appliance.hostname))
-        sets.append(set(groups))
+                str(groups[appliance.hostname]), appliance.hostname))
+    result = CommonItems("Groups", groups, env)
+    logger.debug("Common Groups found {}".format(str(result.common)))
+    return result
 
-    for index, appliance in enumerate(env.appliances):
-        print('\n', appliance.hostname)
-        print('=' * len(appliance.hostname))
-        for group in sets[index]:
-            print('\t', group)
 
-    common = sets[0].intersection(*sets[1:])
-    logger.debug("Common Groups found {}".format(str(common)))
-    print('\nCommon')
-    print('======')
-    for group in common:
-        print('\t', group)
+class AddGroup(SaveConfigParams):
+    name: str = Option(short="N", help="The name of the group to add")
+    access_policies: list[str] = Option(
+        default_factory=list, short="A",
+        help="The access policies which will be associated with this "
+             "group")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('add-group', category='users/groups')
-def add_group(appliances=[],
-              credentials=[],
-              timeout=120,
-              no_check_hostname=False,
-              save_config=False,
-              name=None,
-              access_policies=[],
-              web=False):
-    """Adds a user group to the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the appliances
-will be saved
-* `-N, --name`: The name of the group to add
-* `-A, --access-policies`: The access policies which will be associated
-with this group
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def add_group(params: AddGroup):
+    """Adds a user group to the specified appliances."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
+    report = Report(env)
 
-    kwargs = {'name': name, 'access_policies': access_policies}
-    msg = "Adding group {} to {}".format(name, str(env.appliances))
+    msg = "Adding group {} to {}".format(params.name, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
-    resp = env.perform_async_action('add_group', **kwargs)
-    logger.debug("responses received {}".format(str(resp)))
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(resp, suffix="add_group")
+    say(msg)
+    _perform(env, report, logger, 'add_group', "add_group",
+             name=params.name, access_policies=params.access_policies)
 
-    if save_config:
-        kwargs = {'domain': 'default'}
-        msg = "Saving configuration in the default domain of {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **kwargs)
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
+
+
+class DelGroup(SaveConfigParams):
+    UserGroup: str = Option(
+        "", short="U", widget=configured("UserGroup"),
+        help="The name of the group to remove")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('del-group', category='users/groups')
-def del_group(appliances=[],
-              credentials=[],
-              timeout=120,
-              no_check_hostname=False,
-              save_config=False,
-              UserGroup="",
-              web=False):
-    """Removes a user group from the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-U, --UserGroup`: The name of the group to remove
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def del_group(params: DelGroup):
+    """Removes a user group from the specified appliances."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
+    report = Report(env)
 
-    kwargs = {'group': UserGroup}
-    msg = "Removing user group {} from {}".format(UserGroup, str(env.appliances))
+    msg = "Removing user group {} from {}".format(
+        params.UserGroup, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
-    resp = env.perform_async_action('del_group', **kwargs)
-    logger.debug("Responses received: {}".format(str(resp)))
+    say(msg)
+    _perform(env, report, logger, 'del_group', "del_group",
+             group=params.UserGroup)
 
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(resp, suffix="del_group")
-
-    if save_config:
-        logger.info(
-            "Saving configuration of default domain for {}".format(
-                str(env.appliances)))
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received: {}".format(str(resp)))
-
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
 
 @logged("mast.datapower.accounts")
 @cli.command('list-users', category='users/groups')
-def list_users(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               web=False):
+def list_users(params: ApplianceParams):
     """Lists the users on the specified appliances as well as a list
-of users common to all appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+of users common to all appliances."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
     logger.info("Attempting to list users for {}".format(str(env.appliances)))
-    if web:
-        return util.web_list_users(env), util.render_history(env)
-
-    sets = []
+    users = {}
     for appliance in env.appliances:
-        users = appliance.users
+        users[appliance.hostname] = appliance.users
         logger.debug(
             "Found users for {}: {}".format(
-                appliance.hostname, str(users)))
-        sets.append(set(users))
-        print('\n', appliance.hostname)
-        print('=' * len(appliance.hostname))
-        for user in users:
-            print('\t', user)
-    common = sets[0].intersection(*sets)
+                appliance.hostname, str(users[appliance.hostname])))
+    result = CommonItems("Users", users, env)
     logger.debug(
         "Users common to {}: {}".format(
-            str(env.appliances), str(common)))
-    print('\nCommon')
-    print('======')
-    for user in common:
-        print('\t', user)
+            str(env.appliances), str(result.common)))
+    return result
+
+
+class AddUser(SaveConfigParams):
+    username: str = Option(short="u", help="The name of the user to add")
+    password: str = Option(
+        "", short="p", secret=True,
+        help="The initial password for the user")
+    supress_force_password_change: bool = Option(
+        False, short="S",
+        help="If specified, the user will not have to change the "
+             "password at the first login")
+    privileged: bool = Option(
+        False, short="P",
+        help="Whether the user will be a privileged user. You cannot "
+             "specify both privileged and a group.")
+    group: str | None = Option(
+        None, short="g", help="The group to which to add the user")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('add-user', category='users/groups')
-def add_user(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             save_config=False,
-             username=None,
-             password="",
-             supress_force_password_change=False,
-             privileged=False,
-             group=None,
-             web=False):
+def add_user(params: AddUser):
     """Adds a user to the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the appliances
-will be saved
-* `-u, --username`: The name of the user to add
-* `-p, --password`: The initial password for the user
-* `-P, --privileged`: Whether the user will be a privileged user
-* `-g, --group`: The group to which to add the user
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__
 
 **NOTE**: You cannot specify both privileged and a group.
 It will fail to add the group"""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to add user {} to {}".format(username, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to add user {} to {}".format(
+        params.username, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
-    kwargs = {
-        'username': username,
-        'password': password,
-        'privileged': privileged,
-        'user_group': group,
-        'supress_force_password_change': supress_force_password_change,
-    }
-    resp = env.perform_async_action('add_user', **kwargs)
-    logger.debug("Responses received {}".format(str(resp)))
+    say(msg)
+    _perform(
+        env, report, logger, 'add_user', "add_user",
+        username=params.username,
+        password=params.password,
+        privileged=params.privileged,
+        user_group=params.group,
+        supress_force_password_change=params.supress_force_password_change)
 
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(resp, suffix="add_user")
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+
+class UserParams(SaveConfigParams):
+    """The parameters of a command that changes one existing user."""
+    User: str = Option(
+        "", short="U", widget=configured("User"),
+        help="The name of the user")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('del-user', category='users/groups')
-def del_user(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             save_config=False,
-             User="",
-             web=False):
-    """Removes a user from the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of`$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-U, --User`: The name of the user to remove
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def del_user(params: UserParams):
+    """Removes a user from the specified appliances."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to delete user {} from {}".format(User, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to delete user {} from {}".format(
+        params.User, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
+    _perform(env, report, logger, 'remove_user', "remove_user",
+             username=params.User)
 
-    resp = env.perform_async_action('remove_user', **{'username': User})
-    logger.debug("Responses received {}".format(str(resp)))
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(resp, suffix="remove_user")
 
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class ChangePassword(UserParams):
+    password: str = Option(
+        "", short="p", secret=True,
+        help="The new password for the specified user. NOTE: You may "
+             "need to place quotations around the argument passed if "
+             "using special characters as these might be incorrectly "
+             "interpreted by your shell.")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('change-password', category='users/groups')
-def change_password(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    save_config=False,
-                    User="",
-                    password="",
-                    web=False):
-    """Changes the specified user's password to the specified password.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-textpasswords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the appliances will
-be saved
-* `-U, --User`: The name of the user whose password you are changing
-* `-p, --password`: The new password for the specified user. NOTE: You may need to
-place quotations around the argument passed if using special characters as these
-might be incorrectly interpreted by your shell.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def change_password(params: ChangePassword):
+    """Changes the specified user's password to the specified password."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to change password for {} on {}".format(User, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to change password for {} on {}".format(
+        params.User, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
+    _perform(env, report, logger, 'change_password', "change_password",
+             username=params.User, password=params.password)
 
-    kwargs = {'username': User, 'password': password}
-    resp = env.perform_async_action('change_password', **kwargs)
-    logger.debug("Responses received {}".format(str(resp)))
-
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(
-            resp, suffix="change_password")
-
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
 
 @logged("mast.datapower.accounts")
 @cli.command('force-change-password', category='users/groups')
-def force_change_password(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          save_config=False,
-                          User="",
-                          web=False):
-    """Forces a user to change their password on their next login.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-U, --User`: The name of the user to force a password change
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def force_change_password(params: UserParams):
+    """Forces a user to change their password on their next login."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to force {} to change password on {}".format(User, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to force {} to change password on {}".format(
+        params.User, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
+    _perform(env, report, logger, 'UserForcePasswordChange',
+             "force_password_change", User=params.User)
 
-    resp = env.perform_async_action(
-        'UserForcePasswordChange',
-        **{'User': User})
-    logger.debug("Responses received {}".format(str(resp)))
-
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(
-            resp,
-            suffix="force_password_change")
-
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
 
 @logged("mast.datapower.accounts")
 @cli.command('list-rbm-fallback', category='users/groups')
-def list_rbm_fallback_users(appliances=[],
-                            credentials=[],
-                            timeout=120,
-                            no_check_hostname=False,
-                            web=False):
+def list_rbm_fallback_users(params: ApplianceParams):
     """Lists the current RBM Fallback Users for the specified appliances,
-as well as the fallback users which are common to all appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
- on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+as well as the fallback users which are common to all appliances."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    if web:
-        return util.web_list_rbm_fallback(env), util.render_history(env)
+    env = params.environment()
 
-    sets = []
+    users = {}
     for appliance in env.appliances:
         logger.info(
             "Attempting to list RBM Fallback users on {}".format(
                 appliance.hostname))
-        users = appliance.fallback_users
+        users[appliance.hostname] = appliance.fallback_users
         logger.debug(
             "RBM Fallback users for {}: {}".format(
-                appliance.hostname, str(users)))
-        sets.append(set(users))
-        print('\n', appliance.hostname)
-        print('=' * len(appliance.hostname))
-        for user in users:
-            print('\t', user)
-    common = sets[0].intersection(*sets)
+                appliance.hostname, str(users[appliance.hostname])))
+    result = CommonItems("RBM Fallback Users", users, env)
     logger.debug(
         "RBM Fallback usesrs common to {}: {}".format(
-            str(env.appliances), str(common)))
-    print('\nCommon')
-    print('======')
-    for user in common:
-        print('\t', user)
+            str(env.appliances), str(result.common)))
+    return result
 
 
 @logged("mast.datapower.accounts")
 @cli.command('add-rbm-fallback', category='users/groups')
-def add_rbm_fallback(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     save_config=False,
-                     User="",
-                     web=False):
-    """Adds a user to the the RBM Fallback users.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-U, --User`: The name of the user to add to RBM Fallback
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def add_rbm_fallback(params: UserParams):
+    """Adds a user to the the RBM Fallback users."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to add {} as an RBM Fallback user to {}".format(User, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to add {} as an RBM Fallback user to {}".format(
+        params.User, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
+    _perform(env, report, logger, 'add_rbm_fallback', "add_rbm_fallback",
+             user=params.User)
 
-    resp = env.perform_async_action('add_rbm_fallback', **{'user': User})
-    logger.debug("Responses received {}".format(str(env.appliances)))
-
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(
-            resp, suffix="add_rbm_fallback")
-
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
 
 @logged("mast.datapower.accounts")
 @cli.command('del-rbm-fallback', category='users/groups')
-def del_rbm_fallback(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     save_config=False,
-                     User="",
-                     web=False):
-    """Removes a user from the the RBM Fallback users.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-s, --save-config`: If specified the configuration on the
-appliances will be saved
-* `-U, --User`: The name of the user to remove from RBM Fallback
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def del_rbm_fallback(params: UserParams):
+    """Removes a user from the the RBM Fallback users."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to remove {} from RBM Fallback users on {}".format(User, str(env.appliances))
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to remove {} from RBM Fallback users on {}".format(
+        params.User, str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
+    _perform(env, report, logger, 'del_rbm_fallback', "del_rbm_fallback",
+             username=params.User)
 
-    resp = env.perform_async_action('del_rbm_fallback', **{'username': User})
-    logger.debug("Responses received {}".format(str(resp)))
-
-    if not web:
-        for host, resp in list(resp.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        output = util.render_boolean_results_table(
-            resp, suffix="del_rbm_fallback")
-
-    if save_config:
-        msg = "Attempting to save config of default domain on {}".format(str(env.appliances))
-        logger.info(msg)
-        if not web:
-            print(msg)
-        resp = env.perform_async_action('SaveConfig', **{'domain': 'default'})
-        logger.debug("Responses received {}".format(str(resp)))
-        if not web:
-            for host, resp in list(resp.items()):
-                print("{}\n{}".format(host, "="*len(host)))
-                pprint_xml(resp.xml)
-        else:
-            output += util.render_boolean_results_table(
-                resp, suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+    if params.save_config:
+        _save_config(env, report, logger)
+    return report
 
 #
 # ~#~#~#~#~#~#~#
@@ -931,196 +332,79 @@ DO NOT USE.__"""
 # FlushRBMCache()
 
 
+class FlushAAACache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain where the aaa_policy resides")
+    aaa_policy: str = Option(
+        "", short="A",
+        help="The AAAPolicy whose cache you would like to flush")
+
+
 @logged("mast.datapower.accounts")
 @cli.command('flush-aaa-cache', category='caches')
-def flush_aaa_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    Domain="",
-                    aaa_policy="",
-                    web=False):
+def flush_aaa_cache(params: FlushAAACache):
     """Flushes the AAA Cache of the specified aaa_policy in the
-specified Domain.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where the aaa_policy resides
-* `-A, --aaa-policy`: the AAAPolicy who's cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+specified Domain."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     msg = "Attempting to flush AAA cache on {}".format(str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
 
-    kwargs = {"PolicyName": aaa_policy, 'domain': Domain}
+    kwargs = {"PolicyName": params.aaa_policy, 'domain': params.Domain}
     responses = env.perform_action('FlushAAACache', **kwargs)
     logger.debug("Responses received {}".format(str(responses)))
+    return ActionResults(responses, env, suffix="flush_aaa_cache")
 
-    if not web:
-        for host, resp in list(responses.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_aaa_cache"), util.render_history(env)
+
+class FlushLDAPPoolCache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain which has the xml_manager whose cache you "
+             "would like to flush.")
+    xml_manager: str = Option(
+        "", short="x",
+        help="The XMLManager whose cache you would like to flush")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('flush-ldap-pool-cache', category='caches')
-def flush_ldap_pool_cache(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          Domain="",
-                          xml_manager="",
-                          web=False):
+def flush_ldap_pool_cache(params: FlushLDAPPoolCache):
     """Flushes the LDAP Pool Cache for the specified xml_manager
-in the specified domain.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain which has the xml_manager who's cache
-you would like to flush.
-* `-x, --xml-manager`: The XMLManager who's cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+in the specified domain."""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    msg = "Attempting to flush LDAP Pool cache on {}".format(str(env.appliances))
+    env = params.environment()
+    msg = "Attempting to flush LDAP Pool cache on {}".format(
+        str(env.appliances))
     logger.info(msg)
+    say(msg)
 
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
+    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
     responses = env.perform_action('FlushLDAPPoolCache', **kwargs)
     logger.debug("Responses received {}".format(str(responses)))
+    return ActionResults(responses, env, suffix="flush_ldap_pool_cache")
 
-    if not web:
-        for host, resp in list(responses.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        return (util.render_boolean_results_table(
-                    responses,
-                    suffix="flush_ldap_pool_cache"),
-                util.render_history(env))
+
+class FlushRBMCache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain for which to flush the RBM Cache")
 
 
 @logged("mast.datapower.accounts")
 @cli.command('flush-rbm-cache', category='caches')
-def flush_rbm_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    Domain="",
-                    web=False):
-    """Flush the RBM Cache in the specified Domain
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain for which to flush the RBM Cache
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def flush_rbm_cache(params: FlushRBMCache):
+    """Flush the RBM Cache in the specified Domain"""
     logger = make_logger("mast.accounts")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     msg = "Attempting to flush RBM cache on {}".format(str(env.appliances))
     logger.info(msg)
-    if not web:
-        print(msg)
+    say(msg)
 
-    responses = env.perform_action('FlushRBMCache', **{'domain': Domain})
+    responses = env.perform_action('FlushRBMCache', **{'domain': params.Domain})
     logger.debug("Responses received {}".format(str(responses)))
-
-    if not web:
-        for host, resp in list(responses.items()):
-            print("{}\n{}".format(host, "="*len(host)))
-            pprint_xml(resp.xml)
-    else:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_rbm_cache"), util.render_history(env)
+    return ActionResults(responses, env, suffix="flush_rbm_cache")
 
 #
 # ~#~#~#~#~#~#~#
@@ -1145,10 +429,4 @@ class WebPlugin(Plugin):
 
 
 if __name__ == '__main__':
-    try:
-        cli.run()
-    except AttributeError as e:
-        if "'NoneType' object has no attribute 'app'" in str(e):
-            raise NotImplementedError(
-                "HTML formatted output is not supported on the CLI")
-        raise
+    cli.run()

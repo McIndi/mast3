@@ -1,13 +1,27 @@
 from itertools import combinations
 from mast.logging import make_logger
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.hashes import get_sha256
 from collections import OrderedDict
 import difflib
 import glob
 import os
 
-def main(pattern="", out_dir="", wrapcolumn=80, tabsize=4, no_same_filenames=False):
+class Main(Params):
+    pattern: str = Option("", short="p")
+    out_dir: str = Option("", short="o")
+    wrapcolumn: int = Option(80, short="w")
+    tabsize: int = Option(4, short="t")
+    no_same_filenames: bool = Option(False, short="n")
+
+
+def main(params: Main):
+    pattern = params.pattern
+    out_dir = params.out_dir
+    wrapcolumn = params.wrapcolumn
+    tabsize = params.tabsize
+    no_same_filenames = params.no_same_filenames
     same_filenames = not no_same_filenames
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)

@@ -1,34 +1,46 @@
 # -*- coding: utf-8 -*-
 from mast.logging import make_logger
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.util import require_optional
 
 # pandas is not installed with MAST.
 pd = require_optional("pandas")
 import os
 
-def main(left_file="",
-         right_file="",
-         out_file="",
-         on=[],
-         how="left"):
+class Main(Params):
+    left_file: str = Option(
+        "", short="l",
+        help='The workbook which contains the worksheet to consider the '
+             '"left" table')
+    right_file: str = Option(
+        "", short="r",
+        help='The workbook which contains the worksheet to consider the '
+             '"right" table')
+    out_file: str = Option(
+        "", short="o",
+        help='The file to output the "joined" tables to')
+    on: list[str] = Option(
+        default_factory=list, short="O",
+        help='A (space-seperated) list of column names to join on')
+    how: str = Option(
+        "left", short="H",
+        help='how to join the two tables, must be one of "left", '
+             '"right", "outer" or "inner"')
+
+
+def main(params: Main):
     """given two xlsx (excel) workbooks, each containing one worksheet,
 join the two worksheets and output a new workbook.
 
-Parameters:
-
-* `-l, --left-file`: The workbook which contains the worksheet
-to consider the "left" table
-* `-r, --right-file`: The workbook which contains the worksheet
-to consider the "right" table
-* `-o, --out-file`: The file to output the "joined" tables to
-* `-O, --on`: A (space-seperated) list of column names to join on
-* `-H, --how`: how to join the two tables, must be one of "left",
-"right", "outer" or "inner"
 
 For more information on joining tables please see the
-[pandas dataframe merge documentation](http://pandas.pydata.org/pandas-docs/version/0.17.1/generated/pandas.DataFrame.merge.html)
-    """
+[pandas dataframe merge documentation](http://pandas.pydata.org/pandas-docs/version/0.17.1/generated/pandas.DataFrame.merge.html)"""
+    left_file = params.left_file
+    right_file = params.right_file
+    out_file = params.out_file
+    on = params.on
+    how = params.how
     left = pd.read_excel(left_file)
     right = pd.read_excel(right_file)
     new = pd.merge(left, right, on=on, how=how)

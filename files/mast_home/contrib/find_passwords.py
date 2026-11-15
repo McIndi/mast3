@@ -2,6 +2,7 @@ import os
 from glob import glob
 from lxml import etree
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 from mast.datapower.datapower import Environment
 
@@ -14,10 +15,15 @@ def get_obj_path(node):
         node.get("name")
     )
 
-def main(
-        config_globs=[],
-        out_file=os.path.join("tmp", "found_passwords.csv")
-    ):
+class Main(Params):
+    config_globs: list[str] = Option(default_factory=list, short="c")
+    out_file: str = Option(
+        os.path.join("tmp", "found_passwords.csv"), short="o")
+
+
+def main(params: Main):
+    config_globs = params.config_globs
+    out_file = params.out_file
     parser = etree.XMLParser(
         remove_blank_text=True,
         strip_cdata=False,

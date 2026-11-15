@@ -46,6 +46,7 @@ import re
 import os
 import sys
 import mast.cli as cli
+from mast.cli import Params, Option
 import xml.etree.cElementTree as etree
 from time import sleep
 from mast.timestamp import Timestamp
@@ -87,20 +88,52 @@ def get_connections(env, clear_screen, class_filter, object_filter,
 
 
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         interval=0,
-         domain_filter=".*",
-         class_filter=".*",
-         object_filter=".*",
-         state_filter=".*",
-         remote_ip_filter=".*",
-         remote_port_filter=".*",
-         local_ip_filter=".*",
-         local_port_filter=".*",
-         clear_screen=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    interval: int = Option(0, short="i")
+    domain_filter: str = Option(".*", short="d")
+    class_filter: str = Option(".*", short="C")
+    object_filter: str = Option(".*", short="o")
+    state_filter: str = Option(".*", short="s")
+    remote_ip_filter: str = Option(".*", short="r")
+    remote_port_filter: str = Option(".*", short="R")
+    local_ip_filter: str = Option(".*", short="l")
+    local_port_filter: str = Option(".*", short="L")
+    clear_screen: bool = Option(False)
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    interval = params.interval
+    domain_filter = params.domain_filter
+    class_filter = params.class_filter
+    object_filter = params.object_filter
+    state_filter = params.state_filter
+    remote_ip_filter = params.remote_ip_filter
+    remote_port_filter = params.remote_port_filter
+    local_ip_filter = params.local_ip_filter
+    local_port_filter = params.local_port_filter
+    clear_screen = params.clear_screen
 
     check_hostname = not no_check_hostname
     class_filter = re.compile(class_filter)

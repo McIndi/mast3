@@ -4,6 +4,7 @@ import os
 import sys
 from time import sleep
 from mast.cli import Cli
+from mast.cli import Params, Option
 from functools import partial
 from mast.datapower import datapower
 from mast.logging import make_logger
@@ -49,15 +50,42 @@ def display_rows(header_row, rows, grep, provider):
             print((_format_string.format(*row)))
 
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         provider="",
-         domains=[],
-         interval=0,
-         grep=[],
-         ignore_case=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    provider: str = Option("", short="p")
+    domains: list[str] = Option(default_factory=list, short="d")
+    interval: int = Option(0, short="i")
+    grep: list[str] = Option(default_factory=list, short="g")
+    ignore_case: bool = Option(False, short="I")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    provider = params.provider
+    domains = params.domains
+    interval = params.interval
+    grep = params.grep
+    ignore_case = params.ignore_case
 
     flags = re.IGNORECASE if ignore_case else 0
     grep = [re.compile(x, flags) for x in grep] if grep else []

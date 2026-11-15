@@ -2,6 +2,7 @@ from collections import defaultdict
 from mast.datapower import datapower
 from mast.logging import make_logger
 from mast.cli import Cli
+from mast.cli import Params, Option
 from lxml import etree
 import openpyxl
 import sqlite3
@@ -83,18 +84,46 @@ def append_row(table, hostname, domain, node, status, seperator="\n", obfuscate_
     table.append(row)
 
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         domains=[],
-         object_classes=[],
-         persisted=False,
-         recursive=False,
-         out_file="tmp/get-config.xlsx",
-         seperator="\n",
-         obfuscate_passwords=False,
-         ):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    object_classes: list[str] = Option(default_factory=list, short="o")
+    persisted: bool = Option(False, short="p")
+    recursive: bool = Option(False, short="r")
+    out_file: str = Option("tmp/get-config.xlsx", short="O")
+    seperator: str = Option("\n", short="s")
+    obfuscate_passwords: bool = Option(False)
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    object_classes = params.object_classes
+    persisted = params.persisted
+    recursive = params.recursive
+    out_file = params.out_file
+    seperator = params.seperator
+    obfuscate_passwords = params.obfuscate_passwords
     check_hostname = not no_check_hostname
     env = datapower.Environment(appliances,
                                 credentials,

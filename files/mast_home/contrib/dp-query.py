@@ -2,6 +2,7 @@ import os
 import openpyxl
 from time import sleep
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 from mast.datapower import datapower
 from mast.timestamp import Timestamp
@@ -303,97 +304,129 @@ def create_workbook(env,
     wb.save(out_file)
 
 
-def main(
-        appliances=[],
-        credentials=[],
-        timeout=120,
-        no_check_hostname=False,
-        domains=["default"],
-        providers=[],
-        object_classes=[],
-        delim=os.linesep,
-        delay=0.5,
-        out_file="./status.xlsx",
-        by_appliance=False,
-        no_prepend_timestamp=False,
-        obfuscate_password=False,
-        persisted=False):
-    r"""
-    _Script_: `contrib/dp-query.py`
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect. For '
+             'details on configuring environments please see the '
+             'comments in `environments.conf` located in '
+             '`$MAST_HOME/etc/default`. For details on configuring '
+             'aliases, please see the comments in `hosts.conf` located '
+             'in `$MAST_HOME/etc/default`. To pass multiple arguments to'
+             ' this parameter, use multiple entries of the form `[-a '
+             'appliance1 [-a appliance2...]]`')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances. Should be either one set to use for all '
+             'appliances or one set for each appliance. Credentials '
+             'should be in the form `username:password`. To pass '
+             'multiple credentials to this parameter, use multiple '
+             'entries of the form `[-c credential1 [-c '
+             'credential2...]]`. When referencing multiple appliances '
+             'with multiple credentials, there must be a one-to-one '
+             'correspondence of credentials to appliances: `[-a '
+             'appliance1 [-a appliance2...]] [-c credential1 [-c '
+             'credential2...]]` If you would prefer to not use plain-'
+             'text passwords, you can use the output of `$ mast-system '
+             'xor <username:password>`.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request. __NOTE__ Program '
+             'execution may halt if a timeout is reached.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    domains: list[str] = Option(
+        default_factory=lambda: ["default"], short="d",
+        help='The domains to query.  To pass multiple arguments to this '
+             'parameter, use multiple entries of the form `[-d domain1 '
+             '[-d domain2...]]`. If `all-domains` is passed to this '
+             'parameter, all domains will be queried.')
+    providers: list[str] = Option(
+        default_factory=list, short="p",
+        help='The status providers to query. To pass multiple arguments '
+             'to this parameter, use multiple entries of the form `[-p '
+             'provider1 [-p provider2...]]`.')
+    object_classes: list[str] = Option(
+        default_factory=list, short="o",
+        help='The object classes to pull the configuration of. To pass '
+             'multiple arguments to this parameter, use multiple entries'
+             ' of the form `[-o objectclass1 [-o objectclass2...]]`.')
+    delim: str = Option(
+        os.linesep, short="D",
+        help='The delimeter to use when multiple values will end up in '
+             "the same cell. Defaults to your system's default line "
+             'termination character (`\\r\\n` on windows or `\\n` on Linux)')
+    delay: float = Option(
+        0.5,
+        help='The amount of time (in seconds) to wait between requests '
+             'to the appliances. This can be extremely useful if you '
+             'need to avoid over-working the appliance for example if '
+             'you need to gather information during peak periods you '
+             'would probably want to set this to one or more seconds. '
+             'Defaults to `0.5`.')
+    out_file: str = Option(
+        "./status.xlsx", short="O",
+        help='The path and filename of the output file. This will be an '
+             'excel workbook, so it should have the extention `.xlsx`')
+    by_appliance: bool = Option(
+        False, short="b",
+        help='If specified, a seperate excel workbook will be generated '
+             'for each appliance.')
+    no_prepend_timestamp: bool = Option(
+        False, short="N",
+        help='If specified, this script will not prepend a timestamp to '
+             'the output filename')
+    obfuscate_password: bool = Option(
+        False,
+        help='If specified, any object configurations which contain a '
+             'password will have its value replaced with "********", '
+             "that's eight asterics.")
+    persisted: bool = Option(
+        False, short="P",
+        help='If specified, the persisted configuration of any specified'
+             ' object classes will be retrieved instead of the running '
+             'configuration')
 
-    DESCRIPTION:
 
-    This script will create an excel workbook generated from the output
-    from the specified appliances for arbitrary status providers and/or
-    object configuration. Each status provider and object class configuration
-    will be contained in a seperate worksheet
+def main(params: Main):
+    """_Script_: `contrib/dp-query.py`
 
-    RETURNS:
+DESCRIPTION:
 
-    An Excel workbook
+This script will create an excel workbook generated from the output
+from the specified appliances for arbitrary status providers and/or
+object configuration. Each status provider and object class configuration
+will be contained in a seperate worksheet
 
-    USAGE:
+RETURNS:
 
-    ```bash
-    $ mast contrib/dp-query --help
-    $ mast contrib/dp-query --appliances APPLIANCE --credentials CREDS --domains all-domains --providers ServicesStatusPlus --object-classes MultiProtocolGateway HTTPFrontSideHandler
-    ```
+An Excel workbook
 
-    PARAMETERS:
+USAGE:
 
-    * `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-    or alias(es) of the appliances you would like to affect. For details
-    on configuring environments please see the comments in
-    `environments.conf` located in `$MAST_HOME/etc/default`. For details
-    on configuring aliases, please see the comments in `hosts.conf` located in
-    `$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-    use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-    * `-c, --credentials`: The credentials to use for authenticating to the
-    appliances. Should be either one set to use for all appliances
-    or one set for each appliance. Credentials should be in the form
-    `username:password`. To pass multiple credentials to this parameter, use
-    multiple entries of the form `[-c credential1 [-c credential2...]]`.
-    When referencing multiple appliances with multiple credentials,
-    there must be a one-to-one correspondence of credentials to appliances:
-    `[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-    If you would prefer to not use plain-text passwords,
-    you can use the output of `$ mast-system xor <username:password>`.
-    * `-t, --timeout`: The timeout in seconds to wait for a response from
-    an appliance for any single request. __NOTE__ Program execution may
-    halt if a timeout is reached.
-    * `-n, --no-check-hostname`: If specified SSL verification will be turned
-    off when sending commands to the appliances.
-    * `-d, --domains`: The domains to query.  To pass multiple arguments
-    to this parameter, use multiple entries of the form
-    `[-d domain1 [-d domain2...]]`. If `all-domains` is passed to this
-    parameter, all domains will be queried.
-    * `-p, --providers`: The status providers to query. To pass multiple
-    arguments to this parameter, use multiple entries of the form
-    `[-p provider1 [-p provider2...]]`.
-    * `-o, --object-classes`: The object classes to pull the configuration
-    of. To pass multiple arguments to this parameter, use multiple entries
-    of the form `[-o objectclass1 [-o objectclass2...]]`.
-    * `-D, --delim`: The delimeter to use when multiple values will end up in
-    the same cell. Defaults to your system's default line termination
-    character (`\r\n` on windows or `\n` on Linux)
-    * `--delay`: The amount of time (in seconds) to wait between requests
-    to the appliances. This can be extremely useful if you need to avoid
-    over-working the appliance for example if you need to gather information
-    during peak periods you would probably want to set this to one or more
-    seconds. Defaults to `0.5`.
-    * `-O, --out-file`: The path and filename of the output file. This will
-    be an excel workbook, so it should have the extention `.xlsx`
-    * `-b, --by-appliance`: If specified, a seperate excel workbook will
-    be generated for each appliance.
-    * `-N, --no-prepend-timestamp`: If specified, this script will not
-    prepend a timestamp to the output filename
-    * `--obfuscate-password`: If specified, any object configurations which
-    contain a password will have its value replaced with "********",
-    that's eight asterics.
-    * `-P, --persisted`: If specified, the persisted configuration of any
-    specified object classes will be retrieved instead of the running
-    configuration
-    """
+```bash
+$ mast contrib/dp-query --help
+$ mast contrib/dp-query --appliances APPLIANCE --credentials CREDS --domains all-domains --providers ServicesStatusPlus --object-classes MultiProtocolGateway HTTPFrontSideHandler
+```"""
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    domains = params.domains
+    providers = params.providers
+    object_classes = params.object_classes
+    delim = params.delim
+    delay = params.delay
+    out_file = params.out_file
+    by_appliance = params.by_appliance
+    no_prepend_timestamp = params.no_prepend_timestamp
+    obfuscate_password = params.obfuscate_password
+    persisted = params.persisted
 
     prepend_timestamp = not no_prepend_timestamp
     t = Timestamp()

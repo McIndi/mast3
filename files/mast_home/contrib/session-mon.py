@@ -12,6 +12,7 @@ import mast.datapower.datapower as datapower
 from mast.logging import make_logger
 from itertools import groupby
 from mast.cli import Cli
+from mast.cli import Params, Option
 import os
 
 class UserSession(object):
@@ -84,12 +85,36 @@ def disconnect_all(appliance, user, ids):
             ))
 
 
-def main(appliances=[],
-         credentials=[],
-         domains=[],
-         no_check_hostname=False,
-         max_sessions=20,
-         timeout=120):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    domains: list[str] = Option(default_factory=list, short="d")
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    max_sessions: int = Option(20, short="m")
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    domains = params.domains
+    no_check_hostname = params.no_check_hostname
+    max_sessions = params.max_sessions
+    timeout = params.timeout
     logger = make_logger("session_mon")
     check_hostname = not no_check_hostname
 

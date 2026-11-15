@@ -5,6 +5,7 @@ markdown
 ecdsa
 python-dateutil
 flask
+pydantic>=2
 openpyxl
 lxml
 pygments

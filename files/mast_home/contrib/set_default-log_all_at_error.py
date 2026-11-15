@@ -3,6 +3,7 @@ from mast.logging import make_logger
 from mast.datapower import datapower
 from lxml import etree
 import mast.cli as cli
+from mast.cli import Params, Option
 import os
 
 nsmap = {
@@ -10,13 +11,36 @@ nsmap = {
     "dp":"http://www.datapower.com/schemas/management"
 }
 
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         dry_run=False,
-         save_config=False,
-    ):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    dry_run: bool = Option(False, short="d")
+    save_config: bool = Option(False, short="s")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    dry_run = params.dry_run
+    save_config = params.save_config
     check_hostname = not no_check_hostname
     env = datapower.Environment(
         hostnames=appliances,

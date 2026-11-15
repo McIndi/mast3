@@ -290,7 +290,10 @@ class TestNetworkCLI(CLITestCase):
         self.mast(
             "network", "add-host-alias", "-N", "cli_alias", "-i", "127.0.0.1")
         out = self.mast("network", "list-host-aliases")
-        self.assertIn("cli_alias 127.0.0.1 enabled", out)
+        # One row for the appliance and one for what is common
+        self.assertRegex(
+            out, r"(?m)^{} +cli_alias +127\.0\.0\.1 +enabled$".format(ALIAS))
+        self.assertRegex(out, r"(?m)^common +cli_alias +127\.0\.0\.1 +enabled$")
 
         self.mast("network", "del-host-alias", "-H", "cli_alias")
         names = [alias[0] for alias in self.dp.get_host_aliases()]

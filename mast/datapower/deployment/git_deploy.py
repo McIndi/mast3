@@ -15,7 +15,8 @@
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 
 from mast.datapower import datapower
-from mast.plugin_utils.plugin_utils import render_history, render_results_table
+from mast.plugin_utils.params import ApplianceOptions, OUT_DIR
+from mast.plugin_utils.results import Report, StatusResults
 from collections import Counter
 from mast.logging import make_logger
 from mast.config import get_config
@@ -23,7 +24,7 @@ from mast.xor import xorencode, xordecode
 from mast.util import _s, _b
 from subprocess import Popen
 from mast.timestamp import Timestamp
-from mast.cli import Cli
+from mast.cli import Cli, Option, say
 from urllib.parse import urlparse, urlunparse
 from urllib.parse import quote_plus
 from time import sleep, time
@@ -56,12 +57,20 @@ def handleRemoveReadonly(func, path, exc):
   else:
       raise
 
+# The queue of the progress window, if there is one. See StdoutDisplay.
+_window = None
+
+
 def print(msg):
+    """Report progress: to the log, to the user and to the progress
+    window if there is one."""
     log = make_logger("mast.datapower.deployment.results")
     if msg is not None:
+        msg = _s(msg)
         log.info(msg)
-        sys.stdout.write("{}{}".format(msg.rstrip(), os.linesep))
-        sys.stdout.flush()
+        say(msg.rstrip())
+        if _window is not None:
+            _window.put("{}{}".format(msg.rstrip(), os.linesep))
 
 
 class StdoutDisplay(Process):
@@ -263,8 +272,6 @@ class Plan(object):
         # find the list of steps that need to be followed for all appliances
         self._actions = self._plan()
 
-        if config["web"]:
-            self.output = OrderedDict()
         # print(str(self._actions))
         with open(os.path.join(config["out_dir"], "plan.txt"), "w") as fp:
             for index, action in enumerate(self):
@@ -278,37 +285,35 @@ class Plan(object):
             yield action
 
     def list_steps(self):
-        if self.config["web"]:
-            output = OrderedDict()
-            output["App Domains"] = ""
-            for appliance in self.environment.appliances:
-                app_domain = self.config["domains"][self.config["appliances"].index(appliance.hostname)]
-                output["App Domains"] += "{} -> {}\n".format(appliance.hostname, app_domain)
-            output["Merged Deployment Policies"] = ""
-            for filename in self._merged_deployment_policies:
-                output["Merged Deployment Policies"] += "{}\n".format(filename)
-            output["Services"] = ""
-            for kwargs in self._services:
-                output["Services"] += "{}: {}\n".format(kwargs["type"], kwargs["name"])
-            output["Directories to Create"] = ""
-            for hostname, dirs in list(self.dirs_to_create.items()):
-                if dirs:
-                    output["Directories to Create"] = "{}{}".format(hostname, os.linesep)
-                    for directory in dirs:
-                        output["Directories to Create"] = "\t{}{}".format(directory, os.linesep)
-            output["Uploads"] = ""
-            for filename, kwargs in list(self._uploads.items()):
-                output["Uploads"] += "{} -> {}{}".format(os.path.relpath(kwargs["file_in"], self.config["repo_dir"]), kwargs["file_out"], os.linesep)
-            if self.deployment_policy is None:
-                output["Imports"] = ""
-            else:
-                output["Imports"] = "{}{}".format("merged_deployment_policy.xcfg", os.linesep)
-            for kwargs in self._imports:
-                output["Imports"] += "{}{}".format(os.path.relpath(kwargs["zip_file"], self.config["repo_dir"]), os.linesep)
-            output["Password Map Aliases"] = ""
-            for kwargs in self._password_map_aliases:
-                output["Password Map Aliases"] += "{}{}".format(kwargs["AliasName"], os.linesep)
-            ret = render_results_table(output), render_history(self.environment)
+        output = OrderedDict()
+        output["App Domains"] = ""
+        for appliance in self.environment.appliances:
+            app_domain = self.config["domains"][self.config["appliances"].index(appliance.hostname)]
+            output["App Domains"] += "{} -> {}\n".format(appliance.hostname, app_domain)
+        output["Merged Deployment Policies"] = ""
+        for filename in self._merged_deployment_policies:
+            output["Merged Deployment Policies"] += "{}\n".format(filename)
+        output["Services"] = ""
+        for kwargs in self._services:
+            output["Services"] += "{}: {}\n".format(kwargs["type"], kwargs["name"])
+        output["Directories to Create"] = ""
+        for hostname, dirs in list(self.dirs_to_create.items()):
+            if dirs:
+                output["Directories to Create"] = "{}{}".format(hostname, os.linesep)
+                for directory in dirs:
+                    output["Directories to Create"] = "\t{}{}".format(directory, os.linesep)
+        output["Uploads"] = ""
+        for filename, kwargs in list(self._uploads.items()):
+            output["Uploads"] += "{} -> {}{}".format(os.path.relpath(kwargs["file_in"], self.config["repo_dir"]), kwargs["file_out"], os.linesep)
+        if self.deployment_policy is None:
+            output["Imports"] = ""
+        else:
+            output["Imports"] = "{}{}".format("merged_deployment_policy.xcfg", os.linesep)
+        for kwargs in self._imports:
+            output["Imports"] += "{}{}".format(os.path.relpath(kwargs["zip_file"], self.config["repo_dir"]), os.linesep)
+        output["Password Map Aliases"] = ""
+        for kwargs in self._password_map_aliases:
+            output["Password Map Aliases"] += "{}{}".format(kwargs["AliasName"], os.linesep)
         print("App Domains")
         for appliance in self.environment.appliances:
             app_domain = self.config["domains"][self.config["appliances"].index(appliance.hostname)]
@@ -337,8 +342,7 @@ class Plan(object):
         print("Password Map Aliases")
         for kwargs in self._password_map_aliases:
             print("\t{}".format(kwargs["AliasName"]))
-        if self.config["web"]:
-            return ret
+        return output
 
     def execute(self):
         log = make_logger("mast.datapower.deployment.git-deploy")
@@ -357,50 +361,47 @@ class Plan(object):
                 # Not an XML response, it is a normal backup
                 pass
 
-            if self.config["web"]:
-                key = "{}-{}".format(index, action.name)
-                # web mode
-                if "CreateDir" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                    log.info("sleeping for 5 seconds")
-                    sleep(5)
-                elif "quiesce" in action.name and "unquiesce" not in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                    delay = self.config["quiesce_timeout"] + self.config["quiesce_delay"]
-                elif "ObjectStatus" in action.name:
-                    output[key] = "Down but Enabled Objects"
-                    readings = response_tree.findall(".//ObjectStatus")
-                    readings = [node for node in readings if node.findtext("OpState") == "down"]
-                    readings = [node for node in readings if node.findtext("AdminState") == "enabled"]
-                    for reading in readings:
-                        output[key] += "\n\t{} {} ({})".format(reading.findtext("Class"), reading.findtext("Name"), reading.findtext("ErrorCode"))
+            key = "{}-{}".format(index, action.name)
+            # web mode
+            if "CreateDir" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "quiesce" in action.name and "unquiesce" not in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+                delay = self.config["quiesce_timeout"] + self.config["quiesce_delay"]
+            elif "ObjectStatus" in action.name:
+                output[key] = "Down but Enabled Objects"
+                readings = response_tree.findall(".//ObjectStatus")
+                readings = [node for node in readings if node.findtext("OpState") == "down"]
+                readings = [node for node in readings if node.findtext("AdminState") == "enabled"]
+                for reading in readings:
+                    output[key] += "\n\t{} {} ({})".format(reading.findtext("Class"), reading.findtext("Name"), reading.findtext("ErrorCode"))
 
-                elif "password-map-alias" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                elif "upload"  in action.name:
-                    output[key] = "{} -> {}".format(os.path.relpath(action.kwargs["file_in"], self.config["repo_dir"]), action.kwargs["file_out"])
-                    output[key] += "\nResult: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                elif "import" in action.name:
-                    output[key] = ""
-                    output[key] += "Imported Files"
-                    for file_node in response_tree.findall(".//imported-files/*"):
-                        output[key] += "\n\t{} {}".format(file_node.get("name"), file_node.get("status"))
-                    output[key] += "\nImported Objects"
-                    for file_node in response_tree.findall(".//imported-objects/*"):
-                        output[key] += "\n\t{} {} {}".format(file_node.get("class"), file_node.get("name"), file_node.get("status"))
-                    output[key] += "\nExec Script Results"
-                    for file_node in response_tree.findall(".//exec-script-results/*"):
-                        output[key] += "\n\t{} {} {}".format(file_node.get("class"), file_node.get("name"), file_node.get("status"))
-                elif "unquiesce" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                elif "remove-oldest-checkpoint" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                elif "SaveCheckpoint" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
-                elif "NormalBackup" in action.name:
-                    output[key] = "Backup can be downloaded above"
-                elif "save-config" in action.name:
-                    output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "password-map-alias" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "upload"  in action.name:
+                output[key] = "{} -> {}".format(os.path.relpath(action.kwargs["file_in"], self.config["repo_dir"]), action.kwargs["file_out"])
+                output[key] += "\nResult: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "import" in action.name:
+                output[key] = ""
+                output[key] += "Imported Files"
+                for file_node in response_tree.findall(".//imported-files/*"):
+                    output[key] += "\n\t{} {}".format(file_node.get("name"), file_node.get("status"))
+                output[key] += "\nImported Objects"
+                for file_node in response_tree.findall(".//imported-objects/*"):
+                    output[key] += "\n\t{} {} {}".format(file_node.get("class"), file_node.get("name"), file_node.get("status"))
+                output[key] += "\nExec Script Results"
+                for file_node in response_tree.findall(".//exec-script-results/*"):
+                    output[key] += "\n\t{} {} {}".format(file_node.get("class"), file_node.get("name"), file_node.get("status"))
+            elif "unquiesce" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "remove-oldest-checkpoint" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "SaveCheckpoint" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
+            elif "NormalBackup" in action.name:
+                output[key] = "Backup can be downloaded above"
+            elif "save-config" in action.name:
+                output[key] = "Result: {}".format("\n\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext()))
             if "CreateDir" in action.name:
                 print("\n\tResult: {}".format("\n\t\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext())))
                 log.info("sleeping for 5 seconds")
@@ -442,10 +443,9 @@ class Plan(object):
                 print("\n\tBackup Saved to '{}'".format(action.resp_file))
             elif "save-config" in action.name:
                 print("\n\tResult: {}".format("\n\t\t".join(response_tree.find(".//{http://www.datapower.com/schemas/management}result").itertext())))
-            if self.config["web"]:
-                print("CLEAR")
-        if self.config["web"]:
-            return render_results_table(output), render_history(self.environment)
+            if _window is not None:
+                _window.put("CLEAR")
+        return output
 
     def _find_services(self):
         ret = []
@@ -1228,152 +1228,151 @@ def _clone_pull_and_checkout(config):
         shutil.rmtree(dst, onerror=handleRemoveReadonly)
     shutil.copytree(config["repo_dir"], dst)
 
-def git_deploy(
-        appliances=[],
-        credentials=[],
-        timeout=120,
-        no_check_hostname=False,
-        environment="",
-        service="",
-        commit="",
-        out_dir="",
-        dry_run=False,
-        allow_files_in_export=False,
-        ignore_save_needed=False,
-        ignore_no_deployment_policy=False,
-        quiesce=True,
-        object_status=True,
-        backup_app_domain=True,
-        backup_default_domain=True,
-        checkpoint_app_domain=True,
-        checkpoint_default_domain=True,
-        quiesce_delay=0,
-        quiesce_timeout=60,
-        save_config=False,
-        web=False,
-    ):
-    """
-    Deploy services to IBM DataPower appliances. A service must be
-    configured in $MAST_HOME/etc/local/service-config.conf, please
-    see $MAST_HOME/etc/default/service-config.conf for documentation
-    on the format of this configuration file.
+class GitDeploy(ApplianceOptions):
+    # Not ApplianceParams: the environment here is the name of an
+    # environment in service-config.conf.
+    environment: str = Option(
+        "", short="e",
+        help="The environment must be defined in the "
+             "service-config.conf")
+    service: str = Option(
+        "", short="s",
+        help="The service to deploy, this corresponds to a stanza in "
+             "service-config.conf")
+    commit: str = Option(
+        "", short="C",
+        help="The commit id, commit tag or branch for which to perform "
+             "a git checkout")
+    out_dir: str = Option(
+        "", short="o", widget=OUT_DIR,
+        help="The directory in which to store the deployment artifacts "
+             "(default: `$MAST_HOME/tmp/deployment-results`)")
+    dry_run: bool = Option(
+        False, short="d",
+        help="If specified, nothing will be done to the appliances")
+    allow_files_in_export: bool = Option(
+        False, short="A",
+        help="If specified, deployment will proceed regardless of "
+             "whether there are local uploads within configuration "
+             "exports")
+    ignore_save_needed: bool = Option(
+        False, short="i",
+        help="If specified, deployment will proceed regardless of "
+             "whether the app domain needs to be saved")
+    ignore_no_deployment_policy: bool = Option(
+        False, short="I",
+        help="If specified, deployment will proceed even if there are "
+             "no deployment policies")
+    quiesce: bool = Option(
+        True,
+        help="If specified, the service will not be quiesced before "
+             "the deployment")
+    object_status: bool = Option(
+        True, help="If specified, no object status will be taken")
+    backup_app_domain: bool = Option(
+        True, help="If specified, the app domain will not be backed up")
+    backup_default_domain: bool = Option(
+        True,
+        help="If specified, the default domain will not be backed up")
+    checkpoint_app_domain: bool = Option(
+        True,
+        help="If specified, no checkpoint will be set in the app domain")
+    checkpoint_default_domain: bool = Option(
+        True,
+        help="If specified, no checkpoint will be set in the default "
+             "domain")
+    quiesce_delay: int = Option(
+        0, short="q",
+        help="The number of seconds the datapower will wait before "
+             "quiescing the service")
+    quiesce_timeout: int = Option(
+        60, short="Q",
+        help="The maximum number of seconds for the datapower to wait "
+             "for the service to quiesce before abruptly terminating "
+             "it.")
+    save_config: bool = Option(
+        False, short="S",
+        help="If specified, the app domains configuration will be "
+             "saved after the deployment is complete")
+    progress_window: bool = Option(
+        False,
+        help="If specified, a window on the machine that runs MAST "
+             "shows the progress of the deployment. It needs tkinter "
+             "and a display.")
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-e, --environment`: The environment must be defined in the service-config.conf
-* `-s, --service`: The service to deploy, this corresponds to a stanza in service-config.conf
-* `-c, --commit`: The commit id, commit tag or branch for which to perform a git checkout
-* `-o, --out_dir`: The directory in which to store the deployment artifacts
-* `-d, --dry_run`: If specified, nothing will be done to the appliances
-* `--ignore-save-needed`: If specified, deployment will proceed regardless of whether
-the app domain needs to be saved
-* `--ignore-no-deployment-policy`: If specified, deployment will proceed even if
-there are no deployment policies
-* `--allow-files-in-export`: regardless of whether there are local
-uploads within configuration exports
-* `-N, --no-quiesce`: If specified, the service will not be quiesced before the
-deployment
-* `--no-object-status`: If specified, no object status will be taken
-* `--no-backup-app-domain`: If specified, the app domain will not be backed up
-* `--no-backup-default-domain`: If specified, the default domain will not be backed up
-* `--no-checkpoint-app-domain`: If specified, no checkpoint will be set in the app domain
-* `--no-checkpoint-default-domain`: If specified, no checkpoint will be set in the default domain
-* `-q, --quiesce-delay`: The number of seconds the datapower will wait
-before quiescing the service
-* `-Q, --quiesce-timeout`: The maximum number of seconds for the datapower to
-wait for the service to quiesce before abruptly terminating it.
-* `-s, --save-config`: If specified, the app domains configuration will be
-saved after the deployment is complete
-    """
+def git_deploy(params: GitDeploy):
+    """Deploy services to IBM DataPower appliances. A service must be
+configured in $MAST_HOME/etc/local/service-config.conf, please
+see $MAST_HOME/etc/default/service-config.conf for documentation
+on the format of this configuration file."""
+    global _window
     log = make_logger("mast.datapower.deployment.git-deploy")
 
-    check_hostname = not no_check_hostname
     config = parse_config(
-        appliances,
-        credentials,
-        environment,
-        service,
-        check_hostname,
-        timeout,
+        params.appliances,
+        params.credentials,
+        params.environment,
+        params.service,
+        not params.no_check_hostname,
+        params.timeout,
     )
     config.update(
         {
-            "allow_files_in_export": allow_files_in_export,
-            "ignore_save_needed": ignore_save_needed,
-            "ignore_no_deployment_policy": ignore_no_deployment_policy,
-            "quiesce": quiesce,
-            "quiesce_delay": quiesce_delay,
-            "quiesce_timeout": quiesce_timeout,
-            "save_config": save_config,
+            "allow_files_in_export": params.allow_files_in_export,
+            "ignore_save_needed": params.ignore_save_needed,
+            "ignore_no_deployment_policy": params.ignore_no_deployment_policy,
+            "quiesce": params.quiesce,
+            "quiesce_delay": params.quiesce_delay,
+            "quiesce_timeout": params.quiesce_timeout,
+            "save_config": params.save_config,
             "step_number": 0,
-            "object_status": object_status,
-            "backup_app_domain": backup_app_domain,
-            "backup_default_domain": backup_default_domain,
-            "checkpoint_app_domain": checkpoint_app_domain,
-            "checkpoint_default_domain": checkpoint_default_domain,
-            "commit": commit,
-            "service": service,
-            "timeout": timeout,
-            "web": web,
+            "object_status": params.object_status,
+            "backup_app_domain": params.backup_app_domain,
+            "backup_default_domain": params.backup_default_domain,
+            "checkpoint_app_domain": params.checkpoint_app_domain,
+            "checkpoint_default_domain": params.checkpoint_default_domain,
+            "commit": params.commit,
+            "service": params.service,
+            "timeout": params.timeout,
         }
     )
     # This adds paths to config and creates the directories as needed
-    _prepare_output_directories(config, out_dir)
+    _prepare_output_directories(config, params.out_dir)
 
     _initialize_logging(config)
 
     log.info("Working with path: '{}'".format(os.environ.get("PATH")))
 
-    if web:
-        q = StdoutQueue()
-        sys.stdout = q
-        sys.stderr = q
-        display = StdoutDisplay(q)
+    display = None
+    if params.progress_window:
+        _window = StdoutQueue()
+        display = StdoutDisplay(_window)
         display.start()
         sleep(2)
 
-    _clone_pull_and_checkout(config)
+    try:
+        _clone_pull_and_checkout(config)
 
-    plan = Plan(config)
+        plan = Plan(config)
 
-    if dry_run:
-        ret = plan.list_steps()
-    else:
-        ret = plan.execute()
+        if params.dry_run:
+            output = plan.list_steps()
+        else:
+            output = plan.execute()
+    finally:
+        if display is not None:
+            sleep(5)
+            _window.put("END")
+            _window = None
 
-    if web:
-        sleep(5)
-        display.q.put("END")
-    return ret
+    # The steps were reported as they happened
+    report = Report(plan.environment)
+    report.add(StatusResults(output), show=False)
+    return report
+
 
 if __name__ == "__main__":
-    cli = Cli(main=git_deploy, description=git_deploy.__doc__)
-    try:
-        cli.run()
-    except SystemExit:
-        pass
-    except Exception:
-        make_logger("mast.datapower.deployment.git-deploy").exception("An unhandled exception occurred")
-        raise
+    cli = Cli()
+    cli.command("git-deploy")(git_deploy)
+    cli.run()

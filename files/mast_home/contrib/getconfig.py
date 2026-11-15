@@ -1,6 +1,7 @@
 import os
 from time import sleep
 from mast.cli import Cli
+from mast.cli import Params, Option
 from openpyxl import Workbook
 from mast.logging import make_logger
 from mast.datapower import datapower
@@ -186,17 +187,46 @@ def create_workbook(env, object_classes, domains, out_file,
     wb.save(out_file)
 
 
-def main(appliances=[],
-         credentials=[],
-         object_classes=[],
-         domains=[],
-         timeout=120,
-         no_check_hostname=False,
-         out_file="sample.xlsx",
-         delim=os.linesep,
-         by_appliance=False,
-         no_prepend_timestamp=False,
-         obfuscate_password=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    object_classes: list[str] = Option(default_factory=list, short="o")
+    domains: list[str] = Option(default_factory=list, short="d")
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    out_file: str = Option("sample.xlsx", short="O")
+    delim: str = Option(os.linesep, short="D")
+    by_appliance: bool = Option(False, short="b")
+    no_prepend_timestamp: bool = Option(False, short="N")
+    obfuscate_password: bool = Option(False)
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    object_classes = params.object_classes
+    domains = params.domains
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    out_file = params.out_file
+    delim = params.delim
+    by_appliance = params.by_appliance
+    no_prepend_timestamp = params.no_prepend_timestamp
+    obfuscate_password = params.obfuscate_password
 
     prepend_timestamp = not no_prepend_timestamp
     t = Timestamp()

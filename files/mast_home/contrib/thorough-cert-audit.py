@@ -11,6 +11,7 @@ from mast.util import require_optional
 pd = require_optional("pandas")
 from time import sleep
 from mast.cli import Cli
+from mast.cli import Params, Option
 from mast.logging import make_logger
 import xml.etree.cElementTree as etree
 import mast.datapower.datapower as datapower
@@ -225,13 +226,38 @@ def cert_audit(appliances=[],
 
 
 default_out_file = os.path.join("tmp", "thourough-cert-audit.xlsx")
-def main(appliances=[],
-         credentials=[],
-         timeout=120,
-         no_check_hostname=False,
-         obfuscate_passwords=False,
-         out_file=default_out_file,
-         clean_artifacts=False):
+class Main(Params):
+    appliances: list[str] = Option(
+        default_factory=list, short="a",
+        help='The hostname(s), ip address(es), environment name(s) or '
+             'alias(es) of the appliances you would like to affect.')
+    credentials: list[str] = Option(
+        default_factory=list, short="c", secret=True,
+        help='The credentials to use for authenticating to the '
+             'appliances, in the form `username:password`. Give either '
+             'one set to use for all appliances or one set for each '
+             'appliance.')
+    timeout: int = Option(
+        120, short="t",
+        help='The timeout in seconds to wait for a response from an '
+             'appliance for any single request.')
+    no_check_hostname: bool = Option(
+        False, short="n",
+        help='If specified SSL verification will be turned off when '
+             'sending commands to the appliances.')
+    obfuscate_passwords: bool = Option(False, short="o")
+    out_file: str = Option(default_out_file, short="O")
+    clean_artifacts: bool = Option(False, short="C")
+
+
+def main(params: Main):
+    appliances = params.appliances
+    credentials = params.credentials
+    timeout = params.timeout
+    no_check_hostname = params.no_check_hostname
+    obfuscate_passwords = params.obfuscate_passwords
+    out_file = params.out_file
+    clean_artifacts = params.clean_artifacts
     # 1. perform the cert-file-audit
     print("EXAMINING FILESYSTEMS")
     cert_file_audit_file = os.path.join("tmp", "base-cert-file-audit.xlsx")

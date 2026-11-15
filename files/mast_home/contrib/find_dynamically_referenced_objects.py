@@ -1,6 +1,7 @@
 import os
 import atexit
 from mast.cli import Cli
+from mast.cli import Params, Option
 from glob import glob
 from mast.logging import make_logger
 from mast.datapower.datapower import CONFIG_XPATH
@@ -15,10 +16,14 @@ class DPObject(object):
     def __repr__(self):
         return "{} {}".format(self.klass, self.name)
 
-def main(
-        config_globs=[],
-        out_file=None,
-    ):
+class Main(Params):
+    config_globs: list[str] = Option(default_factory=list, short="c")
+    out_file: str | None = Option(None, short="o")
+
+
+def main(params: Main):
+    config_globs = params.config_globs
+    out_file = params.out_file
     if not out_file:
         out_file = sys.stdout
     else:

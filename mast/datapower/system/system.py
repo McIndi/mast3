@@ -20,14 +20,12 @@ A set of tools for automating routine system-administration
 tasks associated with IBM DataPower appliances.
 """
 import os
-import sys
-import flask
+import gzip
 import base64
 import shutil
 import zipfile
-import commandr
 from importlib.resources import files
-from mast.cli import Cli
+from mast.cli import Cli, Params, Option, Result, Table, Text, say
 from time import time, sleep
 from mast.xor import xorencode
 from mast.plugins.web import Plugin
@@ -35,7 +33,13 @@ from mast.logging import make_logger
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
 from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_utils as util
+from mast.plugin_utils.params import (
+    ApplianceParams, SaveConfigParams, OBJECT_CLASS, OUT_DIR, OUT_FILE,
+    STATUS_PROVIDER, UPLOAD, configured, timeout_option)
+from mast.plugin_utils.results import (
+    ActionResults, CommonItems, Report, SeeDownload, StatusResults, history)
+from mast.plugin_utils.steps import perform
+from mast.plugin_utils.steps import save_config as save_default_domain
 import mast.plugin_utils.plugin_functions as pf
 from mast.datapower.backups import get_normal_backup
 
@@ -211,24 +215,61 @@ def _verify_zip(zip_file):
     return False
 
 
+
+def _action(params, action, suffix, description, **kwargs):
+    """Perform action on each appliance in params and return the
+    responses. description says what the action does, for the log and
+    for the user."""
+    logger = make_logger("mast.system")
+    env = params.environment()
+    msg = "Attempting to {} on {}".format(description, str(env.appliances))
+    logger.info(msg)
+    say(msg)
+    responses = env.perform_action(action, **kwargs)
+    logger.debug("Responses received: {}".format(str(responses)))
+    return ActionResults(responses, env, suffix=suffix)
+
+
+def _each_domain(env, domains, action, skip_default=False):
+    """Call action(appliance, domain) for each appliance in env and
+    each of domains. "all-domains" stands for every domain of the
+    appliance, without the default domain if skip_default is True.
+    Return the responses, with "hostname-domain" as the key."""
+    responses = {}
+    for appliance in env.appliances:
+        _domains = list(domains)
+        if "all-domains" in _domains:
+            _domains = [
+                domain for domain in appliance.domains
+                if not (skip_default and domain == "default")]
+        for domain in _domains:
+            key = "{}-{}".format(appliance.hostname, domain)
+            responses[key] = action(appliance, domain)
+    return responses
+
+
+def _domains_option(help):
+    return Option(
+        default_factory=list, short="D", widget=configured("Domain"),
+        help=help + " `all-domains` stands for every domain of the "
+                    "appliance.")
+
+
+class Xor(Params):
+    string: str = Option(
+        "", short="s", help="The string to xor and base64 encode")
+
+
 @cli.command('xor', category='utilities')
-def xor(string='', web=False):
+def xor(params: Xor):
     """This will xor encode and base64 encode the given string
 for suitable use in passing credentials to MAST CLI commands.
 This is a useful utility for scripting multiple MAST CLI commands
 since your credentials will not be in plain text.
 
 **PLEASE NOTE THAT THIS IS OBFUSCATION AT BEST, SO DON'T LEAN
-TOO HEAVILY ON THIS SECURITY**
-
-Parameters:
-
-* `-s, --string`: The string to xor and base64 encode
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    if web:
-        return xorencode(string), ""
-    print(xorencode(string))
+TOO HEAVILY ON THIS SECURITY**"""
+    return Text(xorencode(params.string))
 
 
 # ~#~#~#~#~#~#~#
@@ -253,675 +294,139 @@ DO NOT USE.__"""
 # FlushStylesheetCache(XMLManager)
 #
 
+class FlushAAACache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain where the specified AAAPolicy resides")
+    aaa_policy: str = Option(
+        "", short="A",
+        help="The AAAPolicy whose cache you would like to flush")
+
+
 @cli.command('flush-aaa-cache', category='caches')
-def flush_aaa_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    Domain="",
-                    aaa_policy="",
-                    web=False):
+def flush_aaa_cache(params: FlushAAACache):
     """This will flush the AAA Cache for the specified AAAPolicy
-in the specified Domain on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where the specified AAAPolicy resides
-* `-A, --aaa-policy`: The AAAPolicy whose cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info(
-        "Attempting to flush AAA cache on {} in {} domain.".format(
-            str(env.appliances), Domain))
-    kwargs = {"PolicyName": aaa_policy, 'domain': Domain}
-    responses = env.perform_action('FlushAAACache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_aaa_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+in the specified Domain on the specified appliances."""
+    return _action(
+        params, 'FlushAAACache', "flush_aaa_cache",
+        "flush the AAA cache of {} in the {} domain".format(
+            params.aaa_policy, params.Domain),
+        PolicyName=params.aaa_policy, domain=params.Domain)
 
 
 @cli.command('flush-arp-cache', category='caches')
-def flush_arp_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    web=False):
-    """This will flush the ARP cache on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to flush ARP cache for {}".format(
-        str(env.appliances)))
-    responses = env.perform_action('FlushArpCache')
-    logger.debug("Responses received: {}".format(str(appliances)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_arp_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+def flush_arp_cache(params: ApplianceParams):
+    """This will flush the ARP cache on the specified appliances."""
+    return _action(
+        params, 'FlushArpCache', "flush_arp_cache", "flush the ARP cache")
 
 
 @cli.command('flush-dns-cache', category='caches')
-def flush_dns_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    web=False):
-    """This will flush the DNS cache on the specified appliances.
+def flush_dns_cache(params: ApplianceParams):
+    """This will flush the DNS cache on the specified appliances."""
+    return _action(
+        params, 'FlushDNSCache', "flush_dns_cache", "flush the DNS cache")
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to flush DNS cache on {}".format(
-        str(env.appliances)))
-    responses = env.perform_action('FlushDNSCache')
-    logger.debug("Responses received: {}".format(responses))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_dns_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+class XMLManagerParams(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain where xml_manager resides")
+    xml_manager: str = Option(
+        "", short="x",
+        help="The XMLManager whose cache you would like to flush")
 
 
 @cli.command('flush-document-cache', category='caches')
-def flush_document_cache(appliances=[],
-                         credentials=[],
-                         timeout=120,
-                         no_check_hostname=False,
-                         Domain="",
-                         xml_manager="",
-                         web=False):
+def flush_document_cache(params: XMLManagerParams):
     """This will flush the Document cache for the specified
-xml_manager in the specified domain on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where xml_manager resides
-* `-x, --xml-manger`: The XMLManager whose document cache you would
-like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info(
-        "Attempting to flush document cache for "
-        "{} in {} domain for {} xml manager".format(
-            str(env.appliances),
-            Domain,
-            xml_manager))
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
-    responses = env.perform_action('FlushDocumentCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_document_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+xml_manager in the specified domain on the specified appliances."""
+    return _action(
+        params, 'FlushDocumentCache', "flush_document_cache",
+        "flush the document cache of {} in the {} domain".format(
+            params.xml_manager, params.Domain),
+        XMLManager=params.xml_manager, domain=params.Domain)
 
 
 @cli.command('flush-ldap-pool-cache', category='caches')
-def flush_ldap_pool_cache(appliances=[], credentials=[],
-                          timeout=120, Domain="", xml_manager="",
-                          no_check_hostname=False, web=False):
+def flush_ldap_pool_cache(params: XMLManagerParams):
     """This will flush the LDAP Pool Cache for the specified
-xml_manager in the specified domain on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where xml_manager resides
-* `-x, --xml-manager`: The XMLManager whose LDAP Pool cache you would
-like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info(
-        "Attempting to flush LDAP Pool Cache for "
-        "{} in {} domain for {} xml manager".format(
-            str(env.appliances), Domain, xml_manager))
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
-    responses = env.perform_action('FlushLDAPPoolCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return (util.render_boolean_results_table(
-                    responses,
-                    suffix="flush_ldap_pool_cache"),
-                util.render_history(env))
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+xml_manager in the specified domain on the specified appliances"""
+    return _action(
+        params, 'FlushLDAPPoolCache', "flush_ldap_pool_cache",
+        "flush the LDAP pool cache of {} in the {} domain".format(
+            params.xml_manager, params.Domain),
+        XMLManager=params.xml_manager, domain=params.Domain)
 
 
 @cli.command('flush-nd-cache', category='caches')
-def flush_nd_cache(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   web=False):
-    """This will flush the ND cache for the specified appliances.
+def flush_nd_cache(params: ApplianceParams):
+    """This will flush the ND cache for the specified appliances."""
+    return _action(
+        params, 'FlushNDCache', "flush_nd_cache", "flush the ND cache")
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to flush ND Cache for {}".format(
-        str(env.appliances)))
-    responses = env.perform_action('FlushNDCache')
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_nd_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+class FlushNSSCache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain where zos_nss_client resides")
+    zos_nss_client: str = Option(
+        "", short="z",
+        help="The ZOSNSSClient whose cache you would like to flush")
 
 
 @cli.command('flush-nss-cache', category='caches')
-def flush_nss_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    Domain="",
-                    zos_nss_client="",
-                    web=False):
+def flush_nss_cache(params: FlushNSSCache):
     """This will flush the NSS cache for the specified ZOSNSSClient
-in the specified domain for the specified appliance.
+in the specified domain for the specified appliance."""
+    return _action(
+        params, 'FlushNSSCache', "flush_nss_cache",
+        "flush the NSS cache of {} in the {} domain".format(
+            params.zos_nss_client, params.Domain),
+        ZosNSSClient=params.zos_nss_client, domain=params.Domain)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where zos_nss_client resides
-* `-z, --zos-nss-client`: The ZOSNSSClient whose cache you would like to
-flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to flush NSS Cache for {} {} {}".format(
-        str(env.appliances), Domain, zos_nss_client))
-    kwargs = {"ZosNSSClient": zos_nss_client, 'domain': Domain}
-    responses = env.perform_action('FlushNSSCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_nss_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+class FlushPDPCache(ApplianceParams):
+    XACML_PDP: str = Option(
+        "", short="X", widget=configured("XACMLPDP"),
+        help="The XACMLPDP object whose cache you would like to flush")
 
 
 @cli.command('flush-pdp-cache', category='caches')
-def flush_pdp_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    XACML_PDP="",
-                    web=False):
+def flush_pdp_cache(params: FlushPDPCache):
     """This will flush the PDP cache for the specified XACML_PDP
-for the specified appliances.
+for the specified appliances."""
+    return _action(
+        params, 'FlushPDPCache', "flush_pdp_cache",
+        "flush the PDP cache of {}".format(params.XACML_PDP),
+        XACMLPDP=params.XACML_PDP)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-X, --XACML-PDP`: The XACMLPDP object whose cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to flush PDP Cache for {} {}".format(
-        str(env.appliances), XACML_PDP))
-    kwargs = {"XACMLPDP": XACML_PDP}
-    responses = env.perform_action('FlushPDPCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_pdp_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+class FlushRBMCache(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain whose RBM cache you would like to flush")
 
 
 @cli.command('flush-rbm-cache', category='caches')
-def flush_rbm_cache(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    Domain="",
-                    web=False):
+def flush_rbm_cache(params: FlushRBMCache):
     """This will flush the RBM cache in the specified domain for
-the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain whose RBM cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to flush RBM cache {} {}".format(
-        str(env.appliances), Domain))
-    responses = env.perform_action('FlushRBMCache', **{'domain': Domain})
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="flush_rbm_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+the specified appliances."""
+    return _action(
+        params, 'FlushRBMCache', "flush_rbm_cache",
+        "flush the RBM cache in the {} domain".format(params.Domain),
+        domain=params.Domain)
 
 
 @cli.command('flush-stylesheet-cache', category='caches')
-def flush_stylesheet_cache(appliances=[],
-                           credentials=[],
-                           timeout=120,
-                           no_check_hostname=False,
-                           Domain="",
-                           xml_manager="",
-                           web=False):
+def flush_stylesheet_cache(params: XMLManagerParams):
     """This will flush the stylesheet cache for the specified xml_manager
-in the specified Domain on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain where xml_manager resides
-* `-x, --xml-manager`: The XMLManager whose cache you would like to flush
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to flush Stylesheet Cache for {} {} {}".format(
-        str(env.appliances),
-        Domain,
-        xml_manager))
-    kwargs = {"XMLManager": xml_manager, 'domain': Domain}
-    responses = env.perform_action('FlushStylesheetCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses,
-            suffix="flush_stylesheet_cache"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+in the specified Domain on the specified appliances."""
+    return _action(
+        params, 'FlushStylesheetCache', "flush_stylesheet_cache",
+        "flush the stylesheet cache of {} in the {} domain".format(
+            params.xml_manager, params.Domain),
+        XMLManager=params.xml_manager, domain=params.Domain)
 #
 # ~#~#~#~#~#~#~#
 
@@ -938,218 +443,81 @@ DO NOT USE.__"""
 # save - save the current configuration of the specified domains
 #
 
+class SaveConfig(ApplianceParams):
+    Domain: list[str] = Option(
+        default_factory=lambda: ["default"], short="D",
+        widget=configured("Domain"),
+        help="The domains to save (default: default). `all-domains` "
+             "stands for every domain of the appliance.")
+
 
 @cli.command('save', category='configuration')
-def save_config(appliances=[],
-                credentials=[],
-                timeout=120,
-                no_check_hostname=False,
-                Domain=['default'],
-                web=False):
-    """Saves the current running configuration in the given domain(s)
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: A list of domains to save. To spcify multiple domains,
-use multiple entries of the form `[-D domain1 [-D domain2...]]`
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def save_config(params: SaveConfig):
+    """Saves the current running configuration in the given domain(s)"""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    if isinstance(Domain, str):
-        Domain = [Domain]
+    env = params.environment()
 
-    # render_save_config_results_table will handle saving the config
-    if web:
-        return (
-            util.render_save_config_results_table(env, Domain),
-            util.render_history(env)
-        )
+    def save(appliance, domain):
+        msg = "Attempting to save configuration of {} on {}".format(
+            domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.SaveConfig(domain=domain)
+        logger.debug("Response received: {}".format(resp))
+        return resp
 
-    for appliance in env.appliances:
-        print(appliance.hostname)
-        _domains = Domain
-        if "all-domains" in _domains:
-            _domains = appliance.domains
-        for domain in _domains:
-            print(f"\t{domain}")
-            logger.info("Attempting to save configuration of {} {}".format(
-                appliance, domain))
-            resp = appliance.SaveConfig(domain=domain)
-            text_resp = "\n\t\t".join(resp.xml.itertext())
-            print(f"\t\t{text_resp}")
-            logger.debug("Response received: {}".format(resp))
+    return ActionResults(
+        _each_domain(env, params.Domain, save), env, suffix="save_config")
 
+
+class QuiesceService(ApplianceParams):
+    type: str = Option("", short="T", help="The type of service to quiesce")
+    name: str = Option("", short="N", help="The name of the service to quiesce")
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain in which the service resides")
+    quiesce_timeout: int = Option(
+        60, short="q",
+        help="This is the amount of time (in seconds) the appliance "
+             "should wait before forcing the quiesce (**Must be at "
+             "least 60**)")
 
 
 @cli.command("quiesce-service", category="configuration")
-def quiesce_service(appliances=[],
-                    credentials=[],
-                    timeout=120,
-                    no_check_hostname=False,
-                    type="",
-                    name="",
-                    Domain="",
-                    quiesce_timeout=60,
-                    web=False):
+def quiesce_service(params: QuiesceService):
     """This will quiesce a service in the specified domain on the specified
-appliances.
+appliances."""
+    result = _action(
+        params, "ServiceQuiesce", "quiesce_service",
+        "quiesce service {} in {}".format(params.name, params.Domain),
+        type=params.type, name=params.name,
+        timeout=params.quiesce_timeout, domain=params.Domain)
+    sleep(params.quiesce_timeout)
+    return result
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-T, --type`: The type of service to quiesce
-* `-N, --name`: The name of the service to quiesce
-* `-D, --Domain`: The domain in which the service resides
-* `-q, --quiesce-timeout`: This is the amount of time (in seconds)
-the appliance should wait before forcing the quiesce
-(**Must be at least 60**)
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname
-    )
-    kwargs = {
-        "type": type,
-        "name": name,
-        "timeout": quiesce_timeout,
-        "domain": Domain
-    }
-    logger.info("Attempting to quiesce service {} in {} on {}".format(
-        name, Domain, str(env.appliances)))
-    resp = env.perform_action("ServiceQuiesce", **kwargs)
-    logger.debug("Responses received: {}".format(str(resp)))
-
-    sleep(quiesce_timeout)
-
-    if web:
-        return util.render_boolean_results_table(
-            resp, suffix="quiesce_service"), util.render_history(env)
-
-    for host, xml in list(resp.items()):
-        print(host, '\n', "=" * len(host))
-        print('\n\n', xml)
+class UnquiesceService(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain in which the service resides")
+    type: str = Option(
+        "", short="T", help="The type of the service to unquiesce")
+    name: str = Option(
+        "", short="N", help="The name of the service to unquiesce")
+    quiesce_timeout: int = Option(
+        120, short="q",
+        help="Not used. It is accepted so that existing scripts "
+             "continue to work.")
 
 
 @cli.command("unquiesce-service", category="configuration")
-def unquiesce_service(appliances=[],
-                      credentials=[],
-                      timeout=120,
-                      no_check_hostname=False,
-                      Domain="",
-                      type="",
-                      name="",
-                      quiesce_timeout=120,
-                      web=False):
+def unquiesce_service(params: UnquiesceService):
     """This will unquiesce a service in the specified domain on the specified
-appliances.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain in which the service resides
-* `-t, --type`: The type of the service to unquiesce
-* `-N, --name`: The name of the service to unquiesce
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        "type": type,
-        "name": name,
-        # "timeout": quiesce_timeout,
-        "domain": Domain}
-    logger.info("Attempting to unquiesce service {} in {} on {}".format(
-        name, Domain, str(env.appliances)))
-    resp = env.perform_action("ServiceUnquiesce", **kwargs)
-    logger.debug("Responses received: {}".format(str(resp)))
-
-    if web:
-        return util.render_boolean_results_table(
-            resp, suffix="unquiesce_service"), util.render_history(env)
-
-    for host, xml in list(resp.items()):
-        print(host, '\n', "=" * len(host))
-        print('\n\n', xml)
+appliances."""
+    return _action(
+        params, "ServiceUnquiesce", "unquiesce_service",
+        "unquiesce service {} in {}".format(params.name, params.Domain),
+        type=params.type, name=params.name, domain=params.Domain)
 
 #
 # ~#~#~#~#~#~#~#
@@ -1172,589 +540,193 @@ DO NOT USE.__"""
 # enable-domain - set the admin-state to enabled for the specified domain
 #
 
-
-# Tested!
 @cli.command('list-domains', category='domains')
-def list_domains(appliances=[],
-                 credentials=[],
-                 timeout=120,
-                 no_check_hostname=False,
-                 web=False):
+def list_domains(params: ApplianceParams):
     """Lists the domains on the specified appliances as well as all common
-domains.
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+domains."""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
-    if web:
-        return util.render_list_domains_table(
-            env), util.render_history(env)
-
-    sets = []
+    domains = {}
     for appliance in env.appliances:
         logger.info("Attempting to retrieve a list of domains for {}".format(
             str(appliance)))
-        domains = appliance.domains
+        domains[appliance.hostname] = sorted(appliance.domains)
         logger.debug("Domains for {} found: {}".format(
-            str(appliance), str(domains)))
-        sets.append(set(domains))
-        print('\n', appliance.hostname)
-        print('=' * len(appliance.hostname))
-        for domain in appliance.domains:
-            print('\t', domain)
-
-    common = list(sets[0].intersection(*sets[1:]))
-    common.sort()
+            str(appliance), str(domains[appliance.hostname])))
+    result = CommonItems("Domains", domains, env)
     logger.info("domains common to {}: {}".format(
-        str(env.appliances), str(common)))
-    print('\n', 'Common')
-    print('======')
-    for domain in common:
-        print('\t', domain)
+        str(env.appliances), str(result.common)))
+    return result
+
+
+def _change_domain(params, action, description, name):
+    """Add or remove the domain called name on each appliance in
+    params, then save the default domain if params asks for that."""
+    logger = make_logger("mast.system")
+    env = params.environment()
+    report = Report(env)
+
+    msg = "Attempting to {} on {}".format(description, str(env.appliances))
+    logger.info(msg)
+    say(msg)
+    perform(env, report, logger, action, action, name=name)
+
+    if params.save_config:
+        save_default_domain(env, report, logger)
+    return report
+
+
+class AddDomain(SaveConfigParams):
+    domain_name: str = Option(
+        short="d", help="The name of the domain to add")
 
 
 @cli.command('add-domain', category='domains')
-def add_domain(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               domain_name=None,
-               save_config=False,
-               web=False):
-    """Adds a domain to the specified appliances
+def add_domain(params: AddDomain):
+    """Adds a domain to the specified appliances"""
+    return _change_domain(
+        params, 'add_domain',
+        "add domain {}".format(params.domain_name), params.domain_name)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --domain-name`: The name of the domain to add
-* `-s, --save-config`: If specified the configuration on the appliances will be
-saved
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to add domain {} to {}".format(
-        domain_name, str(env.appliances)))
-    kwargs = {'name': domain_name}
-    responses = env.perform_async_action('add_domain', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        output = util.render_boolean_results_table(
-            responses, suffix="add_domain")
-
-    kwargs = {'domain': 'default'}
-    if save_config:
-        logger.info(
-            "Attempting to save configuration of default domain on {}".format(
-                str(env.appliances)))
-        responses = env.perform_async_action('SaveConfig', **kwargs)
-        logger.debug("Responses received: {}".format(str(responses)))
-        if web:
-            output += util.render_boolean_results_table(
-                responses,
-                suffix="save_config")
-    if web:
-        return output, util.render_history(env)
+class DelDomain(SaveConfigParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The name of the domain to remove")
 
 
 @cli.command('del-domain', category='domains')
-def del_domain(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               Domain="",
-               save_config=False,
-               web=False):
-    """Removes a domain from the specified appliances
+def del_domain(params: DelDomain):
+    """Removes a domain from the specified appliances"""
+    return _change_domain(
+        params, 'del_domain',
+        "remove domain {}".format(params.Domain), params.Domain)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The name of the domain to remove
-* `-s, --save-config`: If specified the configuration on the appliances will be
-saved
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to remove domain {} from {}".format(
-        Domain, str(env.appliances)))
-    kwargs = {'name': Domain}
-    responses = env.perform_async_action('del_domain', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        output = util.render_boolean_results_table(responses)
-
-    kwargs = {'domain': 'default'}
-    if save_config:
-        logger.info(
-            "Attempting to save configuration of default domain for {}".format(
-                str(env.appliances)))
-        responses = env.perform_async_action('SaveConfig', **kwargs)
-        logger.debug("Responses received: {}".format(str(responses)))
-        if web:
-            output += util.render_boolean_results_table(
-                responses, suffix="del_domain")
-    if web:
-        return output, util.render_history(env)
+class QuiesceDomain(ApplianceParams):
+    Domain: list[str] = _domains_option("The domains to quiesce.")
+    quiesce_timeout: int = Option(
+        60, short="q", help="The timeout before quiescing the domain")
 
 
 @cli.command('quiesce-domain', category='domains')
-def quiesce_domain(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   Domain=[],
-                   quiesce_timeout=60,
-                   web=False):
-    """Quiesces a domain on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain to quiesce
-* `-q, --quiesce-timeout`: The timeout before quiescing the domain
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def quiesce_domain(params: QuiesceDomain):
+    """Quiesces a domain on the specified appliances"""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to quiesce domain {} for {}".format(
-        Domain, str(env.appliances)))
+    env = params.environment()
 
-    responses = {}
-    for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in domains:
-            domains = appliance.domains
-        for domain in domains:
-            kwargs = {
-                'name': domain,
-                'timeout': str(quiesce_timeout),
-                'domain': domain}
-            responses[appliance.hostname+"-"+domain] = appliance.DomainQuiesce(**kwargs)
-            logger.debug("Response received: {}".format(str(responses[appliance.hostname+"-"+domain])))
-            sleep(quiesce_timeout)
-    if web:
-        return (
-            util.render_boolean_results_table(
-                responses, suffix="DomainQuiesce"), util.render_history(env))
+    def quiesce(appliance, domain):
+        msg = "Attempting to quiesce domain {} on {}".format(
+            domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.DomainQuiesce(
+            name=domain, timeout=str(params.quiesce_timeout), domain=domain)
+        logger.debug("Response received: {}".format(str(resp)))
+        sleep(params.quiesce_timeout)
+        return resp
+
+    return ActionResults(
+        _each_domain(env, params.Domain, quiesce), env,
+        suffix="DomainQuiesce")
+
+
+class DomainsParams(ApplianceParams):
+    Domain: list[str] = _domains_option("The domains to affect.")
 
 
 @cli.command('unquiesce-domain', category='domains')
-def unquiesce_domain(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     Domain=[],
-                     web=False):
-    """Unquiesces a domain on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain to unquiesce
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def unquiesce_domain(params: DomainsParams):
+    """Unquiesces a domain on the specified appliances"""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
-    responses = {}
-    for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in domains:
-            domains = appliance.domains
-        for domain in domains:
-            logger.info("Attempting to unquiesce domain {} on {}".format(
-                Domain, env.appliances))
-            kwargs = {'name': domain}
-            responses[appliance.hostname+"-"+domain] = appliance.DomainUnquiesce(**kwargs)
-            logger.debug("Responses received: {}".format(str(responses[appliance.hostname+"-"+domain])))
+    def unquiesce(appliance, domain):
+        msg = "Attempting to unquiesce domain {} on {}".format(
+            domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.DomainUnquiesce(name=domain)
+        logger.debug("Response received: {}".format(str(resp)))
+        return resp
 
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="unquiesce_domain"), util.render_history(env)
+    return ActionResults(
+        _each_domain(env, params.Domain, unquiesce), env,
+        suffix="unquiesce_domain")
+
+
+class AdminStateParams(SaveConfigParams):
+    Domain: list[str] = Option(
+        default_factory=list, short="D", widget=configured("Domain"),
+        help="The domains to affect. `all-domains` stands for every "
+             "domain of the appliance except the default domain.")
+
+
+def _admin_state(params, method, verb):
+    """Enable or disable the domains in params. method is the name of
+    the method of the appliance and verb is "enable" or "disable"."""
+    logger = make_logger("mast.system")
+    env = params.environment()
+    report = Report(env)
+
+    def change(appliance, domain):
+        msg = "Attempting to {} domain {} on {}".format(
+            verb, domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = getattr(appliance, method)(domain)
+        logger.debug("Response received: {}".format(str(resp)))
+        return resp
+
+    def save(appliance, domain):
+        msg = "Attempting to save configuration of {} on {}".format(
+            domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.SaveConfig(domain=domain)
+        logger.debug("Response received: {}".format(str(resp)))
+        return resp
+
+    report.add(ActionResults(
+        _each_domain(env, params.Domain, change, skip_default=True),
+        suffix=method))
+    if params.save_config:
+        report.add(ActionResults(
+            _each_domain(env, params.Domain, save), suffix="save_config"))
+    return report
 
 
 @cli.command('disable-domain', category='domains')
-def disable_domain(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   Domain=[],
-                   save_config=False,
-                   web=False):
-    """Disables a domain on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain to disable. To spcify multiple domains,
-use multiple entries of the form `[-D domain1 [-D domain2...]]`
-* `-s, --save-config`: If specified the configuration on the appliances will
-be saved
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    if isinstance(Domain, str):
-        Domain = Domain
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to disable domains {} on {}".format(
-        str(Domain), str(env.appliances)))
-    output = ""
-    resp = {}
-    for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in domains:
-            domains = appliance.domains
-            domains.remove("default")
-        for domain in domains:
-            logger.info("Attempting to disable {} on {}".format(
-                domain, appliance.hostname))
-            resp[appliance.hostname] = appliance.disable_domain(domain)
-            logger.debug(
-                "Response received: {}".format(resp[appliance.hostname]))
-
-            if web:
-                output += util.render_boolean_results_table(
-                    resp, suffix="disable_domain_{}_{}".format(
-                        appliance.hostname, domain))
-
-    if save_config:
-        for appliance in env.appliances:
-            domains = Domain
-            if "all-domains" in domains:
-                domains = appliance.domains
-            for domain in domains:
-                logger.info(
-                    "Attempting to save configuration of {} on {}".format(
-                        domain, appliance))
-                resp[appliance.hostname] = appliance.SaveConfig(domain=domain)
-                logger.debug("Response received: {}".format(
-                    resp[appliance.hostname]))
-
-                if web:
-                    output += util.render_boolean_results_table(
-                        resp, suffix="save_config_{}_{}".format(
-                            appliance.hostname, domain))
-    if web:
-        return output, util.render_history(env)
+def disable_domain(params: AdminStateParams):
+    """Disables a domain on the specified appliances"""
+    return _admin_state(params, "disable_domain", "disable")
 
 
 @cli.command('enable-domain', category='domains')
-def enable_domain(appliances=[],
-                  credentials=[],
-                  timeout=120,
-                  no_check_hostname=False,
-                  Domain=[],
-                  save_config=False,
-                  web=False):
-    """Enables a domain on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The name of the domain to enable. To spcify multiple domains,
-use multiple entries of the form `[-D domain1 [-D domain2...]]`
-* `-s, --save-config`: If specified the configuration on the appliances
-will be saved
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    if isinstance(Domain, str):
-        Domain = [Domain]
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info("Attempting to enable domains {} on {}".format(
-        str(Domain), str(env.appliances)))
-    output = ""
-    resp = {}
-    for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in domains:
-            domains = appliance.domains
-            domains.remove("default")
-        for domain in domains:
-            logger.info("Attempting to enable domain {} on {}".format(
-                domain, appliance.hostname))
-            resp[appliance.hostname] = appliance.enable_domain(domain)
-            logger.debug("Response received: {}".format(
-                str(resp[appliance.hostname])))
-
-            if web:
-                output += util.render_boolean_results_table(
-                    resp, suffix="enable_domain_{}_{}".format(
-                        appliance.hostname, domain))
-
-    if save_config:
-        for appliance in env.appliances:
-            domains = Domain
-            if "all-domains" in domains:
-                domains = appliance.domains
-            for domain in domains:
-                logger.info(
-                    "Attempting to save configuration of {} on {}".format(
-                        domain, appliance.hostname))
-                resp[appliance.hostname] = appliance.SaveConfig(domain=domain)
-                logger.debug("Response received: {}".format(
-                    resp[appliance.hostname]))
-
-                if web:
-                    output += util.render_boolean_results_table(
-                        resp, suffix="save_config_{}_{}".format(
-                            appliance.hostname, domain))
-    if web:
-        return output, util.render_history(env)
+def enable_domain(params: AdminStateParams):
+    """Enables a domain on the specified appliances"""
+    return _admin_state(params, "enable_domain", "enable")
 
 
 @cli.command('restart-domain', category='domains')
-def restart_domain(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   Domain=[],
-                   web=False):
-    """Restarts the specified domains on the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domains to restart
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def restart_domain(params: DomainsParams):
+    """Restarts the specified domains on the specified appliances"""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
-    responses = {}
-    for appliance in env.appliances:
-        domains = Domain
-        if "all-domains" in domains:
-            domains = appliance.domains
-        for domain in domains:
-            logger.info("Attempting to restart domain {} on {}".format(
-                domain, env.appliances))
-            responses[appliance.hostname+"-"+domain] = appliance.RestartDomain(Domain=domain)
-            logger.debug("Responses received: {}".format(str(responses[appliance.hostname+"-"+domain])))
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="restart_domain"), util.render_history(env)
+    def restart(appliance, domain):
+        msg = "Attempting to restart domain {} on {}".format(
+            domain, appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.RestartDomain(Domain=domain)
+        logger.debug("Response received: {}".format(str(resp)))
+        return resp
+
+    return ActionResults(
+        _each_domain(env, params.Domain, restart), env,
+        suffix="restart_domain")
 
 #
 # ~#~#~#~#~#~#~#
@@ -1773,314 +745,121 @@ DO NOT USE.__"""
 # reboot-appliance - Reboot the specified appliance.
 # shutdown-appliance - Shutdown the specified appliance.
 
+class QuiesceAppliance(ApplianceParams):
+    quiesce_timeout: int = Option(
+        60, short="q", help="The timeout before quiescing the appliance")
+
 
 @cli.command('quiesce-appliance', category='appliances')
-def quiesce_appliance(appliances=[],
-                      credentials=[],
-                      timeout=120,
-                      no_check_hostname=False,
-                      quiesce_timeout=60,
-                      web=False):
-    """Quiesce the specified appliances
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-q, --quiesce-timeout`: The timeout before quiescing the domain
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to quiesce appliances {}".format(
-        str(env.appliances)))
-    kwargs = {'timeout': str(quiesce_timeout)}
-    responses = env.perform_action('QuiesceDP', **kwargs)
-    sleep(quiesce_timeout)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="quiesce_dp"), util.render_history(env)
-
-    for host, resp in list(responses.items()):
-        print('\n', host, '\n', '*' * len(host), '\n')
-        print(resp.pretty)
+def quiesce_appliance(params: QuiesceAppliance):
+    """Quiesce the specified appliances"""
+    result = _action(
+        params, 'QuiesceDP', "quiesce_dp", "quiesce the appliance",
+        timeout=str(params.quiesce_timeout))
+    sleep(params.quiesce_timeout)
+    return result
 
 
 @cli.command('unquiesce-appliance', category='appliances')
-def unquiesce_appliance(appliances=[],
-                        credentials=[],
-                        timeout=120,
-                        no_check_hostname=False,
-                        web=False):
-    """Unquiesce the specified appliances
+def unquiesce_appliance(params: ApplianceParams):
+    """Unquiesce the specified appliances"""
+    return _action(
+        params, 'UnquiesceDP', "unquiesce_dp", "unquiesce the appliance")
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    logger.info("Attempting to unquiesce {}".format(str(env.appliances)))
-    responses = env.perform_action('UnquiesceDP')
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="unquiesce_dp"), util.render_history(env)
-
-    for host, resp in list(responses.items()):
-        print('\n', host, '\n', '*' * len(host), '\n')
-        print(resp.pretty)
+class RebootAppliance(ApplianceParams):
+    delay: int = Option(10, short="d", help="The delay before rebooting")
+    wait: int = Option(
+        1200, short="w",
+        help="The amount of time to wait for each appliance to come "
+             "back up")
 
 
 @cli.command('reboot-appliance', category='appliances')
-def reboot_appliance(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     delay=10,
-                     wait=1200,
-                     web=False):
+def reboot_appliance(params: RebootAppliance):
     """Reboot the specified appliances (equivalent to shutdown-reboot)
 
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --delay`: The delay before rebooting
-* `-w, --wait`: The amount of time to wait for all appliances
-to come back up
-* `-W, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+The appliances are rebooted one at a time. If an appliance does not
+come back up in time, the appliances after it are not rebooted."""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
-    sleep(delay)
-    start = time()
     responses = {}
     for appliance in env.appliances:
-        logger.info("Attempting to reboot {}".format(appliance.hostname))
-        kwargs = {"Mode": "reboot", "Delay": str(delay)}
-        resp = appliance.Shutdown(**kwargs)
+        msg = "Attempting to reboot {}".format(appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp = appliance.Shutdown(Mode="reboot", Delay=str(params.delay))
         responses[appliance.hostname] = resp
         logger.debug("Response received: {}".format(str(resp)))
-        sleep(delay)
+        sleep(params.delay)
         start = time()
         while True:
             sleep(5)
             if appliance.is_reachable():
                 logger.info("Appliance is back up, moving on")
                 break
-            if (time() - start) > wait:
+            if (time() - start) > params.wait:
                 logger.error(
                     "{} failed to respond within the specified time".format(
-                        appliance.hostname
-                    )
-                )
+                        appliance.hostname))
                 raise RuntimeError(
                     "Appliance "
                     "{} did not respond within specified time {}".format(
-                        appliance.hostname, str(wait)))
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="reboot_appliance"), util.render_history(env)
+                        appliance.hostname, str(params.wait)))
+    return ActionResults(responses, env, suffix="reboot_appliance")
 
-    for host, resp in list(responses.items()):
-        print('\n', host, '\n', '*' * len(host), '\n')
-        print(resp.pretty)
+
+class ShutdownAppliance(ApplianceParams):
+    delay: int = Option(10, short="d", help="The delay before shutting down")
 
 
 @cli.command('shutdown-appliance', category='appliances')
-def shutdown_appliance(appliances=[],
-                       credentials=[],
-                       timeout=120,
-                       no_check_hostname=False,
-                       delay=10,
-                       web=False):
-    """Shutdown the specified appliances(equivalent to shutdown-halt)
+def shutdown_appliance(params: ShutdownAppliance):
+    """Shutdown the specified appliances(equivalent to shutdown-halt)"""
+    return _action(
+        params, 'Shutdown', "shutdown-appliance", "shut down",
+        Mode='halt', Delay=str(params.delay))
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --delay`: The delay before shutting down
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+class ReloadResults(ActionResults):
+    """The responses to a reload. The response of an appliance that
+    did not come back up is False."""
 
-    logger.info("Attempting to shutdown {}".format(str(env.appliances)))
-    kwargs = {'Mode': 'halt', 'Delay': str(delay)}
-    responses = env.perform_action('Shutdown', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
+    def text(self):
+        lines = []
+        for host, response in self.responses.items():
+            lines.append("{}\n{}".format(host, "=" * len(host)))
+            if response is False:
+                lines.append("Appliance did not come back up")
+            else:
+                lines.append(str(response))
+        return "\n".join(lines)
 
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="shutdown-appliance"), util.render_history(env)
 
-    for host, resp in list(responses.items()):
-        print('\n', host, '\n', '*' * len(host), '\n')
-        print(resp.pretty)
+class ReloadAppliance(ApplianceParams):
+    delay: int = Option(10, short="d", help="The delay before reloading")
+    wait: int = Option(
+        180, short="w",
+        help="The amount of time to wait for the appliance to come "
+             "back up")
 
 
 @cli.command('reload-appliance', category='appliances')
-def reload_appliance(appliances=[],
-                     credentials=[],
-                     timeout=120,
-                     no_check_hostname=False,
-                     delay=10,
-                     wait=180,
-                     web=False):
-    """Reload the specified appliances (equivalent to shutdown-reload)
-
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-d, --delay`: The delay before shutting down
-* `-w, --wait`: The amount of time to wait for the appliance to come back up
-* `-W, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def reload_appliance(params: ReloadAppliance):
+    """Reload the specified appliances (equivalent to shutdown-reload)"""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    kwargs = {'Mode': 'reload', 'Delay': str(delay)}
+    env = params.environment()
 
     resp = {}
     for appliance in env.appliances:
-        logger.info("Attempting to reload {}".format(appliance.hostname))
-        resp[appliance.hostname] = appliance.Shutdown(**kwargs)
+        msg = "Attempting to reload {}".format(appliance.hostname)
+        logger.info(msg)
+        say(msg)
+        resp[appliance.hostname] = appliance.Shutdown(
+            Mode='reload', Delay=str(params.delay))
         logger.debug("Response received: {}".format(resp[appliance.hostname]))
-        sleep(delay)
+        sleep(params.delay)
         start = time()
         while True:
             if appliance.is_reachable():
@@ -2088,121 +867,92 @@ DO NOT USE.__"""
                     appliance.hostname))
                 break
             sleep(3)
-            if (time() - start) > wait:
+            if (time() - start) > params.wait:
                 msg = "appliance {} ".format(appliance.hostname)
                 msg += "failed to come back online within the "
                 msg += "specified timeout"
-                logger.warn(msg)
+                logger.warning(msg)
                 resp[appliance.hostname] = False
                 break
+    return ReloadResults(resp, env, suffix="reload_appliance")
 
-    if web:
-        return util.render_boolean_results_table(
-            resp, suffix="reload_appliance"), util.render_history(env)
 
-    for host, _resp in list(resp.items()):
-        print('\n', host, '\n', '*' * len(host), '\n')
-        if _resp is False:
-            print("Appliance did not come back up")
-        else:
-            print(_resp.pretty)
+class FirmwareUpgrade(ApplianceParams):
+    timeout: int = timeout_option(1200)
+    file_in: str = Option(
+        short="f", widget=UPLOAD,
+        help="The patch (upgrade script usually `*.scrypt4`, "
+             "`*.scrypt3` etc...)")
+    accept_license: bool = Option(
+        False, short="A",
+        help="Whether to accept the license of the new firmware (You "
+             "**MUST** specify this or the upgrade will not work)")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory in which to save the backups that are "
+             "taken before the upgrade")
+    quiesce_timeout: int = Option(
+        120, short="q", help="The timeout before quiescing the appliance")
+    reboot_delay: int = Option(
+        5, short="r", help="The delay before rebooting")
+    reboot_wait: int = Option(
+        1200, short="R",
+        help="The amount of time to wait for an appliance to come back "
+             "up")
+    boot_delete: bool = Option(
+        True,
+        help="Give `--no-boot-delete` to skip the `boot delete` that "
+             "is otherwise performed before upgrading the firmware")
+    no_cleanup: bool = Option(
+        False, short="N", help="Do not clean up the filesystem")
+    no_backup: bool = Option(
+        False, help="Do not take an all-domains backup")
+    no_save_config: bool = Option(
+        False, help="Do not save the configuration")
+    no_quiesce_appliances: bool = Option(
+        False, help="Do not quiesce the appliance")
+    no_disable_domains: bool = Option(
+        False, help="Do not disable the application domains")
+    no_reboot: bool = Option(
+        False, help="Do not reboot the appliance before the upgrade")
+    no_set_firmware: bool = Option(
+        False, help="Do not upload and apply the firmware image")
+    no_enable_domains: bool = Option(
+        False, help="Do not enable the application domains afterwards")
 
 
 @cli.command('firmware-upgrade', category='appliances')
-def firmware_upgrade(appliances=[],
-                     credentials=[],
-                     timeout=1200,
-                     no_check_hostname=False,
-                     file_in=None,
-                     accept_license=False,
-                     out_dir="tmp",
-                     quiesce_timeout=120,
-                     reboot_delay=5,
-                     reboot_wait=1200,
-                     boot_delete=True,
-                     no_cleanup=False,
-                     no_backup=False,
-                     no_save_config=False,
-                     no_quiesce_appliances=False,
-                     no_disable_domains=False,
-                     no_reboot=False,
-                     no_set_firmware=False,
-                     no_enable_domains=False,
-                     web=False):
+def firmware_upgrade(params: FirmwareUpgrade):
     """This will attempt to upgrade the firmware of the specified
 appliances.
 
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-f, --file_in`: The patch (upgrade script usually `*.scrypt4`, `*.scrypt3 etc...`)
-* `-A, --accept-license`: Whether to accept the license of the new firmware
-(You **MUST** Leave this checked or the upgrade will not work)
-* `-r, --REBOOT_DELAY`: The delay before rebooting
-* `-R, --REBOOT_WAIT`: The amount of time to wait for all appliances to come back up
-* `-n, --no-boot-delete`:Whether to perform a `boot delete` prior to
-upgrading the firmware
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+The appliances are upgraded one at a time. For each appliance the
+steps are: clean up the filesystem, `boot delete`, take an all-domains
+backup, clean up again, save the configuration, quiesce the appliance,
+disable the application domains, save the configuration, reboot, apply
+the firmware, wait for the appliance, enable the application domains
+and save the configuration. Each step can be turned off."""
     logger = make_logger("mast.system")
-    cleanup = not no_cleanup
-    backup = not no_backup
-    save = not no_save_config
-    quiesce_appliances = not no_quiesce_appliances
-    disable_domains = not no_disable_domains
-    set_firmware = not no_set_firmware
-    enable_domains = not no_enable_domains
-    reboot = not no_reboot
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
+    env = params.environment()
+    report = Report(env)
     logger.info("Attempting to upgrade the firmware of {}".format(
         str(env.appliances)))
-    if web:
-        output = ""
-        history = ""
 
     for appliance in env.appliances:
+        # The parameters that every step needs to reach this appliance
+        one = dict(
+            appliances=appliance.hostname,
+            credentials=appliance.credentials,
+            timeout=params.timeout,
+            no_check_hostname=params.no_check_hostname)
 
-        if not web:
-            print(appliance.hostname)
+        def step(message):
+            logger.info("{}: {}".format(appliance.hostname, message))
+            say("{}: {}".format(appliance.hostname, message))
 
-        if cleanup:
-            logger.info("Cleaning up the filesystem of {}".format(
-                appliance.hostname))
-
-            if not web:
-                print("\tCleaning Filesystem")
-            _out = clean_up(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
+        def clean():
+            step("Cleaning up the filesystem")
+            report.add(clean_up(
                 Domain="default",
                 checkpoints=True,
                 export=True,
@@ -2211,20 +961,21 @@ DO NOT USE.__"""
                 error_reports=True,
                 recursive=True,
                 backup_files=True,
-                out_dir=out_dir,
-                web=web)
+                out_dir=params.out_dir,
+                **one))
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone.")
+        def save():
+            step("Saving the configuration of all domains")
+            report.add(save_config(Domain=["all-domains"], **one))
 
-        if boot_delete:
-            logger.info("Attempting to perform boot delete on {}".format(
-                appliance.hostname))
-            if not web:
-                print("\tAttempting to performing boot delete")
+        def application_domains():
+            return [d for d in appliance.domains if d != "default"]
+
+        if not params.no_cleanup:
+            clean()
+
+        if params.boot_delete:
+            step("Attempting to perform boot delete")
             appliance.ssh_connect()
             r = appliance.ssh_issue_command("co")
             r += appliance.ssh_issue_command("flash")
@@ -2232,237 +983,80 @@ DO NOT USE.__"""
             r += appliance.ssh_issue_command("exit")
             r += appliance.ssh_issue_command("exit")
             r += appliance.ssh_issue_command("exit")
-            if not web:
-                print(r)
+            say(r)
             logger.debug("Responses received: {}".format(str(r)))
 
-        if backup:
-            logger.info("Attempting to perform all-domains backup on {}".format(
-                appliance.hostname))
-            if not web:
-                print("\tGetting an all-domains backup")
-            _out = get_normal_backup(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
+        if not params.no_backup:
+            step("Getting an all-domains backup")
+            report.add(get_normal_backup(
                 Domain="all-domains",
                 comment="pre-firmware_upgrade_backup",
-                out_dir=out_dir,
-                web=web)
+                out_dir=params.out_dir,
+                **one))
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone.")
+        if not params.no_cleanup:
+            clean()
 
-        if cleanup:
-            logger.info("Cleaning up the filesystem of {}".format(
-                appliance.hostname))
-            if not web:
-                print("\tCleaning filesystem")
-            _out = clean_up(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                Domain="default",
-                checkpoints=True,
-                export=True,
-                logtemp=True,
-                logstore=True,
-                error_reports=True,
-                recursive=True,
-                backup_files=True,
-                out_dir=out_dir,
-                web=web)
+        if not params.no_save_config:
+            save()
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone")
+        if not params.no_quiesce_appliances:
+            step("Quiescing the appliance")
+            report.add(quiesce_appliance(
+                quiesce_timeout=params.quiesce_timeout, **one))
+            sleep(params.quiesce_timeout)
 
-        if save:
-            logger.info(
-                "Attempting to save the configuration of all-domains on {}".format(
-                    appliance.hostname))
-            if not web:
-                print("\tSaving configuration")
-            _out = save_config(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                Domain=["all-domains"],
-                web=web)
+        if not params.no_disable_domains:
+            for domain in application_domains():
+                step("Disabling domain {}".format(domain))
+                report.add(disable_domain(
+                    Domain=[domain], save_config=False, **one))
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone.")
+        if not params.no_save_config:
+            save()
 
-        if quiesce_appliances:
-            logger.info("Attempting to quiesce appliance {}".format(
-                appliance.hostname))
-            if not web:
-                print("\tQuiescing Appliance")
-            _out = quiesce_appliance(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                quiesce_timeout=quiesce_timeout,
-                web=web)
+        if not params.no_reboot:
+            step("Rebooting the appliance")
+            report.add(reboot_appliance(
+                delay=params.reboot_delay, wait=params.reboot_wait, **one))
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone.")
-
-            sleep(quiesce_timeout)
-
-        if disable_domains:
-            for domain in appliance.domains:
-                if domain not in "default":
-                    logger.info("Attempting to disable domain {} on {}".format(
-                        domain, appliance.hostname))
-                    if not web:
-                        print("\tdisabling domain {}".format(domain))
-                    _out = disable_domain(
-                        appliances=appliance.hostname,
-                        credentials=appliance.credentials,
-                        timeout=timeout,
-                        no_check_hostname=no_check_hostname,
-                        Domain=[domain],
-                        save_config=False,
-                        web=web)
-
-                    if web:
-                        output += _out[0]
-                        history += _out[1]
-                    else:
-                        print("\t\tDone.")
-
-        if save:
-            logger.info(
-                "Attempting to save configuration of all-domains on {}".format(
-                    appliance.hostname))
-            if not web:
-                print("\tSaving configuration")
-            _out = save_config(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                Domain=["all-domains"],
-                web=web)
-
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone")
-
-        if reboot:
-            logger.info("Attempting to reboot {}".format(appliance.hostname))
-            if not web:
-                print("\tRebooting appliance")
-            _out = reboot_appliance(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                delay=reboot_delay,
-                wait=reboot_wait,
-                web=web)
-
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone.")
-
-        if set_firmware:
-            logger.info("Attempting to set firmware on {}".format(
-                appliance.hostname))
-
-            if not web:
-                print("\tAttempting to update firmware")
+        if not params.no_set_firmware:
+            step("Attempting to update the firmware")
             _out = appliance.set_firmware(
-                file_in,
-                accept_license,
-                timeout)
-
-            if web:
-                resp = util.render_boolean_results_table(
-                    {appliance.hostname: _out})
-                output += resp
-            else:
-                print("\t\tDone.")
+                params.file_in,
+                params.accept_license,
+                params.timeout)
+            report.add(StatusResults(
+                {appliance.hostname: "Succeeded" if _out else "Failed"},
+                suffix="set_firmware"))
 
         sleep(60)
 
-        logger.debug("Waiting for {} to come back online".format(
-            appliance.hostname))
+        step("Waiting for the appliance to come back online")
         start = time()
-        while True:
-            if appliance.is_reachable():
-                logger.info("Appliance is back up.")
-                break
-            if time() - start > timeout:
-                logger.error(
-                    "Appliance did not come back up within specified time"
-                    "Aborting the remaining firmware upgrades!")
+        while not appliance.is_reachable():
+            if time() - start > params.timeout:
+                msg = (
+                    "{} did not come back up within {} seconds. "
+                    "Aborting the remaining firmware upgrades!".format(
+                        appliance.hostname, params.timeout))
+                logger.error(msg)
+                raise RuntimeError(msg)
+            sleep(5)
+        logger.info("Appliance is back up.")
 
         # TODO: verify version
 
-        if enable_domains:
-            for domain in appliance.domains:
-                if domain not in "default":
-                    logger.info("Attempting to enable domain {} on {}".format(
-                        domain, appliance.hostname))
-                    if not web:
-                        print("\tenabling domain {}".format(domain))
-                    _out = enable_domain(
-                        appliances=appliance.hostname,
-                        credentials=appliance.credentials,
-                        timeout=timeout,
-                        no_check_hostname=no_check_hostname,
-                        Domain=[domain],
-                        save_config=False,
-                        web=web)
+        if not params.no_enable_domains:
+            for domain in application_domains():
+                step("Enabling domain {}".format(domain))
+                report.add(enable_domain(
+                    Domain=[domain], save_config=False, **one))
 
-                    if web:
-                        output += _out[0]
-                        history += _out[1]
-                    else:
-                        print("\t\tDone.")
-        if save:
-            logger.info(
-                "Attempting to save configuration of all-domains on {}".format(
-                    appliance.hostname))
-            if not web:
-                print("\tSaving configuration")
-            _out = save_config(
-                appliances=appliance.hostname,
-                credentials=appliance.credentials,
-                timeout=timeout,
-                no_check_hostname=no_check_hostname,
-                Domain=["all-domains"],
-                web=web)
+        if not params.no_save_config:
+            save()
 
-            if web:
-                output += _out[0]
-                history += _out[1]
-            else:
-                print("\t\tDone")
-
-    if web:
-        return output, history
+    return report
 #
 # ~#~#~#~#~#~#~#
 
@@ -2475,782 +1069,349 @@ DO NOT USE.__"""
 # to/from the specified appliances
 #
 
+class OutDirParams(ApplianceParams):
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory in which to save the files that this "
+             "command writes")
 
-@cli.command('get-encrypted-filesystem', category='file management')
-def get_encrypted_filesystem(appliances=[],
-                             credentials=[],
-                             timeout=120,
-                             no_check_hostname=False,
-                             out_dir="tmp",
-                             web=False):
-    """This will get a directory listing of all locations within the
-encrypted filesystem. The output will be in the form of xml files saved
-into `-o, --out-dir`.
 
-Parameters:
-
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The directory in which to output the results of
-the filesystem audit
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def _write_listings(params, action, name, **kwargs):
+    """Perform action, which returns a directory listing, on each
+    appliance in params and write each listing to a file in out_dir."""
     logger = make_logger("mast.system")
     t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
+    logger.info("Attempting {} on {}".format(action, str(env.appliances)))
+    resp = env.perform_action(action, **kwargs)
+    logger.debug("Response received: {}".format(resp))
 
-    logger.info("Attempting to get a listing of encrypted filesystem")
-    resp = env.perform_action("get_encrypted_filesystem")
-    logger.info("Response received: {}".format(resp))
-
-    out_dir = os.path.join(out_dir, t.timestamp)
+    out_dir = os.path.join(params.out_dir, t.timestamp)
     os.makedirs(out_dir)
 
-    for host, r in list(resp.items()):
-        filename = os.path.join(
-            out_dir, "{}-encrypted-filesystem.xml".format(host))
-        logger.info("Writing directory listing to {}".format(filename))
+    for host, r in resp.items():
+        filename = os.path.join(out_dir, "{}-{}.xml".format(host, name))
+        msg = "Writing directory listing of {} to {}".format(host, filename)
+        logger.info(msg)
+        say(msg)
+        # pretty is bytes
         with open(filename, 'wb') as fout:
             fout.write(r.pretty)
+    return SeeDownload(resp, env, suffix=action)
 
-    if web:
-        return util.render_see_download_table(
-            resp, suffix="get_encrypted_filesystem"), util.render_history(env)
+
+@cli.command('get-encrypted-filesystem', category='file management')
+def get_encrypted_filesystem(params: OutDirParams):
+    """This will get a directory listing of all locations within the
+encrypted filesystem. The output will be in the form of xml files saved
+into `-o, --out-dir`."""
+    return _write_listings(
+        params, "get_encrypted_filesystem", "encrypted-filesystem")
 
 
 @cli.command('get-temporary-filesystem', category='file management')
-def get_temporary_filesystem(appliances=[],
-                             credentials=[],
-                             timeout=120,
-                             no_check_hostname=False,
-                             out_dir="tmp",
-                             web=False):
+def get_temporary_filesystem(params: OutDirParams):
     """This will get a directory listing of all locations within the
 temporary filesystem. The output will be in the form of xml files saved
-into `-o, --out-dir`.
+into `-o, --out-dir`."""
+    return _write_listings(
+        params, "get_temporary_filesystem", "temporary-filesystem")
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The directory in which to output the results of
-the filesystem audit
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-
-    logger = make_logger("mast.system")
-    t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    logger.info(
-        "Attempting to get a listing of temporary filesystem of {}".format(
-            str(env.appliances)))
-    resp = env.perform_action("get_temporary_filesystem")
-    logger.debug("response received: {}".format(resp))
-
-    out_dir = os.path.join(out_dir, t.timestamp)
-    os.makedirs(out_dir)
-
-    for host, r in list(resp.items()):
-        filename = os.path.join(
-            out_dir, "{}-temporary-filesystem.xml".format(host))
-        logger.info("Writing listing of temporary filesystem to {}".format(
-            filename))
-        with open(filename, 'wb') as fout:
-            fout.write(r.pretty)
-
-    if web:
-        return util.render_see_download_table(
-            resp, suffix="get_temporary_filesystem"), util.render_history(env)
+class GetFilestore(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain from which to get the filestore")
+    location: str = Option(
+        "local:", short="l",
+        help="The location within the DataPower filesystem (`cert:`, "
+             "`local:`, etc.)")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory in which to output the results of the "
+             "filesystem audit")
 
 
 @cli.command('get-filestore', category='file management')
-def get_filestore(appliances=[],
-                  credentials=[],
-                  timeout=120,
-                  no_check_hostname=False,
-                  Domain="",
-                  location="local:",
-                  out_dir="tmp",
-                  web=False):
+def get_filestore(params: GetFilestore):
     """This will get the directory listing of the specified location.
-The output will be in the form of xml files saved into `-o, --out-dir`.
+The output will be in the form of xml files saved into `-o, --out-dir`."""
+    return _write_listings(
+        params, "get_filestore", "get-filestore",
+        domain=params.Domain, location=params.location)
 
-Parameters:
 
-* `-a, --appliances`: The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain from which to get the filestore
-* `-l, --Location`: Within the DataPower filesystem (certs, local, etc.)
-* `-o, --out-dir`: The directory in which to output the results of
-the filesystem audit
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def _succeeded(responses, env, suffix=None, good="Success", bad="Failed"):
+    return StatusResults(
+        {host: good if response else bad
+         for host, response in responses.items()},
+        env, suffix=suffix)
 
-    logger = make_logger("mast.system")
-    t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
 
-    logger.info("Attempting to retrieve directory listing of {} in {}".format(
-        str(env.appliances), location))
-    resp = env.perform_action(
-        "get_filestore",
-        domain=Domain,
-        location=location)
-    logger.debug("Response received: {}".format(resp))
-
-    out_dir = os.path.join(out_dir, t.timestamp)
-    os.makedirs(out_dir)
-
-    for host, r in list(resp.items()):
-        filename = os.path.join(
-            out_dir, "{}-get-filestore.xml".format(host))
-        logger.info("Writing directory listing of {} to {}".format(
-            str(env.appliances), filename))
-        with open(filename, 'wb') as fout:
-            fout.write(r.pretty)
-
-    if web:
-        return util.render_see_download_table(
-            resp, suffix="get_filestore"), util.render_history(env)
+class CopyFile(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain for both src and dst")
+    src: str = Option(
+        "", short="s",
+        help="The path to the source file (on the appliance(s))")
+    dst: str = Option(
+        "", short="d",
+        help="The destination of the copied file (on the appliance(s))")
+    overwrite: bool = Option(
+        True,
+        help="Give `--no-overwrite` to leave dst as it is if it "
+             "already exists")
 
 
 @cli.command('copy-file', category='file management')
-def copy_file(appliances=[],
-              credentials=[],
-              timeout=120,
-              no_check_hostname=False,
-              Domain="",
-              src="",
-              dst="",
-              overwrite=True,
-              web=False):
+def copy_file(params: CopyFile):
     """Copies a file from src to dst (both src and dst are on the appliance)
-optionally overwriting dst.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain for both src and dst
-* `-s, --src`: The path to the source file (on the appliance(s))
-* `-d, --dst`: The destination of the copied file (on the appliance(s))
-* `-N, --no-overwrite`:  If specified dst will not be overwritten if it
-already exists
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+optionally overwriting dst."""
     logger = make_logger("mast.system")
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
     resp = {}
     for appliance in env.appliances:
         logger.info("Attempting to copy file on {} from {} to {}".format(
-            appliance.hostname,
-            src,
-            dst))
-        fin = appliance.getfile(domain=Domain, filename=src)
-        # print(fin)
-        fout = base64.encodestring(fin)
+            appliance.hostname, params.src, params.dst))
+        fin = appliance.getfile(domain=params.Domain, filename=params.src)
+        fout = base64.encodebytes(fin)
         resp[appliance.hostname] = appliance._set_file(
-            fout, dst, Domain, overwrite)
+            fout, params.dst, params.Domain, params.overwrite)
         logger.debug("Response received: {}".format(resp[appliance.hostname]))
-    if web:
-        return (
-            util.render_boolean_results_table(resp),
-            util.render_history(env))
-    for host, r in list(resp.items()):
-        print(host)
-        print("=" * len(host))
-        if r:
-            print("Success")
-        else:
-            print("Failed")
+    return _succeeded(resp, env)
+
+
+class SetFile(ApplianceParams):
+    file_in: str = Option(
+        short="f", widget=UPLOAD,
+        help="The path and filename of the file to upload")
+    destination: str = Option(
+        short="d",
+        help="If a location or directory is provided filename will be "
+             "as it appears on the local machine, if a path and "
+             "filename is provided filename will be as provided")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain to which to upload the file")
+    overwrite: bool = Option(
+        True,
+        help="Give `--no-overwrite` to fail rather than overwrite the "
+             "destination if it exists")
 
 
 @cli.command('set-file', category='file management')
-def set_file(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             file_in=None,
-             destination=None,
-             Domain='default',
-             overwrite=True,
-             web=False):
-    """Uploads a file to the specified appliances
+def set_file(params: SetFile):
+    """Uploads a file to the specified appliances"""
+    env = params.environment()
+    resp = env.perform_async_action(
+        'set_file',
+        file_in=params.file_in,
+        file_out=params.destination,
+        domain=params.Domain,
+        overwrite=params.overwrite)
+    return _succeeded(resp, env, suffix="set_file", good="Succeeded")
 
-Parameters:
 
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-f, --file-in`: The path and filename of the file to upload
-* `-d, --destination`: If a location or directory is provided filename will be
-as it appears on the local machine, if a path and filename is provided
-filename will be as provided
-* `-D, --Domain`: The domain to which to upload the file
-* `-N, --no-overwrite`: Whether to overwrite the destination if it exists
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {
-        'file_in': file_in,
-        'file_out': destination,
-        'domain': Domain,
-        'overwrite': overwrite}
-    resp = env.perform_async_action('set_file', **kwargs)
-
-    if web:
-        return util.render_boolean_results_table(
-            resp, suffix="set_file"), util.render_history(env)
+class GetFile(ApplianceParams):
+    location: str = Option(
+        short="l",
+        help="The location of the file (on DataPower) you would like "
+             "to get")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain from which to get the file")
+    out_dir: str = Option(
+        'tmp', short="o", widget=OUT_DIR,
+        help="The directory you would like to save the file to")
 
 
 @cli.command('get-file', category='file management')
-def get_file(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             location=None,
-             Domain='default',
-             out_dir='tmp',
-             web=False):
-    """Retrieves a file from the specified appliances
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-l, --location`: The location of the file (on DataPower) you would
-like to get
-* `-D, --Domain`: The domain from which to get the file
-* `-o, --out-dir`: (NOT NEEDED IN THE WEB GUI)The directory you would like to
-save the file to
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+def get_file(params: GetFile):
+    """Retrieves a file from the specified appliances"""
     t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {'domain': Domain, 'filename': location}
-    responses = env.perform_async_action('getfile', **kwargs)
+    env = params.environment()
+    responses = env.perform_async_action(
+        'getfile', domain=params.Domain, filename=params.location)
 
-    if not os.path.exists(out_dir) or not os.path.isdir(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(params.out_dir, exist_ok=True)
 
-    for hostname, fin in list(responses.items()):
-        filename = location.split('/')[-1]
+    for hostname, fin in responses.items():
+        filename = params.location.split('/')[-1]
         filename = os.path.join(
-            out_dir,
+            params.out_dir,
             '%s-%s-%s' % (hostname, t.timestamp, filename))
         with open(filename, 'wb') as fout:
             fout.write(fin)
-    if web:
-        return util.render_see_download_table(
-            responses, suffix="get_file"), util.render_history(env)
+        say("Wrote {} from {} to {}".format(
+            params.location, hostname, filename))
+    return SeeDownload(responses, env, suffix="get_file")
+
+
+class DeleteFile(ApplianceParams):
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain from which to delete the file")
+    filename: str = Option(
+        "", short="f",
+        help="The filename of the file to delete **Must include the "
+             "full path**")
+    backup: bool = Option(
+        False, short="b",
+        help="If specified, the file will be backed up to the "
+             "directory specified as `-o, --out-dir`")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="If `-b, --backup` is specified, this is where to save "
+             "the backup of the file to.")
 
 
 @cli.command('del-file', category="file management")
-def delete_file(appliances=[],
-                credentials=[],
-                timeout=120,
-                no_check_hostname=False,
-                Domain="",
-                filename="",
-                backup=False,
-                out_dir="tmp",
-                web=False):
+def delete_file(params: DeleteFile):
     """Deletes a file from the specified appliance(s) optionally backing
-up the file locally.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain from which to delete the file
-* `-f, --filename`: The filename of the file to delete **Must include
-the full path**
-* `-b, --backup`: If specified, the file will be backed up to
-the directory specified as `-o, --out-dir`
-* `-o, --out-dir`: If `-b, --backup` is specified, this is where to
-save the backup of the file to.
-"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    if backup:
+up the file locally."""
+    env = params.environment()
+    if params.backup:
         resp = {}
         for appliance in env.appliances:
-            _out_dir = os.path.join(out_dir, appliance.hostname)
-            if not os.path.exists(_out_dir):
-                os.makedirs(_out_dir)
+            _out_dir = os.path.join(params.out_dir, appliance.hostname)
+            os.makedirs(_out_dir, exist_ok=True)
             resp[appliance.hostname] = appliance.del_file(
-                filename=filename, domain=Domain,
+                filename=params.filename, domain=params.Domain,
                 backup=True, local_dir=_out_dir)
     else:
-        resp = env.perform_action("del_file", filename=filename, domain=Domain)
-    if web:
-        return (
-            util.render_boolean_results_table(resp),
-            util.render_history(env))
-    for host, response in list(resp.items()):
-        print(host)
-        print("=" * len(host))
-        if response:
-            print("Success")
-        else:
-            print("Error")
-        print()
+        resp = env.perform_action(
+            "del_file", filename=params.filename, domain=params.Domain)
+    return _succeeded(resp, env, bad="Error")
+
 
 @cli.command('generate-error-report', category='error-reports')
-def generate_error_report(appliances=[],
-                          credentials=[],
-                          timeout=120,
-                          no_check_hostname=False,
-                          web=False):
-    """This will attempt to retireve any error reports from the
-currently configured location on the specified appliance(s).
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(appliances,
-                                credentials,
-                                timeout=timeout,
-                                check_hostname=check_hostname)
+def generate_error_report(params: ApplianceParams):
+    """This will generate an error report on the specified
+appliance(s)."""
+    env = params.environment()
+    report = Report(env)
     responses = {}
     for appliance in env.appliances:
         msg = "Generating Error report on {}".format(appliance.hostname)
-        if not web:
-            print(msg)
+        say(msg)
         appliance.log_info(msg)
         resp = appliance.ErrorReport()
         responses[appliance.hostname] = resp
         if resp:
             msg = "Successfully generated error report on {}".format(
                 appliance.hostname)
-            if not web:
-                print("\t", msg)
+            say("\t", msg)
             appliance.log_info(msg)
         else:
             msg = "An error occurred generating error report on {}: \n{}".format(
                 appliance.hostname, resp)
-            if not web:
-                print("\t", msg)
+            say("\t", msg)
             appliance.log_error(msg)
-    if web:
-        return (util.render_boolean_results_table(responses),
-               util.render_history(env))
+    report.add(ActionResults(responses), show=False)
+    return report
+
+
+class GetErrorReports(ApplianceParams):
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The directory to save the error reports in")
+    decompress: bool = Option(
+        False, short="d",
+        help='If specified, the error reports will be decompressed '
+             'from the ".gz" encoding')
 
 
 @cli.command('get-error-reports', category='error-reports')
-def get_error_reports(appliances=[],
-                      credentials=[],
-                      timeout=120,
-                      no_check_hostname=False,
-                      out_dir="tmp",
-                      decompress=False,
-                      web=False):
+def get_error_reports(params: GetErrorReports):
     """This will attempt to retireve any error reports from the
-currently configured location on the specified appliance(s).
+currently configured location on the specified appliance(s)."""
+    env = params.environment()
+    out_dir = params.out_dir
 
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The directory to save the error reports in
-* `-d, --decompress`: If specified, the error reports will be decompressed
-from the ".gz" encoding
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    t = Timestamp()
     for appliance in env.appliances:
-        _dir = os.path.join(
-            out_dir,
-            appliance.hostname)
-        if not os.path.exists(_dir):
-            os.makedirs(_dir)
+        os.makedirs(os.path.join(out_dir, appliance.hostname), exist_ok=True)
     ers = _pmr_get_error_report_settings(env.appliances)
     _pmr_download_error_reports(env.appliances, out_dir, ers, "")
-    if decompress:
-        import gzip
-        dirs = os.listdir(out_dir)
-        files = []
-        for _dir in dirs:
-             files.extend([os.path.join(out_dir, _dir, x) for x in os.listdir(os.path.join(out_dir, _dir))])
-        files = [x for x in files if x.endswith(".gz")]
-        for filename in files:
-            new_filename = filename.replace(".gz", "")
-            print("Decompress: {} -> {}".format(filename, new_filename))
-            with gzip.open(filename, "rb") as fin, open(new_filename, "wb") as fout:
-                fout.writelines(fin.readlines())
+    if params.decompress:
+        filenames = []
+        for _dir in os.listdir(out_dir):
+            filenames.extend(
+                os.path.join(out_dir, _dir, x)
+                for x in os.listdir(os.path.join(out_dir, _dir)))
+        for filename in filenames:
+            if not filename.endswith(".gz"):
+                continue
+            new_filename = filename[:-len(".gz")]
+            say("Decompress: {} -> {}".format(filename, new_filename))
+            with gzip.open(filename, "rb") as fin, \
+                    open(new_filename, "wb") as fout:
+                shutil.copyfileobj(fin, fout)
             os.remove(os.path.abspath(filename))
-            print("\tDone")
+            say("\tDone")
+    return SeeDownload(
+        [appliance.hostname for appliance in env.appliances],
+        env, suffix="get_error_reports")
 
-    # Quick hack to let render_see_download_table() to get the appliance names
-    _ = {}
-    for appliance in env.appliances:
-        _[appliance.hostname] = None
-    if web:
-        return util.render_see_download_table(
-            _, suffix="get_error_reports"), util.render_history(env)
+
+class CopyDirectory(ApplianceParams):
+    location: str = Option(
+        "", short="l",
+        help="The filesystem and/or directory name to copy.")
+    out_dir: str = Option(
+        "tmp", short="o", widget=OUT_DIR,
+        help="The local directory into which to copy the files from "
+             "the appliance(s)")
+    Domain: str = Option(
+        "", short="D", widget=configured("Domain"),
+        help="The domain from which to copy the files")
+    recursive: bool = Option(
+        False, short="r",
+        help="If specified, files will be copied recursively from the "
+             "directory specified by `-l, --location`")
 
 
 @cli.command('copy-directory', category='file management')
-def copy_directory(appliances=[],
-                   credentials=[],
-                   timeout=120,
-                   no_check_hostname=False,
-                   location="",
-                   out_dir="tmp",
-                   Domain="",
-                   recursive=False,
-                   web=False):
+def copy_directory(params: CopyDirectory):
     """This will get all of the files from a directory on the appliances
-in the specified domain.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-l, --location`: The filesystem and/or directory name to copy.
-* `-o, --out-dir`: The local directory into which to copy the files
-from the appliance(s)
-* `-D, --Domain`: The domain from which to copy the files
-* `-r, --recursive`: If specified, files will be copied recursively
-from the directory specified by `-l, --location`
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+in the specified domain."""
     t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
 
     for appliance in env.appliances:
-        _out_dir = os.path.join(out_dir, t.timestamp, appliance.hostname)
-        if not os.path.exists(_out_dir) or not os.path.isdir(_out_dir):
-            os.makedirs(_out_dir)
+        _out_dir = os.path.join(
+            params.out_dir, t.timestamp, appliance.hostname)
+        os.makedirs(_out_dir, exist_ok=True)
         appliance.copy_directory(
-            location, _out_dir, Domain, recursive=recursive)
+            params.location, _out_dir, params.Domain,
+            recursive=params.recursive)
+        say("Copied {} from {} to {}".format(
+            params.location, appliance.hostname, _out_dir))
+    return SeeDownload(
+        [appliance.hostname for appliance in env.appliances],
+        env, suffix="copy_directory")
 
-    # Quick hack to let render_see_download_table() to get the appliance names
-    _ = {}
-    for appliance in env.appliances:
-        _[appliance.hostname] = None
-    if web:
-        return util.render_see_download_table(
-            _, suffix="copy_directory"), util.render_history(env)
+
+class CreateDir(ApplianceParams):
+    Domain: str = Option(
+        "default", short="D", widget=configured("Domain"),
+        help="The domain in which to create the directory")
+    directory: str = Option(
+        "", short="d",
+        help="The directory to create. While the location needs to "
+             "exists, parent directories do not, will act like "
+             "`mkdir -p`")
 
 
 @cli.command("create-dir", category="file management")
-def create_dir(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               Domain="default",
-               directory="",
-               web=False):
+def create_dir(params: CreateDir):
     """Creates a directory in the specified domain. **NOTE** the
-parent directory does not need to exist it will act like `mkdir -p`.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain in which to create the directory
-* `-d, --directory`: The directory to create. While the location needs
-to exists, parent directories do not, will act like `mkdir -p`
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    logger = make_logger("mast.datapower.system")
-
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout=timeout,
-        check_hostname=check_hostname)
-    kwargs = {'domain': Domain, 'Dir': directory}
-    responses = env.perform_action('CreateDir', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    if web:
-        return util.render_boolean_results_table(
-            responses, suffix="create-directory"), util.render_history(env)
-
-    for host, response in list(responses.items()):
-        if response:
-            print()
-            print(host)
-            print('=' * len(host))
-            if response:
-                print('OK')
-            else:
-                print("FAILURE")
-                print(response)
+parent directory does not need to exist it will act like `mkdir -p`."""
+    return _action(
+        params, 'CreateDir', "create-directory",
+        "create directory {} in {}".format(params.directory, params.Domain),
+        domain=params.Domain, Dir=params.directory)
 #
 # ~#~#~#~#~#~#~#
 
@@ -3268,65 +1429,19 @@ DO NOT USE.__"""
 # get-pmr-info - Retrieves the information necessary to submit a PMR
 # object-audit - Retrieves a diff of the running and persisted configurations
 
-
 @cli.command('fetch-logs', category='auditing')
-def fetch_logs(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               out_dir='tmp',
-               web=False):
+def fetch_logs(params: OutDirParams):
     """Fetch all log files from the specified appliance(s) storing them in
-out-dir.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The local directory to save the logs to
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-    kwargs = {'log_dir': out_dir}
-    resp = env.perform_async_action('get_all_logs', **kwargs)
-
-    if web:
-        return util.render_see_download_table(
-            resp, suffix="fetch_logs"), util.render_history(env)
+out-dir."""
+    env = params.environment()
+    resp = env.perform_async_action('get_all_logs', log_dir=params.out_dir)
+    say("Saved the logs of {} in {}".format(
+        str(env.appliances), params.out_dir))
+    return SeeDownload(resp, env, suffix="fetch_logs")
 
 
 @cli.command('get-pmr-info', category='auditing')
-def get_pmr_info(appliances=[],
-                 credentials=[],
-                 timeout=120,
-                 no_check_hostname=False,
-                 out_dir='tmp',
-                 web=False):
+def get_pmr_info(params: OutDirParams):
     """Get all posible troubleshooting information from the
 specified appliances.
 
@@ -3347,42 +1462,9 @@ and `$MAST_HOME/etc/statusProviders-applicationDomains.txt` to see which
 providers will be queried.
 7. All error reports present on the appliance(s) will be copied
 8. A zipfile will be created per appliance containing all the artifacts
-generated by this script and the files will be cleaned up (locally).
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The directory to save the artifacts generated by
-this script in
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+generated by this script and the files will be cleaned up (locally)."""
+    env = params.environment()
+    out_dir = params.out_dir
 
     t = Timestamp()
     _pmr_create_dirs(env.appliances, out_dir, t.timestamp)
@@ -3393,251 +1475,194 @@ DO NOT USE.__"""
     _pmr_query_status_providers(env.appliances, out_dir, t.timestamp)
     _pmr_download_error_reports(env.appliances, out_dir, ers, t.timestamp)
     _pmr_cleanup(env.appliances, out_dir, t.timestamp)
-
-    # Quick hack to let render_see_download_table() to get the appliance names
-    resp = {}
-    for appliance in env.appliances:
-        resp[appliance.hostname] = None
-    if web:
-        return util.render_see_download_table(
-            resp, suffix="get_pmr_info"), util.render_history(env)
+    say("Saved the PMR information of {} in {}".format(
+        str(env.appliances), out_dir))
+    return SeeDownload(
+        [appliance.hostname for appliance in env.appliances],
+        env, suffix="get_pmr_info")
 
 
 @cli.command('object-audit', category='auditing')
-def objects_audit(appliances=[],
-                  credentials=[],
-                  timeout=120,
-                  no_check_hostname=False,
-                  out_dir='tmp',
-                  web=False):
+def objects_audit(params: OutDirParams):
     """Get a "diff" of the current and persisted configuration
-from all-domains.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-o, --out-dir`: The directory to store the artifacts generated by this
-script.
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+from all-domains."""
     t = Timestamp()
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+    env = params.environment()
     results = env.perform_async_action('object_audit')
 
-    for hostname, audit in list(results.items()):
-        filename = os.path.join(out_dir, hostname, 'object_audit', t.timestamp)
+    for hostname, audit in results.items():
+        filename = os.path.join(
+            params.out_dir, hostname, 'object_audit', t.timestamp)
         os.makedirs(filename)
         filename = os.path.join(filename, 'object-audit.xml')
         with open(filename, 'w') as fout:
             fout.write(audit)
-    if web:
-        return util.render_see_download_table(
-            results, suffix="object_audit"), util.render_history(env)
+        say("Wrote the object audit of {} to {}".format(hostname, filename))
+    return SeeDownload(results, env, suffix="object_audit")
+
+
+def _leaves(element, prefix=""):
+    """Yield (name, text) for each element below element that has no
+    children. The name is the path to it, joined with dots."""
+    for child in element:
+        if len(child):
+            for leaf in _leaves(child, prefix + child.tag + "."):
+                yield leaf
+        else:
+            yield prefix + child.tag, child.text or ""
+
+
+class XMLResults(Result):
+    """
+    The status or configuration that each appliance returned. The
+    command line prints the XML. The web GUI shows one row for each
+    value.
+
+    * `kind`: "status" or "config"
+    * `machine`: If True, the XML is printed with the whitespace
+    collapsed
+    """
+    def __init__(self, kind, env=None, machine=False, suffix=None):
+        self.kind = kind
+        self.env = env
+        self.machine = machine
+        self.suffix = suffix
+        self.sections = []
+
+    def add(self, responses, label, timestamp):
+        for hostname, response in responses.items():
+            self.sections.append((hostname, label, timestamp, response))
+
+    @property
+    def history(self):
+        return history(self.env) if self.env is not None else ""
+
+    def text(self):
+        return "".join(
+            "\n\n{} - {} - {}\n\n{}\n".format(
+                hostname, label, timestamp,
+                repr(response) if self.machine else str(response))
+            for hostname, label, timestamp, response in self.sections)
+
+    def html(self):
+        config = self.kind == "config"
+        if config:
+            header = ["Appliance", "ObjectClass", "ObjectName", "Key", "Value"]
+            xpath = datapower.CONFIG_XPATH
+        else:
+            header = ["Appliance", "Provider", "Key", "Value"]
+            xpath = datapower.STATUS_XPATH
+        rows = []
+        for hostname, label, timestamp, response in self.sections:
+            if self.suffix:
+                hostname = "{}-{}".format(hostname, self.suffix)
+            for item in response.xml.findall(xpath):
+                first = [hostname, item.tag]
+                if config:
+                    first.append(item.get("name") or "")
+                rows.append(first)
+                for name, value in _leaves(item):
+                    rows.append([""] * len(first) + [name, value])
+        return Table(header, rows).html()
+
+
+def _deliver(result, out_file, env):
+    """Return result so that it is printed, or write it to out_file
+    if there is one."""
+    if out_file is None:
+        return result
+    directory = os.path.dirname(out_file)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(out_file, "w") as fout:
+        fout.write(result.text())
+    say("Wrote the results to {}".format(out_file))
+    report = Report()
+    report.add(result, show=False)
+    return report
+
+
+class GetStatus(ApplianceParams):
+    StatusProvider: list[str] = Option(
+        default_factory=list, short="S", widget=STATUS_PROVIDER,
+        help="Status providers to query.")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain from which to query the status providers")
+    out_file: str | None = Option(
+        None, short="o", widget=OUT_FILE,
+        help="The file to write the results to. Without it the "
+             "results are printed.")
+    machine: bool = Option(
+        False, short="m",
+        help="If specified, the xml will be written with whitespace "
+             "collapsed and newlines removed")
 
 
 @cli.command('get-status', category='auditing')
-def get_status(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               StatusProvider=[],
-               Domain='default',
-               out_file=None,
-               machine=False,
-               web=False):
+def get_status(params: GetStatus):
     """This will query the status of the specified appliances in
-in the specified Domain for the specified StatusProviders.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-S, --StatusProvider`: Status providers to query. To pass multiple arguments
-to this parameter, use multiple entries of the form `[-S StatusProvider1  [-S StatusProvider2...]]`
-* `-D, --Domain`: The domain from which to query the status providers
-* `-o, --out-file`: The file to write the results to, this will default
-to stdout
-* `-m, --machine`: If specified, the xml will be written with whitespace
-collapsed and newlines removed
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    if not web:
-        if out_file is not None:
-            out_file = open(out_file, 'w')
-        else:
-            out_file = sys.stdout
-
-    if web:
-        output = ""
-
-    for provider in StatusProvider:
+in the specified Domain for the specified StatusProviders."""
+    env = params.environment()
+    result = XMLResults(
+        "status", env, machine=params.machine, suffix="get_status")
+    for provider in params.StatusProvider:
         t = Timestamp()
+        result.add(
+            env.perform_async_action(
+                'get_status', provider=provider, domain=params.Domain),
+            provider, t.timestamp)
+    return _deliver(result, params.out_file, env)
 
-        kwargs = {'provider': provider, 'domain': Domain}
-        results = env.perform_async_action('get_status', **kwargs)
-        if web:
-            output += util.render_status_results_table(
-                results, suffix="get_status")
 
-        for hostname, response in list(results.items()):
-            if machine:
-                status = repr(response)
-            else:
-                status = str(response)
-            header = '\n\n%s - %s - %s\n\n' % (hostname, provider, t.timestamp)
-            if not web:
-                out_file.write(header + status + '\n')
-
-    if web:
-        return output, util.render_history(env)
-    if out_file != sys.stdout:
-        out_file.close()
+class GetConfig(ApplianceParams):
+    ObjectClass: str = Option(
+        "", short="O", widget=OBJECT_CLASS,
+        help="The class of the object whose config you wish to get")
+    obj_name: str | None = Option(
+        None, short="o",
+        help="If given, the configuration will be gotten for that "
+             "object, otherwise, all objects of class ObjectClass will "
+             "be provided")
+    recursive: bool = Option(
+        False, short="r",
+        help="If specified, the configuration will be retrieved "
+             "recursively")
+    persisted: bool = Option(
+        False, short="p",
+        help="If specified, the persisted configuration will be "
+             "retrieved as opposed to the running configuration")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain from which to get the configuration")
+    out_file: str | None = Option(
+        None, widget=OUT_FILE,
+        help="The file to write the results to. Without it the "
+             "results are printed.")
+    machine: bool = Option(
+        False, short="m",
+        help="If specified, the xml will be written with whitespace "
+             "collapsed and newlines removed")
 
 
 @cli.command('get-config', category='auditing')
-def get_config(appliances=[],
-               credentials=[],
-               timeout=120,
-               no_check_hostname=False,
-               ObjectClass="",
-               obj_name=None,
-               recursive=False,
-               persisted=False,
-               Domain='default',
-               out_file=None,
-               machine=False,
-               web=False):
+def get_config(params: GetConfig):
     """This will get the config of obj_name from the specified
-domain on the specified appliances.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-O, --ObjectClass`: The class of the object whose config you wish to get
-* `-o, --obj-name`: If given, the configuration will be gotten for that object,
-otherwise, all objects of class ObjectClass will be provided
-* `-r, --recursive`: If specified, the configuration will be retrieved
-recursively
-* `-p, --persisted`: If specified, the persisted configuration will
-be retrieved as opposed to the running configuration
-otherwise the running configuration will be provided
-* `-D, --Domain`: The domain from which to get the configuration
-* `-o, --out-file`: The file to write the results to, this will default
-to stdout
-* `-m, --machine`: If specified, the xml will be written with whitespace
-collapsed and newlines removed
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
+domain on the specified appliances."""
     t = Timestamp()
-
-    if out_file is not None:
-        out_file = open(out_file, 'w')
-    else:
-        out_file = sys.stdout
-
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
-
-    kwargs = {
-        '_class': ObjectClass,
-        'name': obj_name,
-        'recursive': recursive,
-        'persisted': persisted,
-        'domain': Domain}
-    results = env.perform_async_action('get_config', **kwargs)
-
-    if web:
-        return util.render_config_results_table(
-            results, suffix="get_config"), util.render_history(env)
-
-    for hostname, response in list(results.items()):
-        if machine:
-            resp = repr(response)
-        else:
-            resp = str(response)
-        header = '\n\n%s - %s - %s\n\n' % (hostname, ObjectClass, t.timestamp)
-        out_file.write(header + resp + '\n')
-
-    if out_file != sys.stdout:
-        out_file.close()
+    env = params.environment()
+    result = XMLResults(
+        "config", env, machine=params.machine, suffix="get_config")
+    result.add(
+        env.perform_async_action(
+            'get_config',
+            _class=params.ObjectClass,
+            name=params.obj_name,
+            recursive=params.recursive,
+            persisted=params.persisted,
+            domain=params.Domain),
+        params.ObjectClass, t.timestamp)
+    return _deliver(result, params.out_file, env)
 #
 # ~#~#~#~#~#~#~#
 
@@ -3652,115 +1677,75 @@ DO NOT USE.__"""
 # ----------------
 # clean-up - Cleans the filesystem.
 
+class CleanUp(ApplianceParams):
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain whose filesystem you would like to clean up")
+    checkpoints: bool = Option(
+        False, short="C",
+        help="If specified, all checkpoints will be removed from the "
+             "domain")
+    export: bool = Option(
+        False, short="e",
+        help="If specified all exports will be removed from the domain")
+    logtemp: bool = Option(
+        False, short="l",
+        help="If specified, all files in `logtemp:` will be removed "
+             "from the domain")
+    logstore: bool = Option(
+        False, short="L",
+        help="If specified, all files in `logstore:` will be removed")
+    error_reports: bool = Option(
+        False, short="E",
+        help="If specified, all error reports will be removed from the "
+             "appliance(s)")
+    recursive: bool = Option(
+        False, short="r",
+        help="If specified, directories will be cleaned recursively")
+    backup_files: bool = Option(
+        False, short="b",
+        help="If specified, files will be backed up before deleting")
+    out_dir: str = Option(
+        'tmp', short="o", widget=OUT_DIR,
+        help="The directory to save backed up files")
+
 
 @cli.command('clean-up', category='maintenance')
-def clean_up(appliances=[],
-             credentials=[],
-             timeout=120,
-             no_check_hostname=False,
-             Domain='default',
-             checkpoints=False,
-             export=False,
-             logtemp=False,
-             logstore=False,
-             error_reports=False,
-             recursive=False,
-             backup_files=False,
-             out_dir='tmp',
-             web=False):
+def clean_up(params: CleanUp):
     """This will clean up the specified appliances filesystem optionally
-(defaults to True) taking copies of the files as backups.
-
-Parameters:
-
-* `-a, --appliances` - The hostname(s), ip address(es), environment name(s)
-or alias(es) of the appliances you would like to affect. For details
-on configuring environments please see the comments in
-`environments.conf` located in `$MAST_HOME/etc/default`. For details
-on configuring aliases, please see the comments in `hosts.conf` located in
-`$MAST_HOME/etc/default`. To pass multiple arguments to this parameter,
-use multiple entries of the form `[-a appliance1 [-a appliance2...]]`
-* `-c, --credentials`: The credentials to use for authenticating to the
-appliances. Should be either one set to use for all appliances
-or one set for each appliance. Credentials should be in the form
-`username:password`. To pass multiple credentials to this parameter, use
-multiple entries of the form `[-c credential1 [-c credential2...]]`.
-When referencing multiple appliances with multiple credentials,
-there must be a one-to-one correspondence of credentials to appliances:
-`[-a appliance1 [-a appliance2...]] [-c credential1 [-c credential2...]]`
-If you would prefer to not use plain-text passwords,
-you can use the output of `$ mast-system xor <username:password>`.
-* `-t, --timeout`: The timeout in seconds to wait for a response from
-an appliance for any single request. __NOTE__ Program execution may
-halt if a timeout is reached.
-* `-n, --no-check-hostname`: If specified SSL verification will be turned
-off when sending commands to the appliances.
-* `-D, --Domain`: The domain whose filesystem you would like to clean up
-* `-C, --checkpoints`: If specified, all checkpoints will be removed
-from the domain
-* `-e, --export`: If specified all exports will be removed from the domain
-* `-l, --logtemp`: If specified, all files in `logtemp:` will be removed
-from the domain
-* `-L, --logstore`: If specified, all files in `logstore:` will be
-removed
-* `-E, --error-reports`: If specified, all error reports will be removed
-from the appliance(s)
-* `-r, --recursive`: If specified, directories will be cleaned recursively
-* `--no-backup-files`: If specified, files will not be backed up before
-deleting
-* `-o, --out-dir`: The directory to save backed up files
-* `-w, --web`: __For Internel Use Only, will be removed in future versions.
-DO NOT USE.__"""
-    check_hostname = not no_check_hostname
-    env = datapower.Environment(
-        appliances,
-        credentials,
-        timeout,
-        check_hostname=check_hostname)
+taking copies of the files as backups."""
+    env = params.environment()
 
     t = Timestamp()
     dirs = []
-    if checkpoints:
+    if params.checkpoints:
         dirs.append('chkpoints:/')
-    if export:
+    if params.export:
         dirs.append('export:/')
-    if logtemp:
+    if params.logtemp:
         dirs.append('logtemp:/')
-    if logstore:
+    if params.logstore:
         dirs.append('logstore:/')
 
-    if web:
-        rows = []
+    rows = []
     for appliance in env.appliances:
-        if web:
-            rows.append((appliance.hostname, ))
         for _dir in dirs:
             _clean_dir(
                 appliance,
                 _dir,
-                Domain,
-                recursive,
-                backup_files,
+                params.Domain,
+                params.recursive,
+                params.backup_files,
                 t.timestamp,
-                out_dir)
-            if web:
-                rows.append(("", _dir, "Cleaned"))
-            else:
-                print('\t', appliance.hostname, "-", _dir, "-", " Cleaned")
-        if error_reports:
+                params.out_dir)
+            rows.append((appliance.hostname, _dir, "Cleaned"))
+        if params.error_reports:
             _clean_error_reports(
-                appliance, Domain,
-                backup_files, t.timestamp,
-                out_dir)
-            if web:
-                rows.append(("", "ErrorReports", "Cleaned"))
-            else:
-                print('\t', appliance.hostname, "-", "ErrorReports - Cleaned")
-    if web:
-        return flask.render_template(
-            "results_table.html",
-            header_row=["Appliance", "Location", "Action"],
-            rows=rows), util.render_history(env)
+                appliance, params.Domain,
+                params.backup_files, t.timestamp,
+                params.out_dir)
+            rows.append((appliance.hostname, "ErrorReports", "Cleaned"))
+    return Table(["Appliance", "Location", "Action"], rows, history(env))
 
 
 def _clean_dir(appliance, _dir, domain, recursive, backup, timestamp, out_dir):
@@ -3773,7 +1758,7 @@ def _clean_dir(appliance, _dir, domain, recursive, backup, timestamp, out_dir):
             timestamp,
             domain,
             local_dir)
-        os.makedirs(local_dir)
+        os.makedirs(local_dir, exist_ok=True)
     # if not recursive don't include_directories
     files = appliance.ls(_dir, domain=domain, include_directories=recursive)
     for file in files:
@@ -3809,7 +1794,7 @@ def _clean_error_reports(appliance, domain, backup, timestamp, out_dir):
             timestamp,
             domain,
             'temporary')
-        os.makedirs(local_dir)
+        os.makedirs(local_dir, exist_ok=True)
     ers = appliance.get_config("ErrorReportSettings")
     protocol = ers.xml.find(protocol_xpath).text
 
@@ -3885,17 +1870,5 @@ class WebPlugin(Plugin):
 #
 # ~#~#~#~#~#~#~#
 
-if __name__ == '__main__':
-    try:
-        cli.run()
-    except AttributeError as e:
-        if "'NoneType' object has no attribute 'app'" in str(e):
-            raise NotImplementedError(
-                "HTML formatted output is not supported on the CLI")
-        else:
-            raise
-    except SystemExit:
-        pass
-    except Exception:
-        make_logger("error").exception("an unhandled exception occured")
-        raise
+if __name__ == "__main__":
+    cli.run()
