@@ -96,7 +96,9 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
 
     Show a job until it ends: print its progress as it is reported,
     then its result. Return the exit status for the program: 0 if the
-    job succeeded, 130 if the user stopped it, otherwise 1.
+    job succeeded, 130 if the user stopped it, otherwise 1. A job that
+    is `partial` (the command failed on some of the appliances) is
+    also 1.
 
     While the job waits in the queue and no worker is alive (or
     `local` is True), this process takes the job and does it, as the
@@ -155,12 +157,15 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
 
 def _show_end(info, result, interrupted):
     """Print the result of a finished job. Return the exit status."""
+    # A command that raised an exception has no result: its history
+    # is the traceback
+    returned = result is not None and bool(result.html)
+    if returned and result.text:
+        _out(result.text)
     if info.status == SUCCEEDED:
-        if result is not None and result.text:
-            _out(result.text)
         return 0
-    if info.status == FAILED and result is not None and result.history:
-        # The traceback of the command
+    if info.status == FAILED and not returned \
+            and result is not None and result.history:
         _note(result.history.rstrip())
     _note("The job {} {}{}".format(
         info.id[:8], info.status, ": " + info.error if info.error else "."))

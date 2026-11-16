@@ -35,7 +35,7 @@ from typing import Literal
 from mast.cli import Cli, Option, Params, Table, Text
 from mast.jobs import client, queue
 from mast.jobs.models import (
-    CANCELLED, FAILED, LOST, QUEUED, RUNNING, SUCCEEDED)
+    CANCELLED, FAILED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 
 __all__ = ["cli"]
 
@@ -62,7 +62,8 @@ class JobParams(Params):
 
 class List(Params):
     status: list[Literal[
-        QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED, LOST]] = Option(
+        QUEUED, RUNNING, SUCCEEDED, PARTIAL, FAILED, CANCELLED,
+        LOST]] = Option(
         default_factory=list, short="s",
         help="Show only the jobs with this status.")
     limit: int = Option(20, short="n", help="How many jobs to show.")

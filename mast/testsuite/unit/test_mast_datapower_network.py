@@ -306,17 +306,38 @@ class TestNetworkCommands(unittest.TestCase):
                     appliances=["dp1"], destination="d", gateway="g",
                     metric=metric)
 
+    def run_cli(self, *argv):
+        """Run a command line and return its exit status."""
+        try:
+            cli.run(list(argv))
+        except SystemExit as exc:
+            return exc.code
+        return 0
+
     def test_command_line(self):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            cli.run(["check-connectivity", "-a", "dp1", "-c", "u:p", "-n"])
-            cli.run(["tcp-connection-test", "-a", "dp1",
-                     "-r", "a", "-R", "443"])
-            cli.run(["add-static-route", "-a", "dp1", "-E", "eth0",
-                     "-d", "10.1.0.0/16", "-g", "10.0.0.1", "-m", "5", "-s"])
-            cli.run(["display-ethernet-interface", "-a", "dp1", "-E", "eth0",
-                     "--no-persisted"])
-            cli.run(["flush-pdp-cache", "-a", "dp1", "-X", "p"])
+        status = {}
+        with contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            status["check-connectivity"] = self.run_cli(
+                "check-connectivity", "-a", "dp1", "-c", "u:p", "-n")
+            status["tcp-connection-test"] = self.run_cli(
+                "tcp-connection-test", "-a", "dp1", "-r", "a", "-R", "443")
+            status["add-static-route"] = self.run_cli(
+                "add-static-route", "-a", "dp1", "-E", "eth0",
+                "-d", "10.1.0.0/16", "-g", "10.0.0.1", "-m", "5", "-s")
+            status["display-ethernet-interface"] = self.run_cli(
+                "display-ethernet-interface", "-a", "dp1", "-E", "eth0",
+                "--no-persisted")
+            status["flush-pdp-cache"] = self.run_cli(
+                "flush-pdp-cache", "-a", "dp1", "-X", "p")
+        # The fake dp2 refuses every action, and that is the exit
+        # status. What a test of the network found is not a failure of
+        # the command.
+        self.assertEqual(status, {
+            "check-connectivity": 0, "tcp-connection-test": 0,
+            "add-static-route": 1, "display-ethernet-interface": 0,
+            "flush-pdp-cache": 1})
         text = out.getvalue()
         self.assertRegex(text, r"Appliance +XML +Web +CLI")
         self.assertRegex(text, r"dp1 +a +443 +True")

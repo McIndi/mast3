@@ -659,7 +659,7 @@ def finish(job_id, worker_id, status, text="", html="", history="",
 
     Parameters:
 
-    * `status`: `succeeded`, `failed` or `cancelled`.
+    * `status`: `succeeded`, `partial`, `failed` or `cancelled`.
     * `text`, `html`, `history`: See `ResultInfo`.
     * `error`: One line that says why the job failed.
     """

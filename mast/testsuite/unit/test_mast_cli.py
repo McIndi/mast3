@@ -301,5 +301,58 @@ class TestOptions(unittest.TestCase):
         self.assertTrue(specs["password"].secret)
 
 
+class TestOutcome(unittest.TestCase):
+    def test_a_result_that_does_not_say_succeeded(self):
+        for result in (Result(), Text("x"), Table(("a",), [("Failed",)])):
+            self.assertEqual(result.outcomes(), [])
+            self.assertEqual(result.outcome, "succeeded")
+
+    def test_the_results_of_the_datapower_commands(self):
+        from mast.plugin_utils.results import (
+            ActionResults, ListResults, Report, SeeDownload, StatusResults)
+        good = ActionResults({"dp1": True, "dp2": True})
+        mixed = ActionResults({"dp1": True, "dp2": None})
+        bad = ActionResults({"dp1": False, "dp2": None})
+        self.assertEqual(
+            [good.outcome, mixed.outcome, bad.outcome],
+            ["succeeded", "partial", "failed"])
+        self.assertEqual(mixed.outcomes(), [True, False])
+
+        status = StatusResults(
+            {"a": "Verified", "b": "Failed", "c": "Error", "d": "Corrupt",
+             "e": "Succeeded"})
+        self.assertEqual(status.outcomes(), [True, False, False, False, True])
+        # A command with statuses in other words says which keys failed
+        status = StatusResults({"a": "it broke", "b": "fine"}, failed=["a"])
+        self.assertEqual(status.outcomes(), [False, True])
+        self.assertEqual(
+            StatusResults({"a": "Failed"}, failed=[]).outcome, "succeeded")
+
+        # A report has the outcomes of its steps, also of a report in it
+        inner = Report()
+        inner.steps.append(bad)
+        report = Report()
+        report.steps.extend([good, inner, SeeDownload(["dp1"])])
+        self.assertEqual(report.outcomes(), [True, True, False, False])
+        self.assertEqual(report.outcome, "partial")
+        self.assertEqual(Report().outcome, "succeeded")
+        self.assertEqual(ListResults({"dp1": []}).outcome, "succeeded")
+
+    def test_the_command_line_exits_with_the_outcome(self):
+        class Failed(Text):
+            def outcomes(self):
+                return [False]
+
+        def main(params: Greet):
+            return Failed("it did not work")
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                self.assertRaises(SystemExit) as raised:
+            Cli(main=main).run(["-n", "World"])
+        self.assertEqual(raised.exception.code, 1)
+        self.assertEqual(out.getvalue(), "it did not work\n")
+
+
 if __name__ == "__main__":
     unittest.main()

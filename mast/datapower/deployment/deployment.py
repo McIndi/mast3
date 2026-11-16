@@ -797,11 +797,15 @@ def _password_map_alias(params, method, action, message, **kwargs):
     env = params.environment()
 
     output = {}
+    failed = []
 
     def record(appliance, step, response):
         logger.info(repr(response))
         lines = _result_lines(response)
-        output["{}-{}".format(appliance.hostname, step)] = "\n".join(lines)
+        key = "{}-{}".format(appliance.hostname, step)
+        output[key] = "\n".join(lines)
+        if not response:
+            failed.append(key)
         say("\t\t{}".format("\n\t\t".join(lines).strip()))
 
     for appliance in env.appliances:
@@ -815,7 +819,7 @@ def _password_map_alias(params, method, action, message, **kwargs):
             record(appliance, "SaveConfig",
                    appliance.SaveConfig(domain=params.Domain))
     report = Report(env)
-    report.add(StatusResults(output), show=False)
+    report.add(StatusResults(output, failed=failed), show=False)
     return report
 
 

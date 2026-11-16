@@ -38,19 +38,24 @@ from sqlalchemy.types import TypeDecorator
 
 __all__ = [
     "Base", "Job", "JobTarget", "JobEvent", "JobResult", "Worker",
-    "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "LOST",
-    "FINISHED",
+    "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",
+    "LOST", "FINISHED",
 ]
 
 QUEUED = "queued"
 RUNNING = "running"
 SUCCEEDED = "succeeded"
+# The command ended, and its result says that some of what it did
+# failed: an action failed on one of three appliances, for example.
+PARTIAL = "partial"
+# The command raised an exception, or its result says that all of
+# what it did failed.
 FAILED = "failed"
 CANCELLED = "cancelled"
 # The worker stopped without a result. Nobody knows how far the job got.
 LOST = "lost"
 
-FINISHED = (SUCCEEDED, FAILED, CANCELLED, LOST)
+FINISHED = (SUCCEEDED, PARTIAL, FAILED, CANCELLED, LOST)
 
 
 class UTCDateTime(TypeDecorator):

@@ -40,6 +40,11 @@ is still completed.
 What a command reports can repeat a secret parameter. The values of
 the secret parameters are removed from the progress, the result and
 the history before they are stored, see `mast.jobs.secrets.redactor`.
+
+The status of a job that ran to its end comes from the result of the
+command (`mast.cli.Result.outcome`): `succeeded`, `partial` if some
+of what the command did failed, or `failed` if all of it failed. A
+command that raised an exception is `failed` and has no result.
 """
 import os
 import socket
@@ -50,7 +55,7 @@ import uuid
 
 from mast.cli import Result, listening
 from mast.jobs import config, queue, secrets
-from mast.jobs.models import CANCELLED, FAILED, SUCCEEDED
+from mast.jobs.models import CANCELLED, FAILED, PARTIAL, SUCCEEDED
 from mast.logging import make_logger
 
 __all__ = ["new_worker_id", "run_job", "run_next", "JobCancelled",
@@ -181,7 +186,15 @@ def _call(job_id, worker_id, store, redact):
     if not isinstance(result, Result):
         return {"status": SUCCEEDED}
     try:
-        return {"status": SUCCEEDED, "text": result.text(),
+        outcomes = [bool(worked) for worked in result.outcomes()]
+        status = result.outcome
+        if status not in (SUCCEEDED, PARTIAL, FAILED):
+            raise ValueError("{!r} is not an outcome".format(status))
+        error = None
+        if status != SUCCEEDED:
+            error = "The command reported that {} of its {} results " \
+                    "failed.".format(outcomes.count(False), len(outcomes))
+        return {"status": status, "error": error, "text": result.text(),
                 "html": result.html(), "history": result.history}
     except Exception as exc:
         return {"status": FAILED,

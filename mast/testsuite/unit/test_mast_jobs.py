@@ -68,6 +68,17 @@ class Work(Params):
     steps: int = Option(0, help="How many steps to report")
 
 
+class Judged(Text):
+    """A result that says on which appliances the command failed."""
+    def __init__(self, appliances):
+        super().__init__(
+            "\n".join(appliances), history="the requests")
+        self.appliances = appliances
+
+    def outcomes(self):
+        return [not name.startswith("bad") for name in self.appliances]
+
+
 # The credentials that the last "work" command got
 seen = []
 
@@ -141,6 +152,11 @@ def make_cli():
                      "dir-" + name for name in params.appliances))
     def per_appliance(params: Work):
         """Use one directory for each appliance."""
+
+    @cli.command("judge")
+    def judge(params: Work):
+        """Fail on each appliance whose name starts with "bad"."""
+        return Judged(params.appliances)
 
     @cli.command("encode", queued=False)
     def encode(params: Work):
@@ -563,6 +579,30 @@ class TestRunner(SqliteCase):
             [("state", "queued"), ("state", "running on " + worker),
              ("say", "working on dp1"), ("state", "succeeded")])
         self.assertEqual(jobs.events(job_id, after=events[1].id), events[2:])
+
+    def test_the_status_comes_from_the_result(self):
+        cases = (
+            (["dp1", "dp2"], jobs.SUCCEEDED, None),
+            (["dp1", "bad1", "bad2"], jobs.PARTIAL,
+             "The command reported that 2 of its 3 results failed."),
+            (["bad1", "bad2"], jobs.FAILED,
+             "The command reported that 2 of its 2 results failed."),
+            ([], jobs.SUCCEEDED, None),
+        )
+        for appliances, status, error in cases:
+            with self.subTest(appliances=appliances):
+                job_id = jobs.submit("test.judge", {"appliances": appliances})
+                jobs.run_next("w1")
+                info = jobs.get(job_id)
+                self.assertEqual((info.status, info.error), (status, error))
+                self.assertTrue(info.finished)
+                # The result is kept, whatever the status
+                result = jobs.result(job_id)
+                self.assertEqual(result.text, "\n".join(appliances))
+                self.assertEqual(result.history, "the requests")
+        self.assertEqual(len(jobs.list_jobs(status=jobs.PARTIAL)), 1)
+        # The appliances of a partial job are free again
+        self.assertIsNotNone(jobs.claim("w1", job_id=submit("bad1")))
 
     def test_a_command_with_no_result(self):
         job_id = jobs.submit("test.quiet", {})
@@ -1011,6 +1051,38 @@ class TestCommandLine(CliCase):
             jobs.finish(ahead, "somebody", jobs.SUCCEEDED)
             thread.join(10)
         self.assertEqual(jobs.get(mine).status, jobs.SUCCEEDED)
+
+    def test_a_command_that_failed_on_an_appliance(self):
+        for local in (True, False):
+            with self.subTest(local=local):
+                if not local:
+                    self.start_worker()
+                status, out, err = self.run_cli(
+                    "judge", "-a", "dp1", "-a", "bad1")
+                self.assertEqual((status, out), (1, "dp1\nbad1\n"))
+                self.assertRegex(
+                    err, r"^The job \w{8} partial: The command reported "
+                         r"that 1 of its 2 results failed\.\n$")
+        status, out, err = self.run_cli("judge", "-a", "bad1")
+        self.assertEqual((status, out), (1, "bad1\n"))
+        # The history of such a job is not a traceback
+        self.assertNotIn("the requests", err)
+        self.assertIn("failed: The command reported", err)
+        status, out, err = self.run_cli("judge", "-a", "dp1")
+        self.assertEqual((status, out, err), (0, "dp1\n", ""))
+
+    def test_a_cli_with_no_namespace_exits_with_the_outcome(self):
+        cli = Cli()
+
+        @cli.command("judge")
+        def judge(params: Work):
+            return Judged(params.appliances)
+
+        self.assertEqual(
+            self.run_cli("judge", "-a", "dp1", cli=cli), (0, "dp1\n", ""))
+        self.assertEqual(
+            self.run_cli("judge", "-a", "dp1", "-a", "bad1", cli=cli),
+            (1, "dp1\nbad1\n", ""))
 
     def test_a_failed_command(self):
         status, out, err = self.run_cli("work", "-a", "dp1", "--fail")

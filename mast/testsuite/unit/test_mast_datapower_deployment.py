@@ -189,6 +189,7 @@ class TestDeploymentCommands(unittest.TestCase):
                 messages[:1] + messages[2:])
             self.assertIn("dp1-SaveConfig", result.html())
             self.assertEqual("", result.text())
+            self.assertEqual([True, True], result.outcomes())
 
             result, _ = self.call(
                 command, Domain="d", alias_name="alias", save_config=False,

@@ -105,6 +105,19 @@ class Encode(Params):
     string: str = Option("")
 
 
+class Judged(Table):
+    """A result that says that the command failed on dp2."""
+    def outcomes(self):
+        return [True, False]
+
+
+@cli.command("judge", category="examples")
+def judge(params: ApplianceParams):
+    """A command that fails on one of two appliances."""
+    return Judged(("Appliance", "Result"),
+                  [("dp1", "Succeeded"), ("dp2", "Failed")])
+
+
 @cli.command("encode", category="examples", queued=False)
 def encode(params: Encode):
     """A utility that must not be stored."""
@@ -381,6 +394,16 @@ class WebFormTestCase(unittest.TestCase):
         logs = [re.search(r'id="([\w.-]+\.log)"', html).group(1)
                 for html in (first, second, third, fourth)]
         self.assertEqual(len(set(logs)), 4)
+
+    def test_a_command_that_failed_on_an_appliance_shows_its_result(self):
+        job_id = self.job_id(self.submit(callable="judge"))
+        state = self.finished(job_id)
+        self.assertEqual("partial", state["status"])
+        html = state["html"]
+        self.assertIn(
+            "The command reported that 1 of its 2 results failed.", html)
+        self.assertIn('<td class="result_table_cell">Failed</td>', html)
+        self.assertNotIn("unhandled exception", html)
 
     def test_a_command_that_is_not_queued_is_answered_at_once(self):
         html = self.submit(callable="encode", string="admin:hunter2")

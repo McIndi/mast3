@@ -44,7 +44,7 @@ names another. See `mast.jobs.queue` for the rules of the queue.
 """
 from mast.jobs.auth import LOCAL, Forbidden, Principal
 from mast.jobs.models import (
-    CANCELLED, FAILED, FINISHED, LOST, QUEUED, RUNNING, SUCCEEDED)
+    CANCELLED, FAILED, FINISHED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 from mast.jobs.queue import (
     EventInfo, Heartbeat, JobInfo, JobNotFound, NotOwner, NotQueued,
     ResultInfo,
@@ -63,6 +63,7 @@ __all__ = [
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "Principal", "LOCAL", "Forbidden",
     "JobNotFound", "NotOwner", "NotQueued", "UnknownCommand",
-    "QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "LOST",
+    "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",
+    "LOST",
     "FINISHED",
 ]

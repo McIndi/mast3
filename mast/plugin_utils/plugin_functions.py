@@ -980,6 +980,11 @@ def _finished_html(info):
         history = result.history if result is not None else ""
         if info.status == jobs.SUCCEEDED:
             out = Markup(result.html if result is not None else "")
+        elif result is not None and result.html:
+            # The command ended, and its result says that some or all
+            # of what it did failed
+            out = Markup("<p><b>{}</b></p>".format(html_escape(
+                info.error or info.status))) + Markup(result.html)
         elif info.status == jobs.FAILED:
             out = Markup(html_escape(
                 "Sorry, an unhandled exception occurred while "

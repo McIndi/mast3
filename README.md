@@ -113,6 +113,18 @@ mast-jobs workers
 
 The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link.
 
+Most commands do not stop when one appliance refuses an action: they continue with the other appliances and show what happened on each one. The status of the job tells you how that went.
+
+| Status | Meaning | Exit status of the command |
+|---|---|---|
+| `succeeded` | Every action worked. | 0 |
+| `partial` | Some actions failed and some worked, for example on one of three appliances. | 1 |
+| `failed` | Every action failed, or the command stopped with an error. | 1 |
+| `cancelled` | Somebody cancelled the job. | 130 if you pressed Ctrl-C, otherwise 1 |
+| `lost` | The worker stopped or lost contact with the database while the job ran. | 1 |
+
+**Change from earlier versions:** a command now exits with status 1 when an appliance refuses an action. Before, the exit status was 0 unless the command stopped with an error. Check the scripts that call MAST and test `$?`. Commands whose result is a download or a table of their own (`fetch-logs`, `check-connectivity` and others) do not report a failure this way yet, and neither do the steps of `git-deploy`.
+
 Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
 
 If a worker cannot reach the database for longer than its lease (60 seconds by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.

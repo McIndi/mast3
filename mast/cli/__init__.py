@@ -45,7 +45,8 @@ from mast.logging import make_logger
 from mast.cli import params as _params
 from mast.cli.params import Params, Option
 from mast.cli.results import (
-    Result, Text, Table, say, captured, listening)
+    Result, Text, Table, say, captured, listening,
+    SUCCEEDED, PARTIAL, FAILED)
 
 from collections import defaultdict
 from pydantic import ValidationError
@@ -53,6 +54,7 @@ from pydantic import ValidationError
 __all__ = [
     "Cli", "Command", "Params", "Option",
     "Result", "Text", "Table", "say", "captured", "listening",
+    "SUCCEEDED", "PARTIAL", "FAILED",
 ]
 
 
@@ -163,7 +165,8 @@ class Cli(object):
             cli.run()
 
     The function returns a `mast.cli.Result` (or `None`) and `run`
-    prints it. The function can also be called from Python as
+    prints it. If the result says that some or all of the command
+    failed (see `Result.outcome`), the program exits with status 1. The function can also be called from Python as
     `greet(name="World")`.
 
     There are two ways to use this library. The example above has many
@@ -384,6 +387,8 @@ class Cli(object):
             raise
         if isinstance(result, Result):
             result.emit()
+            if result.outcome != SUCCEEDED:
+                sys.exit(1)
 
     def _run_job(self, command, args, values, log):
         """Put the command in the job queue and show the job, see
