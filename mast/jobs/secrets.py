@@ -36,6 +36,7 @@ import base64
 import html
 import json
 import os
+import re
 import time
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -43,8 +44,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from mast.cli import params as cli_params
 from mast.jobs import config
 
-__all__ = ["seal", "unseal", "scrub", "redactor", "SecretsError",
-           "REDACTED"]
+__all__ = ["seal", "unseal", "scrub", "redactor", "Redactor",
+           "SecretsError", "REDACTED"]
 
 _MARK = "$secret"
 
@@ -164,17 +165,67 @@ def _forms(value):
         | once | _escaped(once)
 
 
+_TAG = re.compile(r"(<[^>]*>)")
+
+
+class Redactor(object):
+    """
+    _class_: `mast.jobs.secrets.Redactor`
+
+    Removes the values of the secret parameters of a job from what
+    the job reports. `redactor` makes one.
+
+    * `redactor(text)`: Return `text` with each secret value replaced
+    by `REDACTED`. For plain text and for XML that is only read.
+    * `redactor.html(text)`: The same for HTML that a browser shows.
+    Only the text between the tags is changed, so a secret that is
+    also part of a tag (`a`, `table`, `class`) does not break the
+    page. The results of the commands put what they show between
+    tags, never in an attribute. A secret that the page shows with a
+    tag in the middle of it (a line break, for example) is not found.
+    """
+    def __init__(self, secrets):
+        # The longest first: one secret can be the start of another
+        self._secrets = sorted(secrets, key=len, reverse=True)
+
+    def __call__(self, text):
+        if not text:
+            return text
+        for secret in self._secrets:
+            text = text.replace(secret, REDACTED)
+        return text
+
+    def _between_tags(self, text):
+        """Redact text that is not markup. It is decoded first, so
+        that a secret which is also the name of an entity (`amp`)
+        does not break the entities."""
+        plain = html.unescape(text)
+        redacted = self(plain)
+        if redacted == plain:
+            return text
+        return html.escape(redacted, quote=False)
+
+    def html(self, text):
+        if not text or not self._secrets:
+            return text
+        parts = _TAG.split(text)
+        for index, part in enumerate(parts):
+            # Every second part is a tag
+            if index % 2 == 0:
+                parts[index] = self._between_tags(part)
+        return "".join(parts)
+
+
 def redactor(model, values):
     """
     _function_: `mast.jobs.secrets.redactor(model, values)`
 
-    Return a function that takes a string and returns it with each
-    value of a secret parameter of `model` replaced by `REDACTED`.
-    `values` has the parameters of the job, not encrypted.
+    Return a `Redactor` for the secret parameters of `model`. `values`
+    has the parameters of the job, not encrypted.
 
-    The value is found as it was given, base64 encoded, and escaped
-    for XML or HTML (once or twice). A command that changes a secret in another way
-    before it reports it must not report it.
+    A value is found as it was given, base64 encoded, and escaped for
+    XML or HTML (once or twice). A command that changes a secret in
+    another way before it reports it must not report it.
     """
     found = set()
     for name in _secret_fields(model):
@@ -182,13 +233,4 @@ def redactor(model, values):
         for item in value if isinstance(value, list) else [value]:
             if isinstance(item, str) and item:
                 found.update(_forms(item))
-    # The longest first: one secret can be the start of another
-    ordered = sorted(found, key=len, reverse=True)
-
-    def redact(text):
-        if not text:
-            return text
-        for secret in ordered:
-            text = text.replace(secret, REDACTED)
-        return text
-    return redact
+    return Redactor(found)

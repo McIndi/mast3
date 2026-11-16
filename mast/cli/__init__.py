@@ -45,7 +45,7 @@ from mast.logging import make_logger
 from mast.cli import params as _params
 from mast.cli.params import Params, Option
 from mast.cli.results import (
-    Result, Text, Table, say, captured, listening,
+    Result, Text, Table, say, captured, listening, checkpoint, guarded,
     SUCCEEDED, PARTIAL, FAILED)
 
 from collections import defaultdict
@@ -54,6 +54,7 @@ from pydantic import ValidationError
 __all__ = [
     "Cli", "Command", "Params", "Option",
     "Result", "Text", "Table", "say", "captured", "listening",
+    "checkpoint", "guarded",
     "SUCCEEDED", "PARTIAL", "FAILED",
 ]
 

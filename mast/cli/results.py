@@ -32,12 +32,19 @@ job queue into the status of the job.
 
 A command reports progress with `say`. On the command line `say`
 prints. The web GUI collects the messages with `captured`.
+
+Code that is about to change something outside MAST calls
+`checkpoint` first. Whoever runs the command can stop it there (see
+`guarded`). The job queue stops a job in this way when the job was
+cancelled, or when the worker lost it and another job can have the
+appliances.
 """
 import contextlib
 import contextvars
 import html
 
 __all__ = ["Result", "Text", "Table", "say", "captured", "listening",
+           "checkpoint", "guarded",
            "SUCCEEDED", "PARTIAL", "FAILED"]
 
 # The values of Result.outcome. The job queue uses the same words for
@@ -47,6 +54,7 @@ PARTIAL = "partial"
 FAILED = "failed"
 
 _sink = contextvars.ContextVar("mast_cli_sink", default=None)
+_guard = contextvars.ContextVar("mast_cli_guard", default=None)
 
 
 def say(*parts):
@@ -81,6 +89,35 @@ def listening(callback):
         yield
     finally:
         _sink.reset(token)
+
+
+def checkpoint():
+    """
+    _function_: `mast.cli.results.checkpoint()`
+
+    Say that the command is about to do its next step. Each request
+    to an appliance calls this before it is sent. It does nothing
+    unless the command runs inside `guarded`.
+    """
+    guard = _guard.get()
+    if guard is not None:
+        guard()
+
+
+@contextlib.contextmanager
+def guarded(callback):
+    """
+    _function_: `mast.cli.results.guarded(callback)`
+
+    A context manager that calls `callback` at each `checkpoint` of
+    the command. `callback` raises an exception to stop the command
+    before its next step.
+    """
+    token = _guard.set(callback)
+    try:
+        yield
+    finally:
+        _guard.reset(token)
 
 
 @contextlib.contextmanager

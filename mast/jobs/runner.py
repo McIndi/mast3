@@ -29,7 +29,14 @@ with `mast.cli.say`. Commands do that between their steps, so a job
 stops between two steps and not in the middle of a request to an
 appliance. A command that is silent for a long time runs to its end.
 
-A job that the worker lost is stopped in the same place. The worker
+A job is also stopped before each request that it sends to an
+appliance (`mast.cli.checkpoint`). A command that does one action on
+several appliances reports nothing between them, and it must not go
+on to the next appliance. A request to cancel the job is seen there
+when the next heartbeat has brought it, which is within a third of
+the lease.
+
+A job that the worker lost is stopped in the same places. The worker
 loses a job when its heartbeats do not reach the queue for longer
 than the lease: the queue then declares the job `lost` and gives its
 appliances to the next job. The worker knows when its lease ends
@@ -53,7 +60,7 @@ import time
 import traceback
 import uuid
 
-from mast.cli import Result, listening
+from mast.cli import Result, guarded, listening
 from mast.jobs import config, queue, secrets
 from mast.jobs.models import CANCELLED, FAILED, PARTIAL, SUCCEEDED
 from mast.logging import make_logger
@@ -63,14 +70,15 @@ __all__ = ["new_worker_id", "run_job", "run_next", "JobCancelled",
 
 
 class JobCancelled(BaseException):
-    """Raised inside a command, from `mast.cli.say`, when somebody
-    asked to cancel its job. It is not an `Exception`, so that a
+    """Raised inside a command, from `mast.cli.say` or before a
+    request to an appliance, when somebody asked to cancel its job. It is not an `Exception`, so that a
     command that catches every `Exception` does not continue."""
 
 
 class JobLost(BaseException):
-    """Raised inside a command, from `mast.cli.say`, when the worker
-    does not have the job any more. Another job can have the
+    """Raised inside a command, from `mast.cli.say` or before a
+    request to an appliance, when the worker does not have the job any
+    more. Another job can have the
     appliances now, so the command must not do its next step."""
 
 
@@ -80,6 +88,8 @@ class _Lease(object):
         self.seconds = seconds
         self._lost = threading.Event()
         self._good_until = time.monotonic() + seconds
+        # Set by the heartbeat when somebody asked to cancel the job
+        self.cancel_requested = False
 
     def renewed(self, asked_at):
         """A heartbeat that was sent at `asked_at` was accepted."""
@@ -115,26 +125,28 @@ def _beat(job_id, worker_id, lease, stop):
     while not stop.wait(lease.seconds / 3.0):
         asked_at = time.monotonic()
         try:
-            owned = queue.heartbeat(job_id, worker_id, lease.seconds).owned
+            beat = queue.heartbeat(job_id, worker_id, lease.seconds)
         except Exception:
             # The database can be away for a moment. Try again at the
             # next beat. The lease ends if this continues.
             logger.exception(
                 "The heartbeat for the job {} failed".format(job_id))
             continue
-        if not owned:
+        if not beat.owned:
             lease.lose()
             logger.error(
                 "The job {} does not belong to the worker {} any "
                 "more".format(job_id, worker_id))
             return
         lease.renewed(asked_at)
+        if beat.cancel_requested:
+            lease.cancel_requested = True
 
 
 def _execute(job_id, worker_id, lease, echo=None):
     """Call the command of the job. Return the arguments for
     `queue.finish`, or `None` if the worker lost the job."""
-    redact = [lambda text: text]
+    redact = [secrets.Redactor(())]
 
     def store(message):
         message = redact[0](message)
@@ -150,23 +162,33 @@ def _execute(job_id, worker_id, lease, echo=None):
         if cancelled:
             raise JobCancelled()
 
+    def guard():
+        # Called before each request to an appliance, so it does not
+        # ask the database
+        if not lease.held():
+            raise JobLost()
+        if lease.cancel_requested:
+            raise JobCancelled()
+
     try:
-        outcome = _call(job_id, worker_id, store, redact)
+        outcome = _call(job_id, worker_id, store, guard, redact)
     except JobLost:
         return None
-    return {name: value if name == "status" else redact[0](value)
+    clean = {"status": lambda value: value, "html": redact[0].html}
+    return {name: clean.get(name, redact[0])(value)
             for name, value in outcome.items()}
 
 
-def _call(job_id, worker_id, store, redact):
+def _call(job_id, worker_id, store, guard, redact):
     """Call the command and give each line of its progress to `store`.
+    `guard` is called before each request to an appliance.
     Put the function that removes the secret parameters of the job in
     `redact[0]`. Return the arguments for `queue.finish`, not yet
     redacted."""
     try:
         command, values = queue.load(job_id, worker_id)
         redact[0] = secrets.redactor(command.model, values)
-        with listening(store):
+        with listening(store), guarded(guard):
             result = command.fn(command.model(**values))
     except JobCancelled:
         return {"status": CANCELLED,

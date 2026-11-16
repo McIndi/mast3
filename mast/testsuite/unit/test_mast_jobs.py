@@ -29,6 +29,7 @@ import os
 import shutil
 import base64
 import html
+import re
 import signal
 import subprocess
 import sys
@@ -45,7 +46,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select, text
 
 from mast import jobs
-from mast.cli import Cli, Option, Params, Text, say
+from mast.cli import Cli, Option, Params, Table, Text, checkpoint, say
 from mast.jobs import client, db, queue, registry, secrets
 from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Base, Job, JobTarget
@@ -78,6 +79,11 @@ class Judged(Text):
     def outcomes(self):
         return [not name.startswith("bad") for name in self.appliances]
 
+
+# The appliances that the "requests" command sent a request to, and an
+# Event for each appliance whose request does not return until it is set
+sent = []
+blocked = {}
 
 # The credentials that the last "work" command got
 seen = []
@@ -152,6 +158,24 @@ def make_cli():
                      "dir-" + name for name in params.appliances))
     def per_appliance(params: Work):
         """Use one directory for each appliance."""
+
+    @cli.command("requests")
+    def requests(params: Work):
+        """Send one request to each appliance and report nothing
+        between them, as Environment.perform_action does."""
+        for name in params.appliances:
+            checkpoint()
+            sent.append(name)
+            if name in blocked:
+                blocked[name].wait(10)
+        return Text("sent")
+
+    @cli.command("page")
+    def page(params: Work):
+        """Return a table that has the credentials in it."""
+        secret = params.credentials[0]
+        return Table(("Appliance", "class"),
+                     [("dp1", "a table for " + secret), ("a&b", secret)])
 
     @cli.command("judge")
     def judge(params: Work):
@@ -698,6 +722,127 @@ class TestRunner(SqliteCase):
         # Nothing of the old job was stored after it was lost
         self.assertEqual(len(self.said(job_id)), steps)
         self.assertIsNone(jobs.result(job_id))
+
+    def run_requests(self, **kwargs):
+        """Start a job that sends a request to dp1, which does not
+        return, and then to dp2. Return the id of the job, the thread
+        and the list that gets what `run_job` returned."""
+        del sent[:]
+        blocked["dp1"] = threading.Event()
+        self.addCleanup(blocked.clear)
+        job_id = jobs.submit(
+            "test.requests", {"appliances": ["dp1", "dp2"]})
+        jobs.claim("w1", **kwargs)
+        outcome = []
+        thread = threading.Thread(
+            target=lambda: outcome.append(
+                jobs.run_job(job_id, "w1", **kwargs)))
+        thread.start()
+        self.addCleanup(thread.join, 15)
+        self.addCleanup(blocked["dp1"].set)
+        self.assertTrue(wait_for(lambda: sent == ["dp1"]))
+        return job_id, thread, outcome
+
+    def test_a_lost_job_sends_no_request_to_the_next_appliance(self):
+        # The command reports nothing between the appliances
+        job_id, thread, outcome = self.run_requests(lease_seconds=0.6)
+        self.assertTrue(queue.abandon(job_id, "w1", "the lease ended"))
+        # Another job now has the second appliance
+        other = submit("dp2")
+        self.assertEqual(jobs.claim("w2", job_id=other), other)
+        # The heartbeat learns that the job is lost
+        time.sleep(0.5)
+        blocked["dp1"].set()
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(outcome, [None])
+        self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+
+    def test_a_job_without_heartbeats_sends_no_more_requests(self):
+        with mock.patch.object(
+                queue, "heartbeat", side_effect=OSError("database away")):
+            job_id, thread, outcome = self.run_requests(lease_seconds=0.4)
+            time.sleep(0.6)
+            blocked["dp1"].set()
+            thread.join(5)
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(outcome, [None])
+        self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+
+    def test_a_cancelled_job_sends_no_request_to_the_next_appliance(self):
+        job_id, thread, outcome = self.run_requests(lease_seconds=0.6)
+        jobs.cancel(job_id)
+        # The heartbeat brings the request to cancel
+        time.sleep(0.5)
+        blocked["dp1"].set()
+        thread.join(5)
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(outcome, [jobs.CANCELLED])
+        self.assertEqual(jobs.get(job_id).status, jobs.CANCELLED)
+
+    def test_a_job_that_keeps_its_lease_sends_every_request(self):
+        job_id, thread, outcome = self.run_requests(lease_seconds=0.6)
+        time.sleep(0.8)
+        blocked["dp1"].set()
+        thread.join(5)
+        self.assertEqual(sent, ["dp1", "dp2"])
+        self.assertEqual(outcome, [jobs.SUCCEEDED])
+
+    def test_a_request_to_an_appliance_is_a_checkpoint(self):
+        # A real command: the request is stopped before it is sent
+        from mast.cli import guarded
+        from mast.datapower.datapower import WSClientLib
+
+        class Stop(BaseException):
+            pass
+
+        def stop():
+            raise Stop()
+
+        command = jobs.resolve("accounts.add-user")
+        params = command.model(
+            appliances=["dp.example.test"], credentials=["user:pass"],
+            username="new", password="hunter2", privileged=True)
+        with mock.patch.object(
+                WSClientLib.Request, "send",
+                side_effect=AssertionError("a request was sent")) as send:
+            with guarded(stop), self.assertRaises(Stop):
+                command.fn(params)
+        send.assert_not_called()
+
+    def test_a_secret_does_not_break_the_html_of_the_result(self):
+        tags = lambda text: re.findall(r"<[^>]*>", text)
+        markup = tags(Table(
+            ("Appliance", "class"), [("", ""), ("", "")]).html())
+        cell = '<td class="result_table_cell">{}</td>'
+        cases = (
+            # The secret is in the names of the tags and of the entities
+            ("a", "******** t********ble for ********"),
+            ("amp", "a table for ********"),
+            ("class", "a table for ********"),
+            ("x<y>&\"z\"", "a table for ********"),
+        )
+        for secret, shown in cases:
+            with self.subTest(secret=secret):
+                job_id = jobs.submit("test.page", {"credentials": [secret]})
+                jobs.run_next("w1")
+                html = jobs.result(job_id).html
+                self.assertEqual(tags(html), markup)
+                self.assertIn(cell.format(shown), html)
+                self.assertIn(cell.format("********"), html)
+                if secret not in ("a", "amp"):
+                    self.assertIn(cell.format("a&amp;b"), html)
+
+    def test_only_the_text_between_tags_is_redacted(self):
+        redact = secrets.Redactor({"hunter2", "class"})
+        self.assertEqual(
+            redact.html('<a class="x" id=one>hunter2 &amp; class</a>'),
+            '<a class="x" id=one>******** &amp; ********</a>')
+        # What has no secret in it is not changed at all
+        same = "<b class='x'>nothing</b> &amp; &lt; &quot;"
+        self.assertEqual(redact.html(same), same)
+        self.assertEqual(secrets.Redactor(()).html(same), same)
 
     def test_a_job_stops_when_its_heartbeats_do_not_arrive(self):
         with mock.patch.object(
