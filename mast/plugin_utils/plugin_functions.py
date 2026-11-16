@@ -35,6 +35,7 @@ plugins into this single module.
 import re
 import os
 import threading
+import traceback
 import flask
 import zipfile
 import markdown
@@ -49,6 +50,7 @@ from mast.logging import make_logger
 from mast import jobs
 from mast.jobs import client as jobs_client
 from mast.jobs import registry as jobs_registry
+from mast.cli import Result, captured
 from mast.cli import params as cli_params
 from mast.plugin_utils import params as widgets
 from pydantic import ValidationError
@@ -839,30 +841,31 @@ def get_form(plugin, fn_name, appliances, credentials, no_check_hostname=True):
     return '<br />\n'.join(forms)
 
 
-def _save_history(hist):
+def _save_history(hist, token):
     """Write the request history to a file for the history download and
-    return the id of the file."""
-    import random
-    random.seed()
+    return the id of the file. `token` is the id of the job, so that
+    two jobs never have the same file."""
     t = Timestamp()
 
     filename = os.path.join(
         "var", "www", "static", "tmp", "request_history", t.timestamp)
-    if not os.path.exists(filename):
-        os.makedirs(filename)
-    rand = random.randint(10000, 99999)
-    _id = "{}-{}.log".format(str(t.timestamp), str(rand))
+    os.makedirs(filename, exist_ok=True)
+    _id = "{}-{}.log".format(str(t.timestamp), token)
     filename = os.path.join(filename, _id)
     with open(filename, 'wb') as fout:
         fout.write(hist.encode())
     return _id
 
 
-def _model_values(command, form, t):
+def _model_values(command, form, t, token):
     """Gather the values for a command that declares its parameters
     with a model. Return a dict to build the model from. A value that
     the user left empty is left out, so that the model uses its
-    default."""
+    default.
+
+    `token` is the id of the job. It is part of the paths that the
+    command writes to, so that two jobs never write to (and never
+    offer for download) the same files."""
     name = command.key
     values = {}
     for spec in cli_params.options(command.model):
@@ -874,12 +877,14 @@ def _model_values(command, form, t):
                         flask.request.cookies["9x4h/mmek/j.ahba.ckhafn"], key="_"))
                 for _ in form.getlist(key + '[]')]
         elif widget == widgets.OUT_DIR:
-            values[key] = os.path.join('tmp', 'web', name, t.timestamp)
+            values[key] = os.path.join(
+                'tmp', 'web', name, "{}-{}".format(t.timestamp, token))
         elif widget == widgets.OUT_FILE:
             extension = os.path.splitext(str(spec.default or ""))[1]
             values[key] = "/".join((
                 "tmp", "web", name,
-                "{}-{}{}".format(t.timestamp, name, extension)))
+                "{}-{}-{}{}".format(
+                    t.timestamp, name, token[:8], extension)))
         elif spec.kind == "flag":
             values[key] = form.get(key) == 'true'
         elif spec.kind == "list":
@@ -915,20 +920,43 @@ def call_method(plugin, form):
     name = form.get("callable")
     cli = get_module(plugin).cli
     command = cli.find(name)
-    kwargs = _model_values(command, form, t)
+    job_id = jobs.new_job_id()
+    kwargs = _model_values(command, form, t, job_id)
     problem = _check(command, kwargs)
     if problem is not None:
         return _render_output(
             name, t, kwargs, Markup(html_escape(problem)),
-            _save_history(problem))
+            _save_history(problem, job_id), job_id)
+    if not getattr(command, "queued", True):
+        out, history = _call_now(command, kwargs)
+        return _render_output(
+            name, t, kwargs, out, _save_history(history, job_id), job_id)
     # The namespace is the name of the plugin, which is how a worker
     # finds the command
     namespace = getattr(cli, "namespace", None) or plugin
     jobs_registry.register(namespace, cli)
-    job_id = jobs_client.start(
-        jobs_registry.command_id(namespace, command), kwargs)
+    jobs_client.start(
+        jobs_registry.command_id(namespace, command), kwargs, job_id=job_id)
     return flask.render_template(
         "pending.html", job_id=job_id, callable=name, timestamp=str(t))
+
+
+def _call_now(command, values):
+    """Call a command that does not go through the job queue. Return
+    the html of its result and its request history. Nothing is
+    stored."""
+    try:
+        # The progress messages are for the terminal
+        with captured():
+            result = command.fn(command.model(**values))
+    except Exception as exc:
+        return Markup(html_escape(
+            "Sorry, an unhandled exception occurred while "
+            "performing action:\n\n\t {}".format(exc))), \
+            traceback.format_exc()
+    if isinstance(result, Result):
+        return Markup(result.html()), result.history
+    return Markup(""), ""
 
 
 # One job is rendered by one thread at a time
@@ -963,7 +991,7 @@ def _finished_html(info):
         command = jobs.resolve(info.command)
         rendered = str(_render_output(
             command.key, Timestamp(info.created_at.timestamp()),
-            info.params, out, _save_history(history)))
+            info.params, out, _save_history(history, info.id), info.id))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Another process must not read half of the file
         partial = "{}.{}.tmp".format(path, os.getpid())
@@ -1004,9 +1032,11 @@ def cancel_job(job_id):
     return job_state(job_id)
 
 
-def _render_output(name, t, kwargs, out, history_id):
+def _render_output(name, t, kwargs, out, history_id, token):
     """Wrap the output of a command in html, with a link to download
-    what the command wrote to out_dir or out_file."""
+    what the command wrote to out_dir or out_file. `token` is the id
+    of the job, which keeps the download of one job apart from the
+    download of another."""
     link = ""
     # Validation or execution may have failed before the command wrote
     # anything. A download is only offered if there is something in it.
@@ -1017,7 +1047,8 @@ def _render_output(name, t, kwargs, out, history_id):
         fname = ""
         for appliance in kwargs['appliances']:
             fname = "{}-{}".format(fname, appliance)
-        fname = "{}-{}{}.zip".format(t.timestamp, name, fname)
+        fname = "{}-{}{}-{}.zip".format(
+            t.timestamp, name, fname, token[:8])
         zip_filename = os.path.join(
             static_dir,
             'tmp',

@@ -31,7 +31,9 @@ validation come from that model. See `mast.cli.params`.
 
 A `Cli` that has a `namespace` does not call its commands itself. It
 puts each invocation in the job queue (`mast.jobs`) and shows the
-progress and the result of the job.
+progress and the result of the job. A command that is registered with
+`queued=False` is the exception: it is always called directly, and
+nothing about it is stored.
 """
 import sys
 import inspect
@@ -89,8 +91,17 @@ class Command(object):
     * `exclusive`: False if the command only reads from the
     appliances. The job queue runs such a command while other jobs
     use the same appliances.
+    * `resources`: The names of what the command must not share with
+    another job, besides its appliances: a directory that it changes,
+    for example. Or a function that takes the `Params` instance and
+    returns the names. The job queue locks them as it locks the
+    appliances.
+    * `queued`: False if the command must never go through the job
+    queue. Such a command talks to no appliance, and its parameters
+    or its result must not be stored.
     """
-    def __init__(self, name, fn, category, model, parser, exclusive=True):
+    def __init__(self, name, fn, category, model, parser, exclusive=True,
+                 resources=None, queued=True):
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -98,6 +109,8 @@ class Command(object):
         self.model = model
         self.parser = parser
         self.exclusive = exclusive
+        self.resources = resources
+        self.queued = queued
 
     @property
     def doc(self):
@@ -238,7 +251,7 @@ class Cli(object):
         raise KeyError(key)
 
     def create_subparser(self, fn, name=None, category=None,
-                         exclusive=True):
+                         exclusive=True, resources=None, queued=True):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -256,6 +269,7 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
+        * `exclusive`, `resources`, `queued`: See `Command`.
         """
         if not name:
             name = fn.__name__
@@ -281,12 +295,13 @@ class Cli(object):
             _parser = self.parser
             if not _parser.description:
                 _parser.description = desc
-        command = Command(name, fn, category, model, _parser, exclusive)
+        command = Command(name, fn, category, model, _parser, exclusive,
+                          resources, queued)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
         _params.add_arguments(_parser, model)
-        if self.namespace is not None:
+        if self.namespace is not None and queued:
             queue = _parser.add_argument_group("job queue")
             queue.add_argument(
                 "--detach", dest="_detach", action="store_true",
@@ -301,7 +316,8 @@ class Cli(object):
                      "running.")
         return fn
 
-    def command(self, name=None, category=None, exclusive=True):
+    def command(self, name=None, category=None, exclusive=True,
+                resources=None, queued=True):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -317,12 +333,17 @@ class Cli(object):
         command.
         * `exclusive`: Give False for a command that only reads from
         the appliances. See `Command`.
+        * `resources`: What the command must not share with another
+        job, besides its appliances. See `Command`.
+        * `queued`: Give False for a command that must never go
+        through the job queue. See `Command`.
         """
         def inner(fn):
             if self.main is not None:
                 print("The Cli decorator cannot be used when main is specified")
                 sys.exit(-1)
-            return self.create_subparser(fn, name, category, exclusive)
+            return self.create_subparser(
+                fn, name, category, exclusive, resources, queued)
         return inner
 
     def run(self, argv=None):
@@ -353,7 +374,7 @@ class Cli(object):
         except ValidationError as exc:
             command.parser.error("; ".join(
                 _params.error_messages(command.model, exc)))
-        if self.namespace is not None:
+        if self.namespace is not None and command.queued:
             return self._run_job(command, args, values, log)
         log.info(f"Attempting to execute func: {command.fn}")
         try:

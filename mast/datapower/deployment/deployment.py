@@ -777,7 +777,11 @@ def get_data_file(f):
     return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
-git_deploy = cli.command('git-deploy', category='deployment')(git_deploy)
+# Every git-deploy uses the same directory of checkouts, the same
+# default out_dir and the same log files, so only one runs at a time
+git_deploy = cli.command(
+    'git-deploy', category='deployment',
+    resources=["git-deploy"])(git_deploy)
 
 def _result_lines(response):
     """Return the lines of text in the result of a response."""

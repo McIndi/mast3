@@ -169,10 +169,10 @@ def _show_end(info, result, interrupted):
     return 1
 
 
-def start(command, params, principal=queue.LOCAL):
+def start(command, params, principal=queue.LOCAL, job_id=None):
     """
     _function_: `mast.jobs.client.start(command, params,
-    principal=LOCAL)`
+    principal=LOCAL, job_id=None)`
 
     Put a job in the queue, make sure that it will be done, and return
     its id at once. The web GUI uses this. The caller then asks the
@@ -182,13 +182,16 @@ def start(command, params, principal=queue.LOCAL):
     this process does it, so that a web server with no worker still
     works. That job belongs to this process: if the process stops
     before the job starts, the job is cancelled.
+
+    `job_id` is the id for the job, see `mast.jobs.queue.submit`.
     """
     if queue.workers():
-        return queue.submit(command, params, principal=principal)
+        return queue.submit(
+            command, params, principal=principal, job_id=job_id)
     worker_id = runner.new_worker_id()
     job_id = queue.submit(
         command, params, principal=principal, attached=True,
-        reserved_for=worker_id)
+        reserved_for=worker_id, job_id=job_id)
     threading.Thread(
         target=_do, args=(job_id, worker_id),
         name="mast-job-{}".format(job_id[:8]), daemon=True).start()

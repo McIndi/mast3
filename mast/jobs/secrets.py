@@ -23,10 +23,17 @@ A job waits in the database with its parameters. A parameter that is
 declared with `Option(secret=True)` (the credentials, for example) is
 stored encrypted, and is removed when the job finishes.
 
+A command can repeat a secret parameter in what it reports: the
+request that sets a password has the password in it. `redactor`
+removes the secret values from the progress, the result and the
+history of a job before they are stored.
+
 The key is in the file that `jobs.conf` names (`etc/local/jobs.key`
 by default). It is made the first time it is needed. Every process
 that submits or runs jobs must read the same key file.
 """
+import base64
+import html
 import json
 import os
 import time
@@ -36,9 +43,13 @@ from cryptography.fernet import Fernet, InvalidToken
 from mast.cli import params as cli_params
 from mast.jobs import config
 
-__all__ = ["seal", "unseal", "scrub", "SecretsError"]
+__all__ = ["seal", "unseal", "scrub", "redactor", "SecretsError",
+           "REDACTED"]
 
 _MARK = "$secret"
+
+# What stands in the place of a secret value in the record of a job
+REDACTED = "********"
 
 
 class SecretsError(Exception):
@@ -137,3 +148,47 @@ def scrub(values):
 
 def _is_sealed(value):
     return isinstance(value, dict) and set(value) == {_MARK}
+
+
+def _escaped(values):
+    return {html.escape(value, quote=quote)
+            for value in values for quote in (False, True)}
+
+
+def _forms(value):
+    """The ways in which a secret value appears in text: as it is,
+    base64 encoded, in XML or HTML, and in XML that is shown as HTML
+    (escaped twice)."""
+    once = _escaped({value})
+    return {value, base64.b64encode(value.encode()).decode()} \
+        | once | _escaped(once)
+
+
+def redactor(model, values):
+    """
+    _function_: `mast.jobs.secrets.redactor(model, values)`
+
+    Return a function that takes a string and returns it with each
+    value of a secret parameter of `model` replaced by `REDACTED`.
+    `values` has the parameters of the job, not encrypted.
+
+    The value is found as it was given, base64 encoded, and escaped
+    for XML or HTML (once or twice). A command that changes a secret in another way
+    before it reports it must not report it.
+    """
+    found = set()
+    for name in _secret_fields(model):
+        value = values.get(name)
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, str) and item:
+                found.update(_forms(item))
+    # The longest first: one secret can be the start of another
+    ordered = sorted(found, key=len, reverse=True)
+
+    def redact(text):
+        if not text:
+            return text
+        for secret in ordered:
+            text = text.replace(secret, REDACTED)
+        return text
+    return redact

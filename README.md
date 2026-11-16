@@ -115,7 +115,13 @@ The web UI works the same way. A form that you submit becomes a job, the page sh
 
 Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
 
-The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there. The credentials of a waiting job are stored encrypted with the key in `etc/local/jobs.key`, and are removed when the job ends.
+If a worker cannot reach the database for longer than its lease (60 seconds by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
+
+Only one `git-deploy` runs at a time, because every deployment uses the same directory of checkouts.
+
+The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there.
+
+The credentials of a waiting job, and the other secret parameters such as a new password, are stored encrypted with the key in `etc/local/jobs.key`. They are removed when the job ends. The values are also removed from the progress, the result and the request history of the job before these are stored. The `xor` utility is not a job, and nothing about it is stored.
 
 ## Running the tests
 

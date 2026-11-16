@@ -27,6 +27,8 @@ import io
 import multiprocessing
 import os
 import shutil
+import base64
+import html
 import signal
 import subprocess
 import sys
@@ -51,6 +53,9 @@ from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
 
+# What accounts.list-users prints when it is given no appliance
+NO_USERS = "\nCommon\n======"
+
 
 class Work(Params):
     appliances: list[str] = Option(
@@ -63,12 +68,17 @@ class Work(Params):
     steps: int = Option(0, help="How many steps to report")
 
 
+# The credentials that the last "work" command got
+seen = []
+
+
 def make_cli():
     cli = Cli(namespace="test")
 
     @cli.command("work")
     def work(params: Work):
         """Pretend to work on the appliances."""
+        seen[:] = params.credentials
         say("working on", ", ".join(params.appliances))
         time.sleep(params.seconds)
         if params.fail:
@@ -106,6 +116,37 @@ def make_cli():
     @cli.command("quiet")
     def quiet(params: Work):
         """Return nothing."""
+
+    @cli.command("leak")
+    def leak(params: Work):
+        """Repeat the credentials everywhere, as the request that sets
+        a password does."""
+        secret = params.credentials[0]
+        forms = "{} {} {}".format(
+            secret, html.escape(secret),
+            base64.b64encode(secret.encode()).decode())
+        say("said", forms)
+        if params.fail:
+            raise RuntimeError("failed with " + forms)
+        return Text("text " + forms, history="<Password>{}</Password>".format(
+            html.escape(secret, quote=False)))
+
+    @cli.command("checkout", resources=["the-checkout"])
+    def checkout(params: Work):
+        """Use a directory that every job of this command shares."""
+        return Text("checked out")
+
+    @cli.command("per-appliance",
+                 resources=lambda params: sorted(
+                     "dir-" + name for name in params.appliances))
+    def per_appliance(params: Work):
+        """Use one directory for each appliance."""
+
+    @cli.command("encode", queued=False)
+    def encode(params: Work):
+        """A utility that must not be stored."""
+        say("encoding")
+        return Text("encoded " + ",".join(params.credentials))
 
     return cli
 
@@ -276,6 +317,24 @@ class TestSubmit(SqliteCase):
             jobs.get(job_id).targets,
             ["10.0.0.1", "10.0.0.2", "dp3.example.com"])
 
+    def test_the_caller_can_choose_the_id(self):
+        job_id = jobs.new_job_id()
+        self.assertEqual(
+            jobs.submit("test.work", {"appliances": ["dp1"]}, job_id=job_id),
+            job_id)
+        self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
+        self.assertNotEqual(jobs.new_job_id(), job_id)
+
+    def test_a_command_names_what_else_it_locks(self):
+        job_id = jobs.submit("test.checkout", {"appliances": ["dp1"]})
+        self.assertEqual(
+            jobs.get(job_id).targets, ["dp1", "resource:the-checkout"])
+        job_id = jobs.submit(
+            "test.per-appliance", {"appliances": ["dp2", "dp1"]})
+        self.assertEqual(
+            jobs.get(job_id).targets,
+            ["dp2", "dp1", "resource:dir-dp1", "resource:dir-dp2"])
+
     def test_list_jobs(self):
         first, second = submit("dp1"), submit("dp2")
         jobs.cancel(first)
@@ -340,6 +399,32 @@ class TestClaim(SqliteCase):
         self.assertIsNone(jobs.claim("w2"))
         self.assertEqual(jobs.get(blocked).status, jobs.QUEUED)
         self.assertEqual(jobs.get(behind).status, jobs.QUEUED)
+
+    def test_a_job_waits_for_what_else_it_locks(self):
+        first = jobs.submit("test.checkout", {"appliances": ["dp1"]})
+        second = jobs.submit("test.checkout", {"appliances": ["dp2"]})
+        other = submit("dp3")
+        self.assertEqual(jobs.claim("w1"), first)
+        # Another appliance, but the same checkout
+        self.assertEqual(jobs.claim("w2"), other)
+        self.assertIsNone(jobs.claim("w3"))
+        jobs.finish(first, "w1", jobs.SUCCEEDED)
+        self.assertEqual(jobs.claim("w3"), second)
+
+    def test_progress_is_only_stored_for_the_owner(self):
+        clock = self.use_clock()
+        job_id = submit("dp1")
+        jobs.claim("w1", lease_seconds=60)
+        self.assertFalse(jobs.add_event(job_id, "one", worker_id="w1"))
+        with self.assertRaises(jobs.NotOwner):
+            jobs.add_event(job_id, "not mine", worker_id="w2")
+        clock.advance(61)
+        jobs.reap()
+        with self.assertRaises(jobs.NotOwner):
+            jobs.add_event(job_id, "too late", worker_id="w1")
+        self.assertEqual(
+            [e.message for e in jobs.events(job_id) if e.kind == "say"],
+            ["one"])
 
     def test_jobs_without_appliances_do_not_wait(self):
         first, second = submit(), submit()
@@ -467,9 +552,10 @@ class TestRunner(SqliteCase):
         info = jobs.get(job_id)
         self.assertEqual(info.status, jobs.SUCCEEDED)
         self.assertIsNone(info.error)
+        self.assertEqual(seen, ["admin:hunter2"])
         result = jobs.result(job_id)
-        self.assertEqual(result.text, "worked with admin:hunter2")
-        self.assertEqual(result.html, "<pre>worked with admin:hunter2</pre>")
+        self.assertEqual(result.text, "worked with ********")
+        self.assertEqual(result.html, "<pre>worked with ********</pre>")
         self.assertEqual(result.history, "the history")
         events = jobs.events(job_id)
         self.assertEqual(
@@ -536,6 +622,83 @@ class TestRunner(SqliteCase):
         self.assertIsNone(jobs.run_job(job_id, "w1", lease_seconds=60))
         self.assertEqual(jobs.get(job_id).status, jobs.LOST)
 
+
+    def run_steps(self, **kwargs):
+        """Start a job with many steps in a thread. Return the id of
+        the job, the thread and the list that gets what `run_job`
+        returned."""
+        job_id = jobs.submit(
+            "test.steps", {"appliances": ["dp1"], "steps": 200})
+        jobs.claim("w1", **kwargs)
+        outcome = []
+        thread = threading.Thread(
+            target=lambda: outcome.append(
+                jobs.run_job(job_id, "w1", **kwargs)))
+        thread.start()
+        self.addCleanup(thread.join, 15)
+        return job_id, thread, outcome
+
+    def said(self, job_id):
+        return [e for e in jobs.events(job_id) if e.kind == "say"]
+
+    def test_a_job_that_is_lost_while_it_runs_stops_at_its_next_step(self):
+        job_id, thread, outcome = self.run_steps()
+        self.assertTrue(wait_for(lambda: len(self.said(job_id)) >= 3))
+        # What the queue does when the worker is silent for too long
+        self.assertTrue(queue.abandon(job_id, "w1", "the lease ended"))
+        # The appliance now belongs to the next job
+        after = submit("dp1")
+        self.assertEqual(jobs.claim("w2"), after)
+        steps = len(self.said(job_id))
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(outcome, [None])
+        self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+        self.assertEqual(jobs.get(job_id).error, "the lease ended")
+        # Nothing of the old job was stored after it was lost
+        self.assertEqual(len(self.said(job_id)), steps)
+        self.assertIsNone(jobs.result(job_id))
+
+    def test_a_job_stops_when_its_heartbeats_do_not_arrive(self):
+        with mock.patch.object(
+                queue, "heartbeat", side_effect=OSError("database away")):
+            job_id, thread, outcome = self.run_steps(lease_seconds=0.5)
+            thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(outcome, [None])
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, jobs.LOST)
+        self.assertIn("heartbeats", info.error)
+        self.assertLess(len(self.said(job_id)), 200)
+
+    def test_secret_parameters_are_not_stored_with_the_result(self):
+        secret = "admin:hunter<2>&\"x\""
+        encoded = base64.b64encode(secret.encode()).decode()
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                job_id = jobs.submit("test.leak", {
+                    "appliances": ["dp1"], "credentials": [secret],
+                    "fail": fail})
+                jobs.run_next("w1")
+                info, result = jobs.get(job_id), jobs.result(job_id)
+                self.assertEqual(
+                    info.status, jobs.FAILED if fail else jobs.SUCCEEDED)
+                stored = [e.message for e in jobs.events(job_id)] + [
+                    info.error or "", result.text, result.html,
+                    result.history, str(self.raw_params(job_id))]
+                for found in stored:
+                    self.assertNotIn("hunter", found)
+                    self.assertNotIn(encoded, found)
+                self.assertIn(
+                    "said ******** ******** ********", stored)
+                if fail:
+                    self.assertEqual(
+                        info.error,
+                        "RuntimeError: failed with ******** ******** "
+                        "********")
+                else:
+                    self.assertEqual(
+                        result.history, "<Password>********</Password>")
 
     def test_a_running_job_is_cancelled_at_its_next_step(self):
         job_id = jobs.submit("test.steps", {"steps": 200})
@@ -719,13 +882,12 @@ class TestWorkerProcess(SqliteCase):
         self.assertEqual(jobs.workers(alive=False), [])
 
     def test_a_worker_runs_a_command_of_a_plugin(self):
-        # system.xor needs no appliance
-        job_id = jobs.submit("system.xor", {"string": "user:password"})
+        # With no appliance, the command talks to nothing
+        job_id = jobs.submit("accounts.list-users", {})
         process = self.spawn("--drain")
         self.assertEqual(process.wait(60), 0, process.stdout.read())
         self.assertEqual(jobs.get(job_id).status, jobs.SUCCEEDED)
-        from mast.xor import xorencode
-        self.assertIn(xorencode("user:password"), jobs.result(job_id).text)
+        self.assertEqual(jobs.result(job_id).text, NO_USERS)
 
     def test_bad_options_are_refused(self):
         process = self.spawn("-c", "0")
@@ -774,7 +936,7 @@ class TestCommandLine(CliCase):
             "work", "-a", "dp1", "-c", "admin:hunter2")
         self.assertEqual(
             (status, out, err),
-            (0, "working on dp1\nworked with admin:hunter2\n", ""))
+            (0, "working on dp1\nworked with ********\n", ""))
         job = self.only_job()
         self.assertEqual(job.command, "test.work")
         self.assertEqual(job.status, jobs.SUCCEEDED)
@@ -788,7 +950,7 @@ class TestCommandLine(CliCase):
         worker = self.start_worker()
         status, out, err = self.run_cli("work", "-a", "dp1", "-c", "u:p")
         self.assertEqual(
-            (status, out, err), (0, "working on dp1\nworked with u:p\n", ""))
+            (status, out, err), (0, "working on dp1\nworked with ********\n", ""))
         self.assertTrue(self.only_job().worker_id.startswith(worker.id))
 
     def test_local_does_the_job_here(self):
@@ -970,6 +1132,31 @@ class TestCommandLine(CliCase):
         self.assertEqual(status, 1)
         self.assertIn("lost", err.getvalue())
 
+    def test_a_command_that_is_not_queued_is_called_directly(self):
+        self.start_worker()
+        status, out, err = self.run_cli("encode", "-c", "admin:hunter2")
+        self.assertEqual(
+            (status, out, err), (0, "encoding\nencoded admin:hunter2\n", ""))
+        self.assertEqual(jobs.list_jobs(), [])
+        with self.assertRaises(jobs.NotQueued):
+            jobs.submit("test.encode", {})
+        # It has no options for the queue
+        status, _, err = self.run_cli("encode", "--detach")
+        self.assertEqual(status, 2)
+        self.assertIn("--detach", err)
+
+    def test_xor_is_not_queued(self):
+        from mast.datapower.system import cli as system
+        self.assertFalse(system.commands["xor"].queued)
+        status, out, _ = self.run_cli("xor", "-s", "admin:hunter2", cli=system)
+        self.assertEqual(status, 0)
+        self.assertTrue(out.strip())
+        self.assertEqual(jobs.list_jobs(), [])
+
+    def test_only_one_git_deploy_runs_at_a_time(self):
+        self.assertEqual(
+            jobs.resolve("deployment.git-deploy").resources, ["git-deploy"])
+
     def test_commands_that_only_read_are_not_exclusive(self):
         self.run_cli("look", "-a", "dp1", "--detach")
         self.assertFalse(self.only_job().exclusive)
@@ -1019,7 +1206,7 @@ class TestMastJobs(CliCase):
         for expected in (job_id, "test.work", "succeeded", "by local",
                          "Worker:     w1", "credentials: (secret)",
                          "working on dp1", "[running on w1]",
-                         "worked with admin:hunter2"):
+                         "worked with ********"):
             self.assertIn(expected, out)
         self.assertNotIn("the history", out)
         status, out, _ = self.mast_jobs("show", "-j", job_id, "-H")
@@ -1084,23 +1271,28 @@ class TestCommandLineProcess(SqliteCase):
             env=dict(os.environ, MAST_JOBS_DB_URL=self.url))
 
     def test_a_plugin_command_is_a_job(self):
+        done = self.mast("mast.datapower.accounts", "list-users")
+        self.assertEqual(
+            (done.returncode, done.stdout, done.stderr),
+            (0, NO_USERS + "\n", ""))
+        job = jobs.list_jobs()[0]
+        self.assertEqual((job.command, job.status),
+                         ("accounts.list-users", jobs.SUCCEEDED))
+        listed = self.mast("mast.jobs", "list")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn(job.id, listed.stdout)
+        self.assertIn("accounts.list-users", listed.stdout)
+
+    def test_a_command_that_is_not_queued_makes_no_job(self):
         from mast.xor import xorencode
         done = self.mast("mast.datapower.system", "xor", "-s", "user:pass")
         self.assertEqual(
             (done.returncode, done.stdout, done.stderr),
             (0, xorencode("user:pass") + "\n", ""))
-        job = jobs.list_jobs()[0]
-        self.assertEqual((job.command, job.status),
-                         ("system.xor", jobs.SUCCEEDED))
-        listed = self.mast("mast.jobs", "list")
-        self.assertEqual(listed.returncode, 0, listed.stderr)
-        self.assertIn(job.id, listed.stdout)
-        self.assertIn("system.xor", listed.stdout)
+        self.assertEqual(jobs.list_jobs(), [])
 
     def test_a_detached_job_is_done_by_a_worker(self):
-        from mast.xor import xorencode
-        done = self.mast(
-            "mast.datapower.system", "xor", "-s", "user:pass", "--detach")
+        done = self.mast("mast.datapower.accounts", "list-users", "--detach")
         job_id = done.stdout.strip()
         self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
         worker = self.mast("mast.jobs.worker", "--drain", "-p", "0.05")
@@ -1108,7 +1300,7 @@ class TestCommandLineProcess(SqliteCase):
         shown = self.mast("mast.jobs", "follow", "-j", job_id[:8])
         self.assertEqual(
             (shown.returncode, shown.stdout),
-            (0, xorencode("user:pass") + "\n"))
+            (0, NO_USERS + "\n"))
 
 
 def _compete(url, worker_id, start, claimed, overlaps):

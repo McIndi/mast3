@@ -130,7 +130,8 @@ class JobTarget(Base):
     job_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
     # The address of the appliance, after environments and aliases
-    # are resolved
+    # are resolved. Or "resource:<name>" for something else that the
+    # job locks, see mast.jobs.queue
     appliance: Mapped[str] = mapped_column(String(255), index=True)
 
 

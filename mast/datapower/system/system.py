@@ -260,7 +260,9 @@ class Xor(Params):
         "", short="s", help="The string to xor and base64 encode")
 
 
-@cli.command('xor', category='utilities', exclusive=False)
+# Not queued: the string is a credential, and the result can be
+# decoded
+@cli.command('xor', category='utilities', queued=False)
 def xor(params: Xor):
     """This will xor encode and base64 encode the given string
 for suitable use in passing credentials to MAST CLI commands.

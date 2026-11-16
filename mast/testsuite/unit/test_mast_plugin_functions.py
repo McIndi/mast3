@@ -31,7 +31,7 @@ import mock
 
 import mast.plugin_utils.plugin_functions as pf
 from mast import jobs
-from mast.cli import Cli, Option, Table, say
+from mast.cli import Cli, Option, Params, Table, say
 from mast.plugin_utils.params import (
     ApplianceParams, OBJECT_CLASS, OUT_DIR, OUT_FILE, UPLOAD, configured)
 from mast.xor import xorencode
@@ -101,8 +101,16 @@ class DirExample(ApplianceParams):
     out_dir: str = Option("tmp", widget=OUT_DIR)
 
 
-# The web GUI names out_dir after the command and the second, so the
-# command that writes and the command that does not are two commands.
+class Encode(Params):
+    string: str = Option("")
+
+
+@cli.command("encode", category="examples", queued=False)
+def encode(params: Encode):
+    """A utility that must not be stored."""
+    return Table(("Result",), [("encoded " + params.string,)])
+
+
 @cli.command("partial", category="examples")
 def partial(params: DirExample):
     """A command that fails after it writes a file."""
@@ -351,7 +359,35 @@ class WebFormTestCase(unittest.TestCase):
         html = self.post(callable="partial")
         self.assertIn("it broke in the middle", html)
         self.assertIn("static/tmp/", html)
-        self.assertIn("partial-dp1.zip", html)
+        self.assertRegex(html, r"partial-dp1-\w{8}\.zip")
+
+    def test_a_job_never_offers_the_download_of_another_job(self):
+        # Two jobs of one command in the same second
+        with mock.patch.object(
+                pf.Timestamp, "timestamp", "20260101000000"):
+            first = self.post(callable="file_example")
+            second = self.post(callable="file_example", fail="true")
+            third = self.post(callable="example")
+            fourth = self.post(callable="example")
+        self.assertIn("static/tmp/", first)
+        self.assertIn("it broke before writing the file", second)
+        self.assertNotIn("static/tmp/", second)
+        self.addCleanup(os.remove, calls[0].out_file)
+        self.assertNotEqual(calls[0].out_file, calls[1].out_file)
+        self.assertNotEqual(calls[2].out_dir, calls[3].out_dir)
+        links = [re.search(r"static/tmp/([\w.-]+\.zip)", html).group(1)
+                 for html in (third, fourth)]
+        self.assertNotEqual(links[0], links[1])
+        logs = [re.search(r'id="([\w.-]+\.log)"', html).group(1)
+                for html in (first, second, third, fourth)]
+        self.assertEqual(len(set(logs)), 4)
+
+    def test_a_command_that_is_not_queued_is_answered_at_once(self):
+        html = self.submit(callable="encode", string="admin:hunter2")
+        self.assertNotIn("job_pending", html)
+        self.assertIn("encoded admin:hunter2", html)
+        self.assertEqual([], [
+            job for job in jobs.list_jobs() if job.command == "example.encode"])
 
     def test_output_file_is_downloaded_when_it_exists(self):
         html = self.post(callable="file_example")

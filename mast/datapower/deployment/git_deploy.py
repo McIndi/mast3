@@ -40,7 +40,6 @@ import subprocess
 import shutil
 import os
 import sys
-import contextlib
 import sys
 import multiprocessing
 from multiprocessing import Process
@@ -129,28 +128,24 @@ class StdoutQueue(Queue):
     def flush(self):
         sys.__stdout__.flush()
 
-@contextlib.contextmanager
-def working_directory(path):
-    """A context manager which changes the working directory to the given
-    path, and then changes it back to its previous value on exit.
-    """
-    prev_cwd = os.getcwd()
-    os.chdir(path)
-    yield
-    os.chdir(prev_cwd)
-
 def system_call(
         command,
         stdin=None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         shell=True,
+        cwd=None,
     ):
     """
     # system_call
 
     helper function to shell out commands. This should be platform
     agnostic.
+
+    `cwd` is the directory in which to run the command. The working
+    directory of this process is not changed, because other threads
+    of the process (other jobs of a worker) use it for their relative
+    paths.
     """
     pipe = subprocess.Popen(
         command,
@@ -158,6 +153,7 @@ def system_call(
         stdout=stdout,
         stderr=stderr,
         shell=shell,
+        cwd=cwd,
     )
     stdout, stderr = pipe.communicate()
     if pipe.returncode > 0:
@@ -1156,7 +1152,9 @@ def _prepare_output_directories(config, out_dir):
 
 def _initialize_logging(config):
     """Add a custom logging handler so we can include the logs in
-    the post-deployment artifacts
+    the post-deployment artifacts. Return a function that removes the
+    handlers, so that the logs of the next deployment in this process
+    do not go to the files of this one.
     """
     log = make_logger("mast.datapower.deployment.git-deploy")
     handler = logging.FileHandler(
@@ -1182,6 +1180,12 @@ def _initialize_logging(config):
     handler_2.setFormatter(formatter_2)
     log_2.addHandler(handler_2)
 
+    def close():
+        for logger, added in ((log, handler), (log_2, handler_2)):
+            logger.removeHandler(added)
+            added.close()
+    return close
+
 
 def _clone_pull_and_checkout(config):
     """Either pull latest changes or clone the remote repository
@@ -1190,8 +1194,8 @@ def _clone_pull_and_checkout(config):
     git = config["global"]["git_executable"]
     if exists(config["repo_dir"]):
         log.info("Existing local repository found, pulling latest changes")
-        with working_directory(config["repo_dir"]):
-            out, err = system_call("{} pull".format(git))
+        out, err = system_call(
+            "{} pull".format(git), cwd=config["repo_dir"])
     else:
         _repo = config["repo"]
         if "git-credentials" in config:
@@ -1212,9 +1216,10 @@ def _clone_pull_and_checkout(config):
     log.info("stderr from git: '{}'".format(err))
     # If commit is provided, perform a git checkout
     if config["commit"]:
-        with working_directory(config["repo_dir"]):
-            log.info("performing 'git checkout {}'".format(config["commit"]))
-            out, err = system_call("{} checkout {}".format(git, config["commit"]))
+        log.info("performing 'git checkout {}'".format(config["commit"]))
+        out, err = system_call(
+            "{} checkout {}".format(git, config["commit"]),
+            cwd=config["repo_dir"])
         print(out)
         print(err)
         log.info("stdout from git checkout: '{}'".format(out))
@@ -1340,18 +1345,18 @@ on the format of this configuration file."""
     # This adds paths to config and creates the directories as needed
     _prepare_output_directories(config, params.out_dir)
 
-    _initialize_logging(config)
+    close_logs = _initialize_logging(config)
 
     log.info("Working with path: '{}'".format(os.environ.get("PATH")))
 
     display = None
-    if params.progress_window:
-        _window = StdoutQueue()
-        display = StdoutDisplay(_window)
-        display.start()
-        sleep(2)
-
     try:
+        if params.progress_window:
+            _window = StdoutQueue()
+            display = StdoutDisplay(_window)
+            display.start()
+            sleep(2)
+
         _clone_pull_and_checkout(config)
 
         plan = Plan(config)
@@ -1365,6 +1370,7 @@ on the format of this configuration file."""
             sleep(5)
             _window.put("END")
             _window = None
+        close_logs()
 
     # The steps were reported as they happened
     report = Report(plan.environment)

@@ -33,7 +33,11 @@ submitted before it, uses one of the same appliances. Two jobs that
 are both not exclusive can share an appliance.
 * A worker keeps its job with `heartbeat`. If the worker is silent
 for longer than the lease, the job becomes `lost`. A lost job is not
-run again, because nobody knows how much of it was done.
+run again, because nobody knows how much of it was done. The worker
+stops a job that it lost at the next line of progress (see
+`mast.jobs.runner`).
+* A command can name other things that it must not share, for
+example a directory. They are locked with the appliances of the job.
 * A program that waits for its job says so with `attach` while the
 job is queued. If the program goes away, the job is cancelled, so
 that it does not run when nobody waits for it and does not hold up
@@ -57,21 +61,29 @@ from mast.jobs.models import (
     JobTarget, Worker)
 
 __all__ = [
-    "submit", "attach", "get", "find", "list_jobs", "events", "result",
+    "new_job_id", "submit", "attach", "get", "find", "list_jobs", "events", "result",
     "cancel",
     "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
-    "JobNotFound", "NotOwner",
+    "JobNotFound", "NotOwner", "NotQueued",
 ]
 
 # The widget of the parameter that names the appliances, see
 # mast.plugin_utils.params.APPLIANCES
 _APPLIANCES_WIDGET = "appliances"
 
+# A target that is not an appliance starts with this. No address of
+# an appliance does.
+_RESOURCE = "resource:"
+
 
 class JobNotFound(Exception):
     """There is no job with that id."""
+
+
+class NotQueued(Exception):
+    """The command never runs as a job, see `mast.cli.Command.queued`."""
 
 
 class NotOwner(Exception):
@@ -83,7 +95,8 @@ class JobInfo(BaseModel):
     _class_: `mast.jobs.queue.JobInfo`
 
     A job, as the queue reports it. `params` has no secret values.
-    `targets` is the list of appliances that the job talks to.
+    `targets` is the list of appliances that the job talks to, then
+    the other things that the job locks, as `resource:<name>`.
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -225,12 +238,37 @@ def _targets(model, params):
     return targets
 
 
+def _resources(command, params):
+    """Return the targets for what a command locks besides its
+    appliances, see `mast.cli.Command.resources`."""
+    resources = getattr(command, "resources", None) or ()
+    if callable(resources):
+        resources = resources(params)
+    targets = []
+    for name in resources:
+        target = _RESOURCE + str(name)
+        if target not in targets:
+            targets.append(target)
+    return targets
+
+
+def new_job_id():
+    """
+    _function_: `mast.jobs.queue.new_job_id()`
+
+    Return an id for a new job. A program that must know the id
+    before the job exists (to name the files of the job after it, for
+    example) gives the id to `submit`.
+    """
+    return uuid.uuid4().hex
+
+
 def submit(command, params=None, principal=LOCAL, exclusive=None,
-           parent_id=None, reserved_for=None, attached=False):
+           parent_id=None, reserved_for=None, attached=False, job_id=None):
     """
     _function_: `mast.jobs.queue.submit(command, params=None,
     principal=LOCAL, exclusive=None, parent_id=None, reserved_for=None,
-    attached=False)`
+    attached=False, job_id=None)`
 
     Put a job in the queue and return its id.
 
@@ -241,6 +279,7 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     * `params`: The parameters, as an instance of the command's
     `Params` model or as a `dict`. They are validated now, so a job
     with bad parameters is never queued (`pydantic.ValidationError`).
+    A command that never runs as a job is refused (`NotQueued`).
     * `principal`: Who submits the job.
     * `exclusive`: If True, the job does not share its appliances with
     a running job. The default is the command's own `exclusive`
@@ -251,16 +290,21 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     * `attached`: If True, the caller waits for the job and must call
     `attach` several times in each lease while the job is queued. A
     queued job whose caller is silent is cancelled.
+    * `job_id`: The id for the job, from `new_job_id`. The default is
+    a new id.
     """
     cmd = registry.resolve(command)
+    if not getattr(cmd, "queued", True):
+        raise NotQueued(command)
     if not isinstance(params, cmd.model):
         params = cmd.model(**(params or {}))
     targets = _targets(cmd.model, params)
     authorize(principal, "submit", command=command, targets=targets)
     if exclusive is None:
         exclusive = getattr(cmd, "exclusive", True)
+    locked = targets + _resources(cmd, params)
     now = _now()
-    job_id = uuid.uuid4().hex
+    job_id = job_id or new_job_id()
     with db.session() as session:
         session.add(Job(
             id=job_id,
@@ -275,8 +319,8 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             reserved_for=reserved_for,
             attached_until=_lease(now, None) if attached else None))
         session.flush()
-        for appliance in targets:
-            session.add(JobTarget(job_id=job_id, appliance=appliance))
+        for target in locked:
+            session.add(JobTarget(job_id=job_id, appliance=target))
         _event(session, job_id, "state", QUEUED, now)
     return job_id
 
@@ -582,15 +626,22 @@ def heartbeat(job_id, worker_id, lease_seconds=None):
             select(Job.cancel_requested).where(Job.id == job_id))))
 
 
-def add_event(job_id, message, kind="say"):
+def add_event(job_id, message, kind="say", worker_id=None):
     """
-    _function_: `mast.jobs.queue.add_event(job_id, message, kind="say")`
+    _function_: `mast.jobs.queue.add_event(job_id, message, kind="say",
+    worker_id=None)`
 
     Add an event to a job. A worker stores each line of progress from
     the command this way. Return True if somebody asked to cancel the
     job.
+
+    If `worker_id` is given and that worker does not have the job any
+    more, nothing is stored and `NotOwner` is raised.
     """
     with db.session() as session:
+        if worker_id is not None and session.scalar(
+                select(Job.id).where(*_owned(job_id, worker_id))) is None:
+            raise NotOwner(job_id)
         _event(session, job_id, kind, message)
         return bool(session.scalar(
             select(Job.cancel_requested).where(Job.id == job_id)))
