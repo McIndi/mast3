@@ -22,6 +22,8 @@ from mast.xor import xordecode, xorencode
 from mast.config import get_configs_dict
 from urllib.parse import unquote
 from mast.logging import make_logger
+from mast import jobs
+from mast.plugin_utils import plugin_functions
 import cherrypy
 from cheroot.ssl.builtin import BuiltinSSLAdapter
 from markupsafe import Markup
@@ -348,6 +350,49 @@ def download():
             f,
             download_name=filename,
             as_attachment=True)
+
+
+@app.route('/jobs/<job_id>')
+def job_state(job_id):
+    """
+    _function_: `mast.datapower.web.job_state(job_id)`
+
+    Return the state of a job as JSON: its status, the lines of
+    progress after the event `after`, and the html of its output when
+    it is finished. The browser asks for this again and again after it
+    submits a form.
+
+    Exposed at: `/jobs/<job_id>` via GET
+
+    Parameters:
+
+    * `job_id`: The id of the job.
+    """
+    try:
+        after = int(flask.request.args.get("after", 0))
+        return flask.jsonify(plugin_functions.job_state(job_id, after))
+    except (jobs.JobNotFound, ValueError):
+        flask.abort(404)
+
+
+@app.route('/jobs/<job_id>/cancel', methods=["POST"])
+def cancel_job(job_id):
+    """
+    _function_: `mast.datapower.web.cancel_job(job_id)`
+
+    Ask to cancel a job, and return its state as JSON. A job that
+    runs stops at its next step.
+
+    Exposed at: `/jobs/<job_id>/cancel` via POST
+
+    Parameters:
+
+    * `job_id`: The id of the job.
+    """
+    try:
+        return flask.jsonify(plugin_functions.cancel_job(job_id))
+    except jobs.JobNotFound:
+        flask.abort(404)
 
 
 @app.route('/environments/<name>')

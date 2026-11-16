@@ -17,7 +17,11 @@
 Unit tests for the web forms that mast.plugin_utils.plugin_functions
 builds from the commands of a plugin.
 """
+import glob
 import os
+import re
+import threading
+import time
 import types
 import unittest
 from typing import Literal
@@ -26,6 +30,7 @@ import flask
 import mock
 
 import mast.plugin_utils.plugin_functions as pf
+from mast import jobs
 from mast.cli import Cli, Option, Table, say
 from mast.plugin_utils.params import (
     ApplianceParams, OBJECT_CLASS, OUT_DIR, OUT_FILE, UPLOAD, configured)
@@ -56,7 +61,7 @@ def example(params: Example):
     """An example command."""
     calls.append(params)
     say("progress that the web GUI does not show")
-    os.makedirs(params.out_dir)
+    os.makedirs(params.out_dir, exist_ok=True)
     with open(os.path.join(params.out_dir, "result.txt"), "w") as fout:
         fout.write("result")
     return Table(("Appliance", "Result"), [("dp1", "<ok>")], history="the history")
@@ -81,6 +86,15 @@ def file_example(params: FileExample):
     with open(params.out_file, "w") as fout:
         fout.write("the result")
     return Table(("Appliance", "Result"), [("dp1", "Done")])
+
+
+@cli.command("slow", category="examples")
+def slow(params: ApplianceParams):
+    """A command with many steps."""
+    for step in range(400):
+        say("step", step)
+        time.sleep(0.02)
+    return Table(("Appliance", "Result"), [("dp1", "all the steps")])
 
 
 class DirExample(ApplianceParams):
@@ -131,9 +145,11 @@ class WebFormTestCase(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        self.addCleanup(jobs.registry.unregister, "example")
 
-    def post(self, **form):
-        """Call a command the way the web GUI does and return the html."""
+    def submit(self, **form):
+        """Submit a form the way the web GUI does and return the html
+        of the answer."""
         form.setdefault("appliances[]", "dp1")
         form.setdefault("credentials[]", xorencode(
             "user:pass", key=xorencode(SESSION, key="_")))
@@ -141,6 +157,34 @@ class WebFormTestCase(unittest.TestCase):
                 "/example", method="POST", data=form,
                 headers={"Cookie": "{}={}".format(COOKIE, SESSION)}):
             return pf.call_method("example", flask.request.form)
+
+    def job_id(self, html):
+        """Return the id of the job in the box that `submit` returned."""
+        return re.search(r'class="[^"]*job_pending[^"]*" data-job="(\w+)"',
+                         html).group(1)
+
+    def state(self, job_id, after=0):
+        with self.app.test_request_context("/jobs/" + job_id):
+            return pf.job_state(job_id, after)
+
+    def finished(self, job_id):
+        """Wait for a job and return its last state."""
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            state = self.state(job_id)
+            if state["finished"]:
+                return state
+            time.sleep(0.02)
+        self.fail("the job {} did not finish".format(job_id))
+
+    def post(self, **form):
+        """Call a command the way the web GUI does and return the html
+        that the browser shows at the end: the problem with the form,
+        or the output of the job."""
+        html = self.submit(**form)
+        if "job_pending" not in html:
+            return html
+        return self.finished(self.job_id(html))["html"]
 
     def test_buttons(self):
         with self.app.test_request_context("/"):
@@ -190,6 +234,78 @@ class WebFormTestCase(unittest.TestCase):
         self.assertEqual(120, params.timeout)
         self.assertTrue(params.out_dir.startswith(
             os.path.join("tmp", "web", "example")))
+
+    def test_a_command_is_a_job(self):
+        html = self.submit(callable="example", Domain="default")
+        self.assertIn("out - example -", html)
+        self.assertIn("job_cancel", html)
+        job_id = self.job_id(html)
+        state = self.finished(job_id)
+        self.assertEqual("succeeded", state["status"])
+        self.assertEqual(
+            ["progress that the web GUI does not show"], state["events"])
+        self.assertIn("&lt;ok&gt;", state["html"])
+        # The progress is not sent twice
+        self.assertEqual([], self.state(job_id, state["last_event"])["events"])
+        info = jobs.get(job_id)
+        self.assertEqual("example.example", info.command)
+        self.assertEqual(["dp1"], info.targets)
+        self.assertEqual({"$secret": None}, info.params["credentials"])
+        with self.assertRaises(jobs.JobNotFound):
+            self.state("0" * 32)
+
+    def test_the_output_of_a_job_is_made_once(self):
+        job_id = self.job_id(self.submit(callable="example"))
+        first = self.finished(job_id)["html"]
+        history = re.search(r'id="([\w.-]+\.log)"', first).group(1)
+        zips = glob.glob(os.path.join(
+            "var", "www", "static", "tmp", "*-example-dp1.zip"))
+        histories = glob.glob(os.path.join(
+            "var", "www", "static", "tmp", "request_history", "*", "*"))
+        self.assertIn(history, [os.path.basename(h) for h in histories])
+        for _ in range(3):
+            self.assertEqual(first, self.state(job_id)["html"])
+        self.assertEqual(zips, glob.glob(os.path.join(
+            "var", "www", "static", "tmp", "*-example-dp1.zip")))
+        self.assertEqual(histories, glob.glob(os.path.join(
+            "var", "www", "static", "tmp", "request_history", "*", "*")))
+        with open(histories[[os.path.basename(h) for h in histories].index(
+                history)]) as fin:
+            self.assertEqual("the history", fin.read())
+
+    def test_a_job_shows_its_progress_and_can_be_cancelled(self):
+        html = self.submit(callable="slow")
+        job_id = self.job_id(html)
+        deadline = time.monotonic() + 20
+        state = self.state(job_id)
+        while len(state["events"]) < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
+            state = self.state(job_id)
+        self.assertEqual("running", state["status"])
+        self.assertNotIn("html", state)
+        self.assertEqual("step 0", state["events"][0])
+        with self.app.test_request_context(
+                "/jobs/{}/cancel".format(job_id), method="POST"):
+            self.assertTrue(pf.cancel_job(job_id)["cancel_requested"])
+        state = self.finished(job_id)
+        self.assertEqual("cancelled", state["status"])
+        self.assertIn("was cancelled while it ran", state["html"])
+        self.assertNotIn("all the steps", state["html"])
+
+    def test_a_worker_does_the_job_if_one_is_alive(self):
+        from mast.jobs.worker import Worker
+        worker = Worker(poll_seconds=0.02)
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(worker.stop)
+        deadline = time.monotonic() + 10
+        while not jobs.workers() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        job_id = self.job_id(self.submit(callable="example"))
+        state = self.finished(job_id)
+        self.assertIn("&lt;ok&gt;", state["html"])
+        self.assertTrue(jobs.get(job_id).worker_id.startswith(worker.id))
 
     def test_invalid_value_is_reported(self):
         html = self.post(callable="example", retries="many")

@@ -54,9 +54,9 @@ class Timestamp(object):
         1451323059
 
     """
-    def __init__(self):
+    def __init__(self, epoch=None):
         """
-        _method_: `mast.timestamp.Timestamp.__init__(self)`
+        _method_: `mast.timestamp.Timestamp.__init__(self, epoch=None)`
 
         Initialization function, catpture the current time in epoch format
         then create a timestamp object from datetime.fromtimestamp().
@@ -65,9 +65,10 @@ class Timestamp(object):
 
         Parameters:
 
-        This method takes no arguments.
+        * `epoch`: The time to use, in seconds since the epoch. The
+        default is the current time.
         """
-        self._epoch = time()
+        self._epoch = time() if epoch is None else epoch
         self._timestamp = datetime.fromtimestamp(self._epoch)
 
     @property

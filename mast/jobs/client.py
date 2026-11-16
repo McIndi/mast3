@@ -31,12 +31,14 @@ queue all the same: it waits for its turn, and its progress and
 result are stored.
 """
 import sys
+import threading
 import time
 
 from mast.jobs import config, queue, runner
 from mast.jobs.models import CANCELLED, FAILED, QUEUED, SUCCEEDED
+from mast.logging import make_logger
 
-__all__ = ["run", "follow"]
+__all__ = ["run", "follow", "start"]
 
 # The exit status of a program that was stopped with Ctrl-C
 INTERRUPTED = 130
@@ -165,3 +167,51 @@ def _show_end(info, result, interrupted):
     if interrupted or info.status == CANCELLED:
         return INTERRUPTED
     return 1
+
+
+def start(command, params, principal=queue.LOCAL):
+    """
+    _function_: `mast.jobs.client.start(command, params,
+    principal=LOCAL)`
+
+    Put a job in the queue, make sure that it will be done, and return
+    its id at once. The web GUI uses this. The caller then asks the
+    queue for the progress and the result of the job.
+
+    If a worker is alive, the worker does the job. If not, a thread of
+    this process does it, so that a web server with no worker still
+    works. That job belongs to this process: if the process stops
+    before the job starts, the job is cancelled.
+    """
+    if queue.workers():
+        return queue.submit(command, params, principal=principal)
+    worker_id = runner.new_worker_id()
+    job_id = queue.submit(
+        command, params, principal=principal, attached=True,
+        reserved_for=worker_id)
+    threading.Thread(
+        target=_do, args=(job_id, worker_id),
+        name="mast-job-{}".format(job_id[:8]), daemon=True).start()
+    return job_id
+
+
+def _do(job_id, worker_id, poll_seconds=0.25):
+    """Wait until the job can start, then run it."""
+    logger = make_logger("mast.jobs")
+    next_attach = 0
+    while True:
+        try:
+            if queue.get(job_id).status != QUEUED:
+                # It was cancelled
+                return
+            if time.monotonic() >= next_attach:
+                queue.attach(job_id)
+                next_attach = time.monotonic() + config.lease_seconds() / 3.0
+            if queue.claim(worker_id, job_id=job_id):
+                runner.run_job(job_id, worker_id)
+                return
+        except Exception:
+            # The database can be away. Keep trying.
+            logger.exception(
+                "Could not start the job {} in this process".format(job_id))
+        time.sleep(poll_seconds)

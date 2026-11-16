@@ -34,7 +34,7 @@ plugins into this single module.
 """
 import re
 import os
-import sys
+import threading
 import flask
 import zipfile
 import markdown
@@ -46,7 +46,9 @@ from mast.datapower.datapower import Environment
 from mast.xor import xordecode, xorencode
 from mast.timestamp import Timestamp
 from mast.logging import make_logger
-from mast.cli import Result, captured
+from mast import jobs
+from mast.jobs import client as jobs_client
+from mast.jobs import registry as jobs_registry
 from mast.cli import params as cli_params
 from mast.plugin_utils import params as widgets
 from pydantic import ValidationError
@@ -887,49 +889,119 @@ def _model_values(command, form, t):
     return values
 
 
-def _call_command(command, values):
-    """Call a command. Return the html of its result and the id of the saved request history."""
+def _check(command, values):
+    """Return what is wrong with the values for a command, or `None`
+    if the command can be queued."""
     appliances = [
         spec.name for spec in cli_params.options(command.model)
         if spec.widget == widgets.APPLIANCES]
     if appliances and not any(values.get(appliances[0], [])):
-        out = hist = "Must select at least one appliance."
-        return Markup(out), _save_history(hist)
+        return "Must select at least one appliance."
     try:
-        params = command.model(**values)
+        command.model(**values)
     except ValidationError as exc:
-        out = hist = "; ".join(cli_params.error_messages(
+        return "; ".join(cli_params.error_messages(
             command.model, exc, flags=False))
-        return Markup(html_escape(out)), _save_history(hist)
-    try:
-        # The progress messages are for the terminal
-        with captured():
-            result = command.fn(params)
-        if isinstance(result, Result):
-            out, hist = result.html(), result.history
-        else:
-            out, hist = "", ""
-    except Exception as e:
-        # A command should handle its own exceptions. If one reaches
-        # this point, the user must be told, and the only way to send
-        # the details back is to catch it here.
-        import traceback
-        msg = "Sorry, an unhandled exception occurred while "
-        msg += "performing action:\n\n\t {}".format(str(e))
-        out, hist = html_escape(msg), traceback.format_exc()
-        sys.stderr.write(traceback.format_exc())
-    return Markup(out), _save_history(hist)
+    return None
 
 
 def call_method(plugin, form):
-    """Gather the arguments and function name from form then call
-    the command. Wrap the results in html and return them."""
+    """Gather the arguments and function name from form, then put the
+    command in the job queue. Return the html of a box that the
+    browser fills with the progress and the result of the job (see
+    `job_state`). If the arguments are not valid, return the html of
+    the problem and queue nothing."""
     t = Timestamp()
     name = form.get("callable")
-    command = _get_command(plugin, name)
+    cli = get_module(plugin).cli
+    command = cli.find(name)
     kwargs = _model_values(command, form, t)
-    out, history_id = _call_command(command, kwargs)
-    return _render_output(name, t, kwargs, out, history_id)
+    problem = _check(command, kwargs)
+    if problem is not None:
+        return _render_output(
+            name, t, kwargs, Markup(html_escape(problem)),
+            _save_history(problem))
+    # The namespace is the name of the plugin, which is how a worker
+    # finds the command
+    namespace = getattr(cli, "namespace", None) or plugin
+    jobs_registry.register(namespace, cli)
+    job_id = jobs_client.start(
+        jobs_registry.command_id(namespace, command), kwargs)
+    return flask.render_template(
+        "pending.html", job_id=job_id, callable=name, timestamp=str(t))
+
+
+# One job is rendered by one thread at a time
+_render_lock = threading.Lock()
+
+
+def _rendered_path(job_id):
+    return os.path.join("tmp", "web", "jobs", "{}.html".format(job_id))
+
+
+def _finished_html(info):
+    """Return the html of the output box of a finished job. The box
+    is made once for each job and kept in a file, because making it
+    writes the download and the history of the job."""
+    path = _rendered_path(info.id)
+    with _render_lock:
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8") as fin:
+                return fin.read()
+        result = jobs.result(info.id)
+        history = result.history if result is not None else ""
+        if info.status == jobs.SUCCEEDED:
+            out = Markup(result.html if result is not None else "")
+        elif info.status == jobs.FAILED:
+            out = Markup(html_escape(
+                "Sorry, an unhandled exception occurred while "
+                "performing action:\n\n\t {}".format(info.error)))
+        else:
+            out = Markup(html_escape(
+                info.error or "The job was {}.".format(info.status)))
+            history = history or (info.error or info.status)
+        command = jobs.resolve(info.command)
+        rendered = str(_render_output(
+            command.key, Timestamp(info.created_at.timestamp()),
+            info.params, out, _save_history(history)))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Another process must not read half of the file
+        partial = "{}.{}.tmp".format(path, os.getpid())
+        with open(partial, "w", encoding="utf-8") as fout:
+            fout.write(rendered)
+        os.replace(partial, path)
+        return rendered
+
+
+def job_state(job_id, after=0):
+    """Return what the browser needs to show a job, as a dict for
+    JSON:
+
+    * `status` and `finished`: See `mast.jobs.JobInfo`.
+    * `events`: The lines of progress after the event `after`.
+    * `last_event`: The value of `after` for the next call.
+    * `html`: The output box, if the job is finished.
+
+    Raises `mast.jobs.JobNotFound`."""
+    info = jobs.get(job_id)
+    events = jobs.events(job_id, after)
+    state = {
+        "id": info.id,
+        "status": info.status,
+        "finished": info.finished,
+        "cancel_requested": info.cancel_requested,
+        "events": [event.message for event in events if event.kind == "say"],
+        "last_event": events[-1].id if events else after,
+    }
+    if info.finished:
+        state["html"] = _finished_html(info)
+    return state
+
+
+def cancel_job(job_id):
+    """Ask to cancel a job, and return its state as `job_state` does."""
+    jobs.cancel(job_id)
+    return job_state(job_id)
 
 
 def _render_output(name, t, kwargs, out, history_id):

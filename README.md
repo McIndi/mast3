@@ -111,6 +111,8 @@ mast-jobs cancel -j 3f2a
 mast-jobs workers
 ```
 
+The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link.
+
 Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
 
 The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there. The credentials of a waiting job are stored encrypted with the key in `etc/local/jobs.key`, and are removed when the job ends.
