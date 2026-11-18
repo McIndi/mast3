@@ -48,10 +48,10 @@ def parser(settings):
         "--recreate", action="store_true",
         help="Delete the development home first (with --development-mode)")
     cli.add_argument(
-        "-p", "--python-version", default=settings.get("python", "3.14"),
-        help="The version of CPython to bundle. Give a minor version (3.14) "
+        "-p", "--python-version", default=settings.get("python", "3.15"),
+        help="The version of CPython to bundle. Give a minor version (3.15) "
              "to use the newest patch release of the python-build-standalone "
-             "release, or a full version (3.14.10) to require that patch.")
+             "release, or a full version (3.15.2) to require that patch.")
     cli.add_argument(
         "--python-build-standalone", default=settings.get("python-build-standalone", "latest"),
         help="The python-build-standalone release tag, or 'latest' to look "

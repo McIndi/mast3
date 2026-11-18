@@ -101,7 +101,7 @@ def find_home():
     3. The home that contains the interpreter (`sys.executable`). The
     Python of an installer or of a development home is in
     `MAST_HOME/python`, so its console scripts (for example
-    `MAST_HOME/python/3.14.10/bin/mast-system`) work from any directory.
+    `MAST_HOME/python/3.15.2/bin/mast-system`) work from any directory.
 
     Raise `MastHomeNotFound` if none of these gives a home.
     """

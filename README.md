@@ -55,7 +55,7 @@ The installer is written to `dist/`. To review its contents, look in `build/asse
 
 The dependencies come from `uv.lock`, and the Python runtime is the python-build-standalone release in `[tool.mast-setup]` of `pyproject.toml`, so two builds of the same commit ship the same files. Downloads are kept in `build-cache/`. The Linux installer runs on glibc 2.28 and newer (RHEL 8, Debian 10, Ubuntu 20.04).
 
-You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.14.10`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
+You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.15.2`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
 
 ### 2. Install
 
