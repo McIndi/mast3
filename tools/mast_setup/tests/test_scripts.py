@@ -76,6 +76,35 @@ class TestPosixScripts(unittest.TestCase):
         with self.assertRaises(assemble.BundleError):
             assemble.check_bundle(self.root)
 
+    def uv_sh_header(self, python):
+        """The header that uv writes when a `#!` line cannot hold the path."""
+        # uv 0.13 writes a quote in the path as '"'"'.
+        quoted = "'{}'".format(str(python).replace("'", "'\"'\"'"))
+        return "#!/bin/sh\n'''exec' {} \"$0\" \"$@\"\n' '''".format(quoted)
+
+    def test_sh_header_of_uv_is_replaced(self):
+        # A long build folder, or one with a space or a quote in its name.
+        for name in ("a" * 130, "build dir", "it's"):
+            with self.subTest(folder=name):
+                bin_dir = self.root.parent / name / "bin"
+                bin_dir.mkdir(parents=True)
+                os.symlink(sys.executable, bin_dir / "python3")
+                script = bin_dir / "tool"
+                script.write_text(self.uv_sh_header(bin_dir / "python3") + "\n" + SCRIPT_BODY)
+                script.chmod(0o755)
+                self.assertEqual(len(scripts.check_posix(bin_dir, bin_dir.parent)), 1)
+                self.assertEqual(scripts.relocate_posix(bin_dir), ["tool"])
+                self.assertEqual(script.read_text(),
+                                 scripts.POSIX_HEADER.format(name="python3") + SCRIPT_BODY)
+                self.assertEqual(scripts.check_posix(bin_dir, bin_dir.parent), [])
+                result = subprocess.run([str(script), "x"], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "ran with ['x']")
+
+    def test_check_finds_an_sh_header_of_uv(self):
+        self.write("flask", self.uv_sh_header(self.bin / "python3"))
+        self.assertEqual(len(scripts.check(self.root)), 1)
+
     def test_relocated_script_runs_after_a_move(self):
         self.write("tool", "#!{}".format(self.bin / "python3"))
         scripts.relocate_posix(self.bin)
