@@ -183,17 +183,29 @@ class Redactor(object):
     page. The results of the commands put what they show between
     tags, never in an attribute. A secret that the page shows with a
     tag in the middle of it (a line break, for example) is not found.
+
+    A secret is replaced only where it stands alone: not where a
+    letter, a digit or `_` comes just before it or just after it. A
+    password such as `admin` so does not change `administrator` or
+    `sysadmin`. A secret that is part of a longer word is not found
+    there. Text that is the same as the secret (a user named `admin`
+    whose password is `admin`) is replaced all the same.
     """
     def __init__(self, secrets):
-        # The longest first: one secret can be the start of another
-        self._secrets = sorted(secrets, key=len, reverse=True)
+        # The longest first: one secret can be the start of another.
+        # The class of characters is ASCII, so that the rule is the
+        # same for any text.
+        alternatives = "|".join(
+            re.escape(secret)
+            for secret in sorted(secrets, key=len, reverse=True) if secret)
+        self._pattern = re.compile(
+            r"(?<![A-Za-z0-9_])(?:{})(?![A-Za-z0-9_])".format(alternatives)) \
+            if alternatives else None
 
     def __call__(self, text):
-        if not text:
+        if not text or self._pattern is None:
             return text
-        for secret in self._secrets:
-            text = text.replace(secret, REDACTED)
-        return text
+        return self._pattern.sub(REDACTED, text)
 
     def _between_tags(self, text):
         """Redact text that is not markup. It is decoded first, so
@@ -206,7 +218,7 @@ class Redactor(object):
         return html.escape(redacted, quote=False)
 
     def html(self, text):
-        if not text or not self._secrets:
+        if not text or self._pattern is None:
             return text
         parts = _TAG.split(text)
         for index, part in enumerate(parts):

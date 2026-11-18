@@ -921,8 +921,9 @@ class TestRunner(SqliteCase):
             ("Appliance", "class"), [("", ""), ("", "")]).html())
         cell = '<td class="result_table_cell">{}</td>'
         cases = (
-            # The secret is in the names of the tags and of the entities
-            ("a", "******** t********ble for ********"),
+            # The secret is in the names of the tags and of the entities,
+            # and in a word of the text, which does not change
+            ("a", "******** table for ********"),
             ("amp", "a table for ********"),
             ("class", "a table for ********"),
             ("x<y>&\"z\"", "a table for ********"),
@@ -947,6 +948,38 @@ class TestRunner(SqliteCase):
         same = "<b class='x'>nothing</b> &amp; &lt; &quot;"
         self.assertEqual(redact.html(same), same)
         self.assertEqual(secrets.Redactor(()).html(same), same)
+
+    def test_a_secret_is_only_redacted_where_it_stands_alone(self):
+        redact = secrets.Redactor({"admin"})
+        self.assertEqual(
+            redact("user admin in domain administrators"),
+            "user ******** in domain administrators")
+        self.assertEqual(redact("sysadmin admin_x xadmin admin1"),
+                         "sysadmin admin_x xadmin admin1")
+        self.assertEqual(redact("admin"), "********")
+        self.assertEqual(redact("(admin), admin:admin"),
+                         "(********), ********:********")
+
+    def test_a_credential_in_a_header_is_redacted(self):
+        found = secrets.redactor(Work, {"credentials": ["user:pass"]})
+        encoded = base64.b64encode(b"user:pass").decode()
+        self.assertEqual(encoded, "dXNlcjpwYXNz")
+        self.assertEqual(
+            found("Authorization: Basic {}\r\n".format(encoded)),
+            "Authorization: Basic ********\r\n")
+        # A form that ends with = is found too
+        padded = base64.b64encode(b"user:passw").decode()
+        self.assertTrue(padded.endswith("="))
+        found = secrets.redactor(Work, {"credentials": ["user:passw"]})
+        self.assertEqual(found("Basic {}\n".format(padded)),
+                         "Basic ********\n")
+
+    def test_a_secret_with_the_characters_of_a_pattern(self):
+        redact = secrets.Redactor({"p@ss.w*rd(1)"})
+        self.assertEqual(redact("pw p@ss.w*rd(1) p@ssXwwrd1"),
+                         "pw ******** p@ssXwwrd1")
+        self.assertEqual(secrets.Redactor({"", "x"})("a x b"), "a ******** b")
+        self.assertEqual(secrets.Redactor(())("text"), "text")
 
     def test_a_job_stops_when_its_heartbeats_do_not_arrive(self):
         with mock.patch.object(
