@@ -45,16 +45,21 @@ in `base_dir` ending with `.conf` and return all of this to you in a `dict`
 with keys coresponding to filenames and values of `dict`s obtained
 through `get_config_dict`.
 
-There is one constant provided by this module:
+There are two constants provided by this module:
 
+* `MAST_HOME`: The home of MAST, as `mast.home.find_home()` finds it.
+If the `MAST_HOME` environment variable was not set, it is set to this
+value, so that programs started by MAST find the same home.
 * `CONFIG_HOME`: This will default to `$MAST_HOME/etc`.
 """
 
 import os
 import configparser
 from mast import __version__
+from mast.home import find_home
 
-MAST_HOME = os.environ["MAST_HOME"]
+MAST_HOME = find_home()
+os.environ.setdefault("MAST_HOME", MAST_HOME)
 CONFIG_HOME = os.path.join(MAST_HOME, "etc")
 
 def get_config(filename):

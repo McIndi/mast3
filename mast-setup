@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""
+Build the MAST installer, or make a development home.
+
+    ./mast-setup                      build dist/MAST-<version>_py<python>_<platform>.zip
+    ./mast-setup --development-mode   make .dev/mast_home, which runs this checkout
+    ./mast-setup --help               all options
+
+It needs Python 3.11 or newer and uv on the PATH. On Windows, run it as
+`python mast-setup ...`. The code is in tools/mast_setup.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "tools"))
+
+from mast_setup.cli import main  # noqa: E402
+
+sys.exit(main())

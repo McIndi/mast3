@@ -44,16 +44,16 @@ The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the la
 
 ### 1. Build the installer
 
-MAST builds a self-contained distribution with its own Python runtime.
+MAST builds a self-contained distribution with its own Python runtime. The build machine needs Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). The machine where MAST runs needs nothing: the zip has its own Python and every library, so it also works on a jump server with no internet access.
 
 ```shell
-python -m venv .venv
-.venv\Scripts\activate          # Windows (use: source .venv/bin/activate on Linux/macOS)
-python -m pip install requests
-python build.py
+./mast-setup                    # Linux and macOS
+python mast-setup               # Windows
 ```
 
-The installer is written to `dist/`. To review its contents, look in `build/assemble`.
+The installer is written to `dist/`. To review its contents, look in `build/assemble`. `./mast-setup --help` lists the options.
+
+The dependencies come from `uv.lock`, and the Python runtime is the python-build-standalone release in `[tool.mast-setup]` of `pyproject.toml`, so two builds of the same commit ship the same files. Downloads are kept in `build-cache/`. The Linux installer runs on glibc 2.28 and newer (RHEL 8, Debian 10, Ubuntu 20.04).
 
 You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.14.10`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
 
@@ -135,15 +135,41 @@ The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` i
 
 The credentials of a waiting job, and the other secret parameters such as a new password, are stored encrypted with the key in `etc/local/jobs.key`. They are removed when the job ends. The values are also removed from the progress, the result and the request history of the job before these are stored. The `xor` utility is not a job, and nothing about it is stored.
 
-## Running the tests
+## Development
 
-The tests run with [pytest](https://docs.pytest.org) from a source checkout. This example is for Linux; on Windows or macOS, use the requirements file for that platform.
+From a checkout there are two environments. They are separate, and you can use both.
+
+**`uv sync` for tests and editors.** It makes `.venv` with the versions in `uv.lock`. The tests make their own MAST home (see `conftest.py`).
 
 ```shell
-python -m venv .venv
-.venv/bin/pip install -r linux-requirements.txt pytest
-.venv/bin/pip install .
-.venv/bin/python -m pytest mast/testsuite/unit mast/testsuite/regression
+uv sync
+uv run pytest mast/testsuite/unit mast/testsuite/regression tools
+```
+
+**`./mast-setup --development-mode` to run MAST as users do.** It makes `.dev/mast_home`: the layout, launchers and Python runtime of the installer, with the code of the checkout.
+
+```shell
+./mast-setup --development-mode
+.dev/mast_home/mast-system list-domains -a lab -c ...
+```
+
+- MAST is installed editable, so a change to the code is live.
+- The files of `files/mast_home` that git tracks (`etc/default`, the SOMA specs, the web templates and static files) are links to the checkout, so a change to them is live too.
+- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your `hosts.conf` and other local configuration in `.dev/mast_home/etc/local`.
+- Run the command again after you pull: it links new files, removes stale links, and updates the libraries when `uv.lock` changed. `--recreate` starts from an empty home.
+- On Windows, links need developer mode. Without it the files are copied, and you run the command again after you change them.
+
+From a checkout, run MAST through `.dev/mast_home` made by `./mast-setup --development-mode`. Do not make another MAST_HOME by hand, except in tests (`conftest.py` does that).
+
+**MAST runs with its home as the current directory.** The launchers set `MAST_HOME` and change to that folder before they start Python, and some paths in the configuration (`soma_spec_file`, `out_dir`, the web folders) are relative to it. Without `MAST_HOME`, MAST looks for its home in the current directory and its parents (`mast/home.py`).
+
+## Running the tests
+
+The tests run with [pytest](https://docs.pytest.org) from a source checkout. Install [uv](https://docs.astral.sh/uv/) first. `uv sync` makes `.venv` with the versions in `uv.lock`, on every platform.
+
+```shell
+uv sync
+uv run pytest mast/testsuite/unit mast/testsuite/regression
 ```
 
 ### Integration tests
@@ -152,7 +178,7 @@ The integration tests start a real IBM DataPower Gateway in a container, with po
 
 ```shell
 export MAST_TEST_DATAPOWER_ACCEPT_LICENSE=true
-.venv/bin/python -m pytest mast/testsuite/integration
+uv run pytest mast/testsuite/integration
 ```
 
 Without that variable, or without a container runtime, the integration tests are skipped.
@@ -163,6 +189,7 @@ Without that variable, or without a container runtime, the integration tests are
 | `MAST_TEST_DATAPOWER_IMAGE` | The image to test against. The default is `icr.io/cpopen/datapower/datapower-limited:11.0.0.3`. |
 | `MAST_TEST_DATAPOWER_KEEP` | Set to `true` to keep the container (`mast-test-keep`) and use it again in the next run. |
 | `MAST_TEST_CONTAINER_RUNTIME` | `podman` or `docker`. The default is the first one found. |
+| `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast-system` and so on), as users do. Without it they run `python -m` with the interpreter of the tests. |
 
 A container cannot test static hosts, secondary addresses, static routes or firmware upgrades, because DataPower locks that configuration when it runs in a container.
 

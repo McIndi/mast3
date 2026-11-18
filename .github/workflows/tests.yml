@@ -31,15 +31,36 @@ jobs:
       MAST_TEST_JOBS_DB_URL: postgresql+psycopg://mast:mast@localhost:5432/mast_test
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
-      - name: Install MAST and its dependencies
-        run: |
-          python -m pip install -r linux-requirements.txt pytest
-          python -m pip install .
+      - name: Check that uv.lock matches pyproject.toml
+        run: uv lock --check
+      - name: Install MAST and its dependencies from uv.lock
+        run: uv sync --locked
       - name: Run the unit and regression tests
-        run: python -m pytest mast/testsuite/unit mast/testsuite/regression
+        run: uv run --locked pytest mast/testsuite/unit mast/testsuite/regression tools
+
+  # Builds the installer and a development home with ./mast-setup, as
+  # the release does, so that a broken build fails on the pull request.
+  mast-setup:
+    runs-on: ubuntu-latest
+    env:
+      MAST_SETUP_TEST_BUILD: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.14"
+      - uses: actions/cache@v4
+        with:
+          path: build-cache
+          key: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install the test dependencies from uv.lock
+        run: uv sync --locked
+      - name: Build the installer and a development home
+        run: uv run --locked pytest tools/mast_setup/tests/test_slow.py -v
 
   integration:
     runs-on: ubuntu-latest
@@ -50,12 +71,10 @@ jobs:
       MAST_TEST_DATAPOWER_ACCEPT_LICENSE: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
-      - name: Install MAST and its dependencies
-        run: |
-          python -m pip install -r linux-requirements.txt pytest
-          python -m pip install .
+      - name: Install MAST and its dependencies from uv.lock
+        run: uv sync --locked
       - name: Run the integration tests against a DataPower container
-        run: python -m pytest mast/testsuite/integration
+        run: uv run --locked pytest mast/testsuite/integration

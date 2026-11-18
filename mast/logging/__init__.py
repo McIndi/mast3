@@ -51,9 +51,9 @@ from mast.util import _s, _b
 from mast import __version__
 from mast.timestamp import Timestamp
 from logging.handlers import RotatingFileHandler
-from mast.config import get_configs_dict
+from mast.config import get_configs_dict, MAST_HOME
 
-mast_home = os.environ["MAST_HOME"]
+mast_home = MAST_HOME
 
 config = get_configs_dict()
 config = config["logging.conf"]

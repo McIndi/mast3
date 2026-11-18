@@ -31,9 +31,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # setup-python runs ./mast-setup. The installer bundles its own
+      # interpreter from python-build-standalone.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
+      # mast-setup installs the dependencies of uv.lock with uv.
+      - uses: astral-sh/setup-uv@v10.3.3
+      # The interpreter is pinned in pyproject.toml, so the download can be
+      # cached by that file.
+      - uses: actions/cache@v4
+        with:
+          path: build-cache
+          key: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Check that the tag matches the MAST version
         shell: bash
@@ -50,13 +61,7 @@ jobs:
           esac
 
       - name: Build the installer
-        env:
-          # build.py reads the python-build-standalone release from the
-          # GitHub API. The token prevents rate-limit failures.
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python -m pip install requests
-          python build.py --log-level 20
+        run: python mast-setup --log-level 20
 
       - name: Run the installer (Linux and macOS)
         if: runner.os != 'Windows'
@@ -65,6 +70,36 @@ jobs:
           unzip -q dist/*.zip -d "$RUNNER_TEMP/mast"
           "$RUNNER_TEMP/mast/mast-version" | tee version.txt
           grep -F "Version $MAST_VERSION" version.txt
+          # The console scripts of the bundled Python must work from
+          # another folder, with no MAST_HOME, once the build folder is
+          # gone. They find MAST_HOME from their interpreter.
+          mv build/assemble build/assemble.moved
+          cd /
+          "$RUNNER_TEMP"/mast/python/*/bin/mast-version | grep -F "Version $MAST_VERSION"
+          "$RUNNER_TEMP"/mast/python/*/bin/pip3 --version
+
+      # A jump server has no internet access. Run the installer in a
+      # container with no network, in an image with the oldest glibc that
+      # the installer supports (linux-glibc in pyproject.toml: 2.28, as
+      # in RHEL 8). test-mast runs the unit tests from inside the bundle,
+      # which also checks that their imports (mock and so on) are there.
+      - name: Run the installer with no network (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --network=none -v "$RUNNER_TEMP/mast:/opt/mast" \
+            almalinux:8-minimal bash -c '
+              set -e
+              ldd --version | head -n 1
+              /opt/mast/mast-version
+              /opt/mast/test-mast --unit
+              /opt/mast/mast-system xor -s user:pass
+              cd / && /opt/mast/python/*/bin/mast-version
+              if /opt/mast/mast -c "import urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=10)" 2>/dev/null; then
+                echo "The container reached the internet, so this check proves nothing"
+                exit 1
+              fi
+              echo "The installer works with no network"
+            '
 
       - name: Run the installer (Windows)
         if: runner.os == 'Windows'
@@ -79,6 +114,26 @@ jobs:
             Write-Error "The installer did not report version $env:MAST_VERSION"
             exit 1
           }
+          # The console script launchers must work from another folder,
+          # with no MAST_HOME, once the build folder is gone.
+          Rename-Item build\assemble assemble.moved
+          Set-Location $env:RUNNER_TEMP
+          $script = Get-ChildItem "$env:RUNNER_TEMP\mast\python\*\Scripts\mast-version.exe"
+          $output = & $script.FullName | Out-String
+          Write-Host $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $output.Contains("Version $env:MAST_VERSION")) {
+            Write-Error "Scripts\mast-version.exe did not report version $env:MAST_VERSION"
+            exit 1
+          }
+          # The launchers return the exit status of Python.
+          & "$env:RUNNER_TEMP\mast\mast.bat" -c "import sys; sys.exit(3)"
+          if ($LASTEXITCODE -ne 3) {
+            Write-Error "mast.bat returned $LASTEXITCODE, not the exit status 3 of Python"
+            exit 1
+          }
+          & "$env:RUNNER_TEMP\mast\test-mast.bat" --unit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
         with:

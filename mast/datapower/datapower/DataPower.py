@@ -30,7 +30,7 @@ from mast.cli.results import checkpoint
 # from lxml import etree
 from functools import partial, wraps
 from mast.timestamp import Timestamp
-from mast.config import get_config
+from mast.config import get_config, MAST_HOME
 from mast.hashes import get_sha1, get_sha512
 from mast.xor import xordecode
 from datetime import datetime
@@ -669,6 +669,11 @@ class DataPower(object):
 
             if config.has_option(self.hostname, 'retry_interval'):
                 self.retry_interval = config.getint(self.hostname, 'retry_interval')
+
+        # A relative spec file (etc/v11.0.0.3-C.xml in appliances.conf) is
+        # in MAST_HOME, whatever the current directory is.
+        if isinstance(self.test_case, str) and not os.path.isabs(self.test_case):
+            self.test_case = os.path.normpath(os.path.join(MAST_HOME, self.test_case))
 
         self.request = Request(self.scheme,
                                self._hostname,

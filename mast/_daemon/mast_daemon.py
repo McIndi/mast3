@@ -32,6 +32,8 @@ import sys
 import platform
 from importlib import metadata
 
+from mast import home
+
 try:
     import win32serviceutil
     import servicemanager
@@ -42,28 +44,15 @@ except ImportError:
     from .daemon import Daemon
     from time import sleep
 
-if "Windows" in platform.system():
-    if "MAST_HOME" not in os.environ:
-        exe_dir = os.path.dirname(sys.executable)
-        if "site-packages" in exe_dir:
-            mast_home = os.path.abspath(os.path.join(
-                exe_dir, os.pardir, os.pardir, os.pardir, os.pardir))
-        else:
-            mast_home = os.path.abspath(os.path.join(exe_dir, os.pardir))
-        os.environ["MAST_HOME"] = mast_home
-    else:
-        mast_home = os.environ["MAST_HOME"]
+# The Windows service manager starts pythonservice.exe without MAST_HOME.
+# It is under MAST_HOME/python/<version>/Lib/site-packages/win32.
+if "Windows" in platform.system() and not os.environ.get("MAST_HOME"):
+    mast_home = home.enter(home.find_from(sys.executable))
 else:
-    mast_home = os.environ["MAST_HOME"]
-
-anaconda_dir = os.path.join(mast_home, "anaconda")
-scripts_dir = os.path.join(mast_home, "anaconda", "Scripts")
-sys.path.insert(0, anaconda_dir)
-sys.path.insert(0, scripts_dir)
-os.chdir(mast_home)
+    mast_home = home.enter()
 
 
-# This import needs os.environ["MAST_HOME"] and os.environ["mastd"] to be set
+# This import needs os.environ["mastd"] to be set
 os.environ["mastd"] = "true"
 from mast.logging import make_logger, logged
 

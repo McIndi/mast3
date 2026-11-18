@@ -36,12 +36,43 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Topic :: Utilities",
 ]
-# The runtime dependencies are in the per-platform requirements files
-# (windows-requirements.txt and so on), which build.py installs.
-dependencies = []
+requires-python = ">=3.14"
+# uv.lock pins these for every platform. After a change here, run `uv lock`
+# and commit uv.lock. The installer bundles exactly what the lock lists.
+dependencies = [
+    "commandr", "cherrypy", "paramiko", "markdown", "ecdsa",
+    "python-dateutil", "flask", "pydantic>=2", "openpyxl", "lxml",
+    "pygments", "colorama", "pyOpenSSL", "requests", "wheel", "mock",
+    "dulwich", "sqlalchemy>=2", "alembic", "cryptography",
+    "psycopg[binary]",
+    "pyreadline3; sys_platform == 'win32'",
+    "pywin32; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = ["pytest"]
 
 [project.urls]
 Homepage = "http://github.com/mcindi/mast"
+
+# One console script for each launcher of the installer. Each one finds
+# MAST_HOME (see mast/home.py), changes to it and runs the same module as
+# the launcher. The installer does not use these scripts.
+[project.scripts]
+mast-accounts = "mast._entry:accounts"
+mast-backups = "mast._entry:backups"
+mast-crypto = "mast._entry:crypto"
+mast-deployment = "mast._entry:deployment"
+mast-developer = "mast._entry:developer"
+mast-jobs = "mast._entry:jobs"
+mast-network = "mast._entry:network"
+mast-ssh = "mast._entry:ssh"
+mast-system = "mast._entry:system"
+mast-version = "mast._entry:version"
+mast-web = "mast._entry:web"
+mast-worker = "mast._entry:worker"
+mastd = "mast._entry:daemon"
+test-mast = "mast._entry:testsuite"
 
 [project.entry-points.mast_web_plugin]
 accounts = "mast.datapower.accounts:WebPlugin"
@@ -58,6 +89,22 @@ system = "mast.datapower.system:WebPlugin"
 mastd_web_plugin = "mast.datapower.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
 mastd_worker_plugin = "mast.jobs.worker:Plugin"
+
+# The interpreter that ./mast-setup bundles. The installer ships the
+# newest patch release of `python` in the python-build-standalone release
+# `python-build-standalone`, so a build of the same commit always ships
+# the same interpreter. To upgrade it, run
+# `./mast-setup --python-build-standalone latest` and put the release
+# that it reports here.
+#
+# The Linux installer runs on `linux-glibc` and newer (2.28: RHEL 8,
+# Debian 10, Ubuntu 20.04). The dependencies are installed from wheels
+# for that glibc, whatever the glibc of the build machine. The release
+# workflow runs the installer in an image with that glibc.
+[tool.mast-setup]
+python = "3.14"
+python-build-standalone = "20261110"
+linux-glibc = "2.28"
 
 [tool.setuptools.packages.find]
 include = ["mast", "mast.*"]

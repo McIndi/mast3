@@ -27,8 +27,10 @@ load error. These tests load each entry point and fail with the error.
 import importlib
 import importlib.metadata as metadata
 import pkgutil
+import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import mast
 
@@ -130,6 +132,24 @@ class TestMASTPackaging(unittest.TestCase):
                     # load() raises on a bad import or a missing attribute.
                     self.assertTrue(callable(ep.load()))
 
+    def test_every_launcher_has_a_console_script(self):
+        # Each launcher in the installer (`./mast -m <module>`) has a
+        # console script of the same name that runs the same module, for
+        # a development home and a `pip install`.
+        launchers = Path(mast.__file__).resolve().parents[1] / "files" / "invocation_scripts" / "linux"
+        if not launchers.is_dir():
+            self.skipTest("the launchers are only in a source checkout")
+        scripts = _entry_points("console_scripts")
+        for launcher in sorted(launchers.iterdir()):
+            match = re.search(r"\./mast -m (\S+)", launcher.read_text())
+            if match is None:
+                continue
+            with self.subTest(launcher=launcher.name):
+                self.assertIn(launcher.name, scripts)
+                with mock.patch("mast._entry._run") as run:
+                    scripts[launcher.name].load()()
+                run.assert_called_once_with(match.group(1))
+
     def test_every_subpackage_imports(self):
         # Walk the installed package and import every package and module,
         # so that a package missing from the wheel fails here.
@@ -145,6 +165,37 @@ class TestMASTPackaging(unittest.TestCase):
         for name in names:
             with self.subTest(module=name):
                 importlib.import_module(name)
+
+    def test_every_dependency_is_installed(self):
+        # The installer bundles the dependencies that uv.lock lists. A
+        # dependency that is declared in pyproject.toml but missing from
+        # the bundle fails here, not when a user runs the command that
+        # imports it. The extras of a dependency (psycopg[binary]) are
+        # checked too.
+        try:
+            from packaging.requirements import Requirement
+        except ImportError:
+            self.skipTest("packaging is not installed")
+        pending = [(Requirement(r), {"extra": ""})
+                   for r in metadata.requires("mast") or []]
+        checked = set()
+        while pending:
+            requirement, environment = pending.pop()
+            if requirement.marker and not requirement.marker.evaluate(environment):
+                continue
+            key = (requirement.name.lower(), tuple(sorted(requirement.extras)))
+            if key in checked:
+                continue
+            checked.add(key)
+            with self.subTest(dependency=str(requirement)):
+                try:
+                    metadata.version(requirement.name)
+                except metadata.PackageNotFoundError:
+                    self.fail("{} is declared but not installed".format(requirement))
+                for extra in requirement.extras:
+                    for r in metadata.requires(requirement.name) or []:
+                        pending.append((Requirement(r), {"extra": extra}))
+        self.assertGreater(len(checked), 20)
 
     def test_expected_subpackages_are_present(self):
         names = {m.name for m in pkgutil.walk_packages(mast.__path__, "mast.")
