@@ -151,11 +151,21 @@ var followJob = function(box){
     var after = 0;
     var stopped = false;
 
-    var show = function(state){
-        $.each(state.events, function(index, message){
-            box.find(".job_progress").append(document.createTextNode(message + "\n"));
-        });
-        after = state.last_event;
+    // requestedAfter is the value of after when the state was asked
+    // for. The events of a state are shown only if no other answer has
+    // shown events since, so that no line is shown twice (a poll and a
+    // cancel can be answered at the same time).
+    var show = function(state, requestedAfter){
+        if (stopped){
+            // Another answer has already replaced the box
+            return;
+        }
+        if (requestedAfter === after){
+            $.each(state.events, function(index, message){
+                box.find(".job_progress").append(document.createTextNode(message + "\n"));
+            });
+            after = state.last_event;
+        }
         box.find(".job_status").text(
             state.cancel_requested && !state.finished ? "cancelling" : state.status);
         if (state.finished){
@@ -168,9 +178,10 @@ var followJob = function(box){
         if (stopped || !$.contains(document.documentElement, box[0])){
             return;
         }
-        $.ajax({url: "/jobs/" + job, data: {after: after}, dataType: "json", global: false})
+        var asked = after;
+        $.ajax({url: "/jobs/" + job, data: {after: asked}, dataType: "json", global: false})
             .done(function(state){
-                show(state);
+                show(state, asked);
                 setTimeout(poll, 1000);
             })
             .fail(function(xhr){
@@ -185,8 +196,12 @@ var followJob = function(box){
 
     box.find(".job_cancel").on("click", function(event){
         event.preventDefault();
-        $.ajax({url: "/jobs/" + job + "/cancel", type: "POST", dataType: "json", global: false})
-            .done(show);
+        var asked = after;
+        $.ajax({url: "/jobs/" + job + "/cancel", type: "POST", data: {after: asked},
+                dataType: "json", global: false})
+            .done(function(state){
+                show(state, asked);
+            });
     });
 
     poll();

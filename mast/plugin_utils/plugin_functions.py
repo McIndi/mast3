@@ -1053,10 +1053,11 @@ def job_state(job_id, after=0):
     return state
 
 
-def cancel_job(job_id):
-    """Ask to cancel a job, and return its state as `job_state` does."""
+def cancel_job(job_id, after=0):
+    """Ask to cancel a job, and return its state as `job_state` does,
+    with the events after the event `after`."""
     jobs.cancel(job_id)
-    return job_state(job_id)
+    return job_state(job_id, after)
 
 
 def _render_output(name, t, kwargs, out, history_id, token):

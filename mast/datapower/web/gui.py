@@ -380,18 +380,20 @@ def cancel_job(job_id):
     """
     _function_: `mast.datapower.web.cancel_job(job_id)`
 
-    Ask to cancel a job, and return its state as JSON. A job that
-    runs stops at its next step.
+    Ask to cancel a job, and return its state as JSON, as `job_state`
+    does. A job that runs stops at its next step.
 
     Exposed at: `/jobs/<job_id>/cancel` via POST
 
     Parameters:
 
     * `job_id`: The id of the job.
+    * `after`: The id of the last event that the browser has.
     """
     try:
-        return flask.jsonify(plugin_functions.cancel_job(job_id))
-    except jobs.JobNotFound:
+        after = int(flask.request.values.get("after", 0))
+        return flask.jsonify(plugin_functions.cancel_job(job_id, after))
+    except (jobs.JobNotFound, ValueError):
         flask.abort(404)
 
 

@@ -313,6 +313,29 @@ class WebFormTestCase(unittest.TestCase):
         self.assertIn("was cancelled while it ran", state["html"])
         self.assertNotIn("all the steps", state["html"])
 
+    def test_cancel_sends_only_the_progress_that_the_browser_lacks(self):
+        job_id = self.job_id(self.submit(callable="slow"))
+        deadline = time.monotonic() + 20
+        state = self.state(job_id)
+        shown = list(state["events"])
+        while len(shown) < 3 and time.monotonic() < deadline:
+            time.sleep(0.02)
+            state = self.state(job_id, state["last_event"])
+            shown.extend(state["events"])
+        with self.app.test_request_context(
+                "/jobs/{}/cancel".format(job_id), method="POST"):
+            cancelled = pf.cancel_job(job_id, state["last_event"])
+        self.assertTrue(cancelled["cancel_requested"])
+        for message in cancelled["events"]:
+            self.assertNotIn(message, shown)
+        shown.extend(cancelled["events"])
+        self.assertGreaterEqual(cancelled["last_event"], state["last_event"])
+        final = self.finished(job_id)
+        self.assertEqual("cancelled", final["status"])
+        rest = self.state(job_id, cancelled["last_event"])["events"]
+        shown.extend(rest)
+        self.assertEqual(shown, ["step {}".format(n) for n in range(len(shown))])
+
     def test_a_command_that_cannot_be_queued_shows_why(self):
         with mock.patch.object(
                 pf.jobs_client, "start",
@@ -455,3 +478,18 @@ class WebFormTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CancelRouteTestCase(unittest.TestCase):
+    def test_the_browser_says_which_events_it_has(self):
+        from mast.datapower.web import gui
+        client = gui.app.test_client()
+        with mock.patch.object(
+                gui.plugin_functions, "cancel_job",
+                return_value={"events": []}) as cancel_job:
+            answer = client.post("/jobs/abc/cancel", data={"after": "7"})
+            self.assertEqual(200, answer.status_code)
+            cancel_job.assert_called_once_with("abc", 7)
+            self.assertEqual(
+                404, client.post("/jobs/abc/cancel",
+                                 data={"after": "x"}).status_code)
