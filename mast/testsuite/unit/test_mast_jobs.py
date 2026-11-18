@@ -604,6 +604,37 @@ class TestLease(SqliteCase):
         self.assertEqual(jobs.get(job_id).status, jobs.LOST)
         self.assertIsNone(jobs.result(job_id))
 
+    def test_a_follower_finds_the_job_of_a_dead_worker(self):
+        job_id = submit("dp1")
+        jobs.claim("dead", lease_seconds=1)
+        info = jobs.get(job_id)
+        self.assertEqual(info.lease_expires_at.tzinfo, timezone.utc)
+        self.assertIs(jobs.reap_if_expired(info), info)
+        time.sleep(1.2)
+        out, err = io.StringIO(), io.StringIO()
+        began = time.monotonic()
+        # Nobody claims, so only the follower can see that it is dead
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = client.follow(job_id)
+        self.assertLess(time.monotonic() - began, 3)
+        self.assertEqual(status, 1)
+        self.assertIn("lost", err.getvalue())
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, jobs.LOST)
+        self.assertIn("dead", info.error)
+
+    def test_reap_if_expired(self):
+        clock = self.use_clock()
+        job_id = submit("dp1")
+        queued = jobs.get(job_id)
+        self.assertIs(jobs.reap_if_expired(queued), queued)
+        jobs.claim("w1", lease_seconds=60)
+        clock.advance(59)
+        running = jobs.get(job_id)
+        self.assertIs(jobs.reap_if_expired(running), running)
+        clock.advance(2)
+        self.assertEqual(jobs.reap_if_expired(running).status, jobs.LOST)
+
     def test_a_heartbeat_keeps_the_job(self):
         clock = self.use_clock()
         job_id = submit("dp1")

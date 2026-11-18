@@ -313,6 +313,17 @@ class WebFormTestCase(unittest.TestCase):
         self.assertIn("was cancelled while it ran", state["html"])
         self.assertNotIn("all the steps", state["html"])
 
+    def test_the_job_of_a_dead_worker_is_shown_as_lost(self):
+        jobs.registry.register("example", cli)
+        job_id = jobs.submit("example.judge", {"appliances": ["dp1"]})
+        jobs.claim("dead", lease_seconds=1)
+        self.assertEqual("running", self.state(job_id)["status"])
+        time.sleep(1.2)
+        state = self.state(job_id)
+        self.assertEqual("lost", state["status"])
+        self.assertTrue(state["finished"])
+        self.assertIn("dead", state["html"])
+
     def test_a_worker_does_the_job_if_one_is_alive(self):
         from mast.jobs.worker import Worker
         worker = Worker(poll_seconds=0.02)

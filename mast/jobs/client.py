@@ -121,7 +121,8 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
     started = time.monotonic()
     while True:
         try:
-            info = queue.get(job_id, principal)
+            info = queue.reap_if_expired(
+                queue.get(job_id, principal), principal)
             for event in queue.events(job_id, last_event, principal):
                 last_event = event.id
                 if event.kind == "say":

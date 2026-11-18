@@ -62,7 +62,7 @@ from mast.jobs.models import (
 
 __all__ = [
     "new_job_id", "submit", "attach", "get", "find", "list_jobs", "events", "result",
-    "cancel",
+    "cancel", "reap_if_expired",
     "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
@@ -111,6 +111,7 @@ class JobInfo(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     worker_id: str | None
+    lease_expires_at: datetime | None
     cancel_requested: bool
     error: str | None
     targets: list[str] = []
@@ -511,6 +512,24 @@ def reap():
     """
     with db.session() as session:
         return _reap(session, _now())
+
+
+def reap_if_expired(info, principal=LOCAL):
+    """
+    _function_: `mast.jobs.queue.reap_if_expired(info, principal=LOCAL)`
+
+    Return `info` (a `JobInfo`), or a new `JobInfo` if the job runs and
+    its lease has ended: the job is then declared `lost` (see `reap`).
+
+    The queue finds a dead worker only when a job is claimed. A program
+    that follows a job calls this, so that the job does not seem to
+    run for ever when no process claims.
+    """
+    if info.status != RUNNING or info.lease_expires_at is None \
+            or info.lease_expires_at >= _now():
+        return info
+    reap()
+    return get(info.id, principal)
 
 
 def _next_job(worker_id):

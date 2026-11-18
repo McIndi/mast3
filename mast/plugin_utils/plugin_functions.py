@@ -1016,7 +1016,9 @@ def job_state(job_id, after=0):
     * `html`: The output box, if the job is finished.
 
     Raises `mast.jobs.JobNotFound`."""
-    info = jobs.get(job_id)
+    # A job whose worker died is declared lost here, so that the box
+    # does not show it as running for ever
+    info = jobs.reap_if_expired(jobs.get(job_id))
     events = jobs.events(job_id, after)
     state = {
         "id": info.id,
