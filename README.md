@@ -44,16 +44,16 @@ The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the la
 
 ### 1. Build the installer
 
-MAST builds a self-contained distribution with its own Python runtime.
+MAST builds a self-contained distribution with its own Python runtime. The build machine needs Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). The machine where MAST runs needs nothing: the zip has its own Python and every library, so it also works on a jump server with no internet access.
 
 ```shell
-python -m venv .venv
-.venv\Scripts\activate          # Windows (use: source .venv/bin/activate on Linux/macOS)
-python -m pip install requests
-python build.py
+./mast-setup                    # Linux and macOS
+python mast-setup               # Windows
 ```
 
-The installer is written to `dist/`. To review its contents, look in `build/assemble`.
+The installer is written to `dist/`. To review its contents, look in `build/assemble`. `./mast-setup --help` lists the options.
+
+The dependencies come from `uv.lock`, and the Python runtime is the python-build-standalone release in `[tool.mast-setup]` of `pyproject.toml`, so two builds of the same commit ship the same files. Downloads are kept in `build-cache/`. The Linux installer runs on glibc 2.28 and newer (RHEL 8, Debian 10, Ubuntu 20.04).
 
 You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.14.10`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
 
@@ -86,6 +86,34 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 ```
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
+
+## Development
+
+From a checkout there are two environments. They are separate, and you can use both.
+
+**`uv sync` for tests and editors.** It makes `.venv` with the versions in `uv.lock`. The tests make their own MAST home (see `conftest.py`).
+
+```shell
+uv sync
+uv run pytest mast/testsuite/unit mast/testsuite/regression tools
+```
+
+**`./mast-setup --development-mode` to run MAST as users do.** It makes `.dev/mast_home`: the layout, launchers and Python runtime of the installer, with the code of the checkout.
+
+```shell
+./mast-setup --development-mode
+.dev/mast_home/mast-system list-domains -a lab -c ...
+```
+
+- MAST is installed editable, so a change to the code is live.
+- The files of `files/mast_home` that git tracks (`etc/default`, the SOMA specs, the web templates and static files) are links to the checkout, so a change to them is live too.
+- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your `hosts.conf` and other local configuration in `.dev/mast_home/etc/local`.
+- Run the command again after you pull: it links new files, removes stale links, and updates the libraries when `uv.lock` changed. `--recreate` starts from an empty home.
+- On Windows, links need developer mode. Without it the files are copied, and you run the command again after you change them.
+
+From a checkout, run MAST through `.dev/mast_home` made by `./mast-setup --development-mode`. Do not make another MAST_HOME by hand, except in tests (`conftest.py` does that).
+
+**MAST runs with its home as the current directory.** The launchers set `MAST_HOME` and change to that folder before they start Python, and some paths in the configuration (`soma_spec_file`, `out_dir`, the web folders) are relative to it. Without `MAST_HOME`, MAST looks for its home in the current directory and its parents (`mast/home.py`).
 
 ## Running the tests
 

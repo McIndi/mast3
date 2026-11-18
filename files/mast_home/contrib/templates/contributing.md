@@ -39,16 +39,21 @@ the [mast.installer](https://github.com/mcindi/mast.installer) project.
 
 You must have the following software installed and on the `PATH` on the build machine:
 
-* Python 3.6, 3.7, 3.8, 3.9, 3.10, 3.11 and 3.12
-* requests
-* git (optional, but recomended for automated builds)
+* Python 3.11 or newer, to run the build script (the installer has its own Python)
+* [uv](https://docs.astral.sh/uv/)
+* git
 
 ## building
 
 1. clone repository `git clone https://github.com/mcindi/mast3`
 2. Change directory `cd mast3`
-3. Execute build script `python build.py`
+3. Execute build script `./mast-setup` (on Windows, `python mast-setup`)
 4. The installation zip file will be in a subdirectory called `dist`
+
+To run MAST from the checkout as users do, with live code, make a
+development home with `./mast-setup --development-mode` and run the
+launchers in `.dev/mast_home`. See the "Development" section of the
+README.
 
 ## Installing
 
