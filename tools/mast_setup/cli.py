@@ -57,6 +57,11 @@ def parser(settings):
         help="The python-build-standalone release tag, or 'latest' to look "
              "up the newest release (to upgrade the interpreter)")
     cli.add_argument(
+        "--linux-glibc", default=settings.get("linux-glibc", "2.28"),
+        help="The oldest glibc that the Linux installer runs on. The "
+             "dependencies are installed from wheels for that glibc, "
+             "whatever the glibc of the build machine.")
+    cli.add_argument(
         "--build-directory", type=Path, default=REPO / "build",
         help="The directory for the build. Its 'assemble' and 'wheel' "
              "folders are deleted at the start.")
@@ -120,7 +125,10 @@ def build(args, platform, machine):
     assemble.upgrade_pip(python)
     requirements = assemble.export_requirements(
         REPO, build_directory / "requirements.txt")
-    assemble.install_requirements(python, requirements)
+    python_platform = None
+    if platform == "linux":
+        python_platform = assemble.linux_platform(args.linux_glibc, machine)
+    assemble.install_requirements(python, requirements, python_platform)
     wheel = assemble.build_wheel(REPO, build_directory / "wheel")
     assemble.install_mast(python, wheel)
     assemble.copy_home_files(REPO, home)

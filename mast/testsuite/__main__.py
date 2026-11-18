@@ -85,10 +85,17 @@ from mast, the following options can be specified:"""
 
     suite = unittest.TestSuite(suites)
     if out_file == "stdout":
-        unittest.TextTestRunner(stream=sys.stdout, verbosity=0).run(suite)
+        result = unittest.TextTestRunner(stream=sys.stdout, verbosity=0).run(suite)
     else:
         with open(out_file, "w") as fp_out:
-            unittest.TextTestRunner(stream=fp_out, verbosity=0).run(suite)
+            result = unittest.TextTestRunner(stream=fp_out, verbosity=0).run(suite)
+    global failed
+    failed = not result.wasSuccessful()
+
+
+# Set by main. test-mast exits with 1 when a test failed, so that a script
+# or a CI job can check the result.
+failed = False
 
 
 if __name__ == "__main__":
@@ -100,3 +107,5 @@ if __name__ == "__main__":
     except Exception:
         make_logger("error").exception("An unhandled exception occurred during execution")
         raise
+    if failed:
+        sys.exit(1)

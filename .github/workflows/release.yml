@@ -71,6 +71,28 @@ jobs:
           "$RUNNER_TEMP/mast/mast-version" | tee version.txt
           grep -F "Version $MAST_VERSION" version.txt
 
+      # A jump server has no internet access. Run the installer in a
+      # container with no network, in an image with the oldest glibc that
+      # the installer supports (linux-glibc in pyproject.toml: 2.28, as
+      # in RHEL 8). test-mast runs the unit tests from inside the bundle,
+      # which also checks that their imports (mock and so on) are there.
+      - name: Run the installer with no network (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --network=none -v "$RUNNER_TEMP/mast:/opt/mast" \
+            almalinux:8-minimal bash -c '
+              set -e
+              ldd --version | head -n 1
+              /opt/mast/mast-version
+              /opt/mast/test-mast --unit
+              /opt/mast/mast-system xor -s user:pass
+              if /opt/mast/mast -c "import urllib.request; urllib.request.urlopen(\"https://pypi.org\", timeout=10)" 2>/dev/null; then
+                echo "The container reached the internet, so this check proves nothing"
+                exit 1
+              fi
+              echo "The installer works with no network"
+            '
+
       - name: Run the installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

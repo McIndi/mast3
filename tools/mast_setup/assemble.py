@@ -84,11 +84,27 @@ def export_requirements(repo, destination):
     return destination
 
 
-def install_requirements(python, requirements):
-    """Install exported requirements into the interpreter of a home."""
-    run(["uv", "pip", "install", "--python", python,
-         "--require-hashes", "--link-mode", "copy", "--compile-bytecode",
-         "--requirements", requirements])
+def linux_platform(glibc, machine):
+    """
+    Return the uv target (`--python-platform`) for Linux wheels that run
+    on glibc `glibc` (for example 2.28) and newer.
+    """
+    return f"{machine}-manylinux_{glibc.replace('.', '_')}"
+
+
+def install_requirements(python, requirements, python_platform=None):
+    """
+    Install exported requirements into the interpreter of a home.
+
+    Without `python_platform`, uv picks the newest wheels that the build
+    machine can run. On Linux, those can need a newer glibc than the
+    machines MAST runs on, so the installer passes a target.
+    """
+    command = ["uv", "pip", "install", "--python", python,
+               "--require-hashes", "--link-mode", "copy", "--compile-bytecode"]
+    if python_platform:
+        command += ["--python-platform", python_platform]
+    run(command + ["--requirements", requirements])
 
 
 def build_wheel(repo, out_dir):

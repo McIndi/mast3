@@ -172,8 +172,12 @@ class TestConsoleScript(HomeTestCase):
             self.skipTest("the console scripts are not installed")
         env = clean_environment()
         env["MAST_HOME"] = mast.config.MAST_HOME
+        # In an unzipped installer, the first line of the script names
+        # the interpreter where the installer was built. The launchers do
+        # not use these scripts, so run it with this interpreter.
+        command = [script] if sys.platform == "win32" else [sys.executable, script]
         result = subprocess.run(
-            [script], cwd=self.outside, env=env,
+            command, cwd=self.outside, env=env,
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Version {}".format(mast.__version__), result.stdout)
