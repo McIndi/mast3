@@ -83,7 +83,8 @@ def run(command, params, detach=False, local=False, principal=queue.LOCAL):
     _out(job_id)
     if not queue.workers():
         _note("No worker is running. The job waits until one starts "
-              "(mast-worker).")
+              "(mast-worker). Until then, the commands that do their own "
+              "job do not wait for it.")
     _note("To see the job: mast-jobs show -j {}".format(job_id[:8]))
     return 0
 

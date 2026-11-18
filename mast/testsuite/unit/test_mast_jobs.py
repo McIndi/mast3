@@ -447,6 +447,8 @@ class TestClaim(SqliteCase):
         self.assertEqual(jobs.claim("w3"), second)
 
     def test_jobs_that_are_not_exclusive_share_an_appliance(self):
+        # Detached jobs keep their order only while a worker is alive
+        jobs.worker_seen("w", "host", 1, 1)
         first = submit("dp1", exclusive=False)
         second = submit("dp1", exclusive=False)
         third = submit("dp1")
@@ -465,6 +467,7 @@ class TestClaim(SqliteCase):
         self.assertEqual(jobs.claim("w4"), fourth)
 
     def test_jobs_for_one_appliance_start_in_order(self):
+        jobs.worker_seen("w", "host", 1, 1)
         submit("dp1")
         blocked = submit("dp1", "dp2")
         behind = submit("dp2")
@@ -473,6 +476,30 @@ class TestClaim(SqliteCase):
         self.assertIsNone(jobs.claim("w2"))
         self.assertEqual(jobs.get(blocked).status, jobs.QUEUED)
         self.assertEqual(jobs.get(behind).status, jobs.QUEUED)
+
+    def test_a_detached_job_does_not_hold_up_while_no_worker_is_alive(self):
+        detached = submit("dp1")
+        attached = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, attached=True,
+            reserved_for="w1")
+        self.assertEqual(jobs.claim("w1", job_id=attached), attached)
+        self.assertEqual(jobs.get(detached).status, jobs.QUEUED)
+        jobs.finish(attached, "w1", jobs.SUCCEEDED)
+        # While a worker is alive, the jobs start in order
+        jobs.worker_seen("w2", "host", 1, 1)
+        behind = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, attached=True,
+            reserved_for="w1")
+        self.assertIsNone(jobs.claim("w1", job_id=behind))
+        self.assertEqual(jobs.claim("w2"), detached)
+
+    def test_an_attached_job_still_holds_up_the_jobs_behind_it(self):
+        first = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, attached=True)
+        second = jobs.submit(
+            "test.work", {"appliances": ["dp1"]}, attached=True)
+        self.assertIsNone(jobs.claim("w1", job_id=second))
+        self.assertEqual(jobs.claim("w1"), first)
 
     def test_a_job_waits_for_what_else_it_locks(self):
         first = jobs.submit("test.checkout", {"appliances": ["dp1"]})
@@ -1242,6 +1269,7 @@ class TestCommandLine(CliCase):
         jobs.reap()
         self.assertEqual(jobs.get(waiting).status, jobs.QUEUED)
         clock.advance(61)
+        jobs.worker_seen("w1", "host", 1, 1)
         # Its submitter is silent. Any look at the queue removes it.
         self.assertIsNone(jobs.claim("w1"))
         info = jobs.get(waiting)
@@ -1323,6 +1351,18 @@ class TestCommandLine(CliCase):
         self.assertEqual(job.status, jobs.QUEUED)
         self.assertIn("No worker is running", err)
         self.assertIn("mast-jobs show -j " + job.id[:8], err)
+
+    def test_a_detached_job_does_not_hold_up_a_command_with_no_worker(self):
+        self.run_cli("work", "-a", "dp1", "--detach")
+        detached = self.only_job()
+        result = []
+        thread = threading.Thread(
+            target=lambda: result.append(self.run_cli("work", "-a", "dp1")))
+        thread.start()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, [(0, "working on dp1\nworked with \n", "")])
+        self.assertEqual(jobs.get(detached.id).status, jobs.QUEUED)
 
     def test_the_queue_options_are_in_the_help(self):
         status, out, _ = self.run_cli("work", "-h")

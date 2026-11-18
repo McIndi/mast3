@@ -31,6 +31,11 @@ one process at a time can be in it.
 * A job waits while another job that started before it, or that was
 submitted before it, uses one of the same appliances. Two jobs that
 are both not exclusive can share an appliance.
+* One exception: while no worker is alive, a job that nobody waits
+for (submitted without `attached`) does not hold up the jobs behind
+it. Only a worker runs such a job, so it would hold them up until a
+worker starts. A program that does its own job does not have to wait
+for it. The job keeps its place and runs when a worker starts.
 * A worker keeps its job with `heartbeat`. If the worker is silent
 for longer than the lease, the job becomes `lost`. A lost job is not
 run again, because nobody knows how much of it was done. The worker
@@ -50,7 +55,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, false, or_, select, true, update
 from sqlalchemy.orm import aliased
 
 from mast.config import get_config
@@ -532,9 +537,14 @@ def reap_if_expired(info, principal=LOCAL):
     return get(info.id, principal)
 
 
-def _next_job(worker_id):
+def _alive_cutoff(now):
+    """A worker that was seen after this time is alive."""
+    return now - timedelta(seconds=config.lease_seconds())
+
+
+def _next_job(worker_id, workers_alive):
     """The query for the oldest queued job that `worker_id` can start
-    now."""
+    now. `workers_alive` is True if a worker process is alive."""
     mine = aliased(JobTarget)
     theirs = aliased(JobTarget)
     other = aliased(Job)
@@ -554,7 +564,12 @@ def _next_job(worker_id):
             # A job that waits also blocks the jobs behind it, so that
             # jobs for one appliance start in the order of submission
             or_(other.status == RUNNING,
-                and_(other.status == QUEUED, older)))
+                and_(other.status == QUEUED, older,
+                     # A detached job waits for a worker. While none is
+                     # alive it must not hold up the jobs that a
+                     # program runs itself.
+                     or_(other.attached_until.is_not(None),
+                         true() if workers_alive else false()))))
         .exists())
     return (
         select(Job.id)
@@ -582,14 +597,24 @@ def claim(worker_id, lease_seconds=None, job_id=None):
     is in `jobs.conf`.
     * `job_id`: Take only this job. It still waits for its turn: the
     result is `None` while the job cannot start.
+
+    While no worker is alive, the queued jobs that were submitted
+    without `attached` do not hold up the other jobs, see the rules at
+    the top of this module.
     """
-    query = _next_job(worker_id)
-    if job_id is not None:
-        query = query.where(Job.id == job_id)
     with db.session() as session:
         db.lock_queue(session.connection())
         now = _now()
         _reap(session, now)
+        # A worker records that it is alive before it claims, so its
+        # own claims see True here
+        workers_alive = session.scalar(
+            select(Worker.id)
+            .where(Worker.last_seen_at >= _alive_cutoff(now)).limit(1)) \
+            is not None
+        query = _next_job(worker_id, workers_alive)
+        if job_id is not None:
+            query = query.where(Job.id == job_id)
         while True:
             found = session.scalar(query)
             if found is None:
@@ -769,8 +794,7 @@ def workers(alive=True, principal=LOCAL):
     authorize(principal, "read")
     query = select(Worker).order_by(Worker.started_at, Worker.id)
     if alive:
-        query = query.where(Worker.last_seen_at >= _now() - timedelta(
-            seconds=config.lease_seconds()))
+        query = query.where(Worker.last_seen_at >= _alive_cutoff(_now()))
     with db.session(write=False) as session:
         return [WorkerInfo.model_validate(row)
                 for row in session.scalars(query)]
