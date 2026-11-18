@@ -45,7 +45,7 @@ from mast.datapower.backups import get_normal_backup
 
 cli = Cli()
 
-MAST_HOME = os.environ["MAST_HOME"]
+from mast.config import MAST_HOME
 
 
 def _pmr_create_dirs(appliances, out_dir, timestamp):

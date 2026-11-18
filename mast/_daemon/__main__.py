@@ -17,30 +17,20 @@ import os
 import sys
 import platform
 
+from mast import home
+
 
 if "Windows" in platform.system():
     import win32serviceutil
 
     def main():
-        exe_dir = os.path.dirname(sys.executable)
-        if "site-packages" in exe_dir:
-            mast_home = os.path.abspath(
-                os.path.join(
-                    exe_dir,
-                    os.pardir,
-                    os.pardir,
-                    os.pardir,
-                    os.pardir
-                )
-            )
+        # mastd.bat sets MAST_HOME. The service manager does not: it
+        # starts pythonservice.exe, which is under
+        # MAST_HOME/python/<version>/Lib/site-packages/win32.
+        if os.environ.get("MAST_HOME"):
+            home.enter()
         else:
-            mast_home = os.path.abspath(os.path.join(exe_dir, os.pardir))
-        anaconda_dir = os.path.join(mast_home, "anaconda")
-        scripts_dir = os.path.join(mast_home, "anaconda", "Scripts")
-        sys.path.insert(0, anaconda_dir)
-        sys.path.insert(0, scripts_dir)
-        os.environ["MAST_HOME"] = mast_home
-        os.chdir(mast_home)
+            home.enter(home.find_from(sys.executable))
 
         from .mast_daemon import MASTd
 
@@ -50,8 +40,8 @@ else:
 
     def main():
         from .mast_daemon import MASTd
+        from mast.config import MAST_HOME as mast_home
 
-        mast_home = os.environ["MAST_HOME"]
         pid_file = os.path.join(
             mast_home,
             "var",

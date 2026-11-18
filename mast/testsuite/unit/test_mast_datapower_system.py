@@ -512,8 +512,9 @@ class TestFirmwareUpgrade(SystemTestCase):
 class TestFilesAndAudits(SystemTestCase):
 
     def files(self):
+        # The paths use "/" on every platform.
         return sorted(
-            os.path.relpath(path, self.out_dir)
+            os.path.relpath(path, self.out_dir).replace(os.sep, "/")
             for path in glob.glob(
                 os.path.join(self.out_dir, "**"), recursive=True)
             if os.path.isfile(path))

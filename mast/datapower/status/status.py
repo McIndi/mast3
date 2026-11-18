@@ -22,6 +22,7 @@ from mast.timestamp import Timestamp
 from mast.datapower import datapower
 from mast.xor import xordecode, xorencode
 from mast.logging import make_logger, logged
+from mast.config import MAST_HOME
 
 
 PROVIDER_MAP = ({
@@ -35,7 +36,7 @@ PROVIDER_MAP = ({
     "SystemUsage.WorkList": datapower.STATUS_XPATH + 'SystemUsage/WorkList'
     })
 
-mast_home = os.environ["MAST_HOME"]
+mast_home = MAST_HOME
 
 
 def get_data_file(f):

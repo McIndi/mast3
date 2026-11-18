@@ -40,10 +40,9 @@ import platform
 import subprocess
 from mast import __version__
 
-try:
-    mast_home = os.environ["MAST_HOME"]
-except KeyError:
-    mast_home = os.getcwd()
+from mast.config import MAST_HOME
+
+mast_home = MAST_HOME
 
 __all__ = ["CronExpression", "parse_atom", "DEFAULT_EPOCH", "SUBSTITUTIONS"]
 __license__ = "Public Domain"

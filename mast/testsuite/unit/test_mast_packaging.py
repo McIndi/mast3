@@ -145,6 +145,37 @@ class TestMASTPackaging(unittest.TestCase):
             with self.subTest(module=name):
                 importlib.import_module(name)
 
+    def test_every_dependency_is_installed(self):
+        # The installer bundles the dependencies that uv.lock lists. A
+        # dependency that is declared in pyproject.toml but missing from
+        # the bundle fails here, not when a user runs the command that
+        # imports it. The extras of a dependency (psycopg[binary]) are
+        # checked too.
+        try:
+            from packaging.requirements import Requirement
+        except ImportError:
+            self.skipTest("packaging is not installed")
+        pending = [(Requirement(r), {"extra": ""})
+                   for r in metadata.requires("mast") or []]
+        checked = set()
+        while pending:
+            requirement, environment = pending.pop()
+            if requirement.marker and not requirement.marker.evaluate(environment):
+                continue
+            key = (requirement.name.lower(), tuple(sorted(requirement.extras)))
+            if key in checked:
+                continue
+            checked.add(key)
+            with self.subTest(dependency=str(requirement)):
+                try:
+                    metadata.version(requirement.name)
+                except metadata.PackageNotFoundError:
+                    self.fail("{} is declared but not installed".format(requirement))
+                for extra in requirement.extras:
+                    for r in metadata.requires(requirement.name) or []:
+                        pending.append((Requirement(r), {"extra": extra}))
+        self.assertGreater(len(checked), 20)
+
     def test_expected_subpackages_are_present(self):
         names = {m.name for m in pkgutil.walk_packages(mast.__path__, "mast.")
                  if m.ispkg}

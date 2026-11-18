@@ -19,7 +19,7 @@ from mast.timestamp import Timestamp
 from mast.datapower import datapower
 from mast.datapower.datapower import is_environment, get_appliances
 from mast.xor import xordecode, xorencode
-from mast.config import get_configs_dict
+from mast.config import get_configs_dict, MAST_HOME
 from urllib.parse import unquote
 from mast.logging import make_logger
 import cherrypy
@@ -40,11 +40,11 @@ config = get_configs_dict()["server.conf"]
 static_dir = config["dirs"]["static"]
 template_dir = config["dirs"]["template"]
 if template_dir != os.path.abspath(template_dir):
-    template_dir = os.path.join(os.environ["MAST_HOME"], template_dir)
+    template_dir = os.path.join(MAST_HOME, template_dir)
 plugin_dir = config["dirs"]["plugins"]
-plugin_dir = os.path.join(os.environ["MAST_HOME"], plugin_dir)
+plugin_dir = os.path.join(MAST_HOME, plugin_dir)
 upload_dir = config["dirs"]["upload"]
-upload_dir = os.path.join(os.environ["MAST_HOME"], upload_dir)
+upload_dir = os.path.join(MAST_HOME, upload_dir)
 static_path = config["paths"]["static"]
 log_file = config["logging"]["file"]
 log_level = int(config["logging"]["level"])
