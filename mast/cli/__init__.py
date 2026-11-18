@@ -188,10 +188,10 @@ class Cli(object):
             cli = Cli(main=main)
             cli.run()
     """
-    def __init__(self, description="", main=None, namespace=None):
+    def __init__(self, description="", main=None, namespace=None, prog=None):
         """
         _method_: `mast.cli.Cli.__init__(self, description="", main=None,
-        namespace=None)`
+        namespace=None, prog=None)`
 
         This is the constructor for this class. A few options are
         available which allows defining how the program will appear
@@ -215,13 +215,21 @@ class Cli(object):
         `--detach` and `--local`. A MAST plugin gives its own name
         (`mast.datapower.backups` gives `backups`), which is how a
         worker finds the command.
+        * `prog`: The name of the program in the help. The default is
+        `mast-<namespace>`, the name of the launcher of a plugin, or
+        else the name that Python was started with. A module that is
+        run with `python -m` is imported before Python knows that
+        name, so its help would say `-m`.
         """
         if namespace is not None and main is not None:
             raise ValueError("a Cli with main cannot have a namespace")
         self.namespace = namespace
         self.main = main
         self.commands = {}
+        if prog is None and namespace is not None:
+            prog = "mast-{}".format(namespace)
         self.parser = argparse.ArgumentParser(
+            prog=prog,
             description=description,
             formatter_class=argparse.RawDescriptionHelpFormatter)
         if self.main is None:
