@@ -4,6 +4,92 @@
 
 [TOC]
 
+# MAST Version 3.14.10
+
+This release brings a job queue, a new command line built on pydantic
+models, and a new installer with its own Python 3.14.10. Please read
+"Changes that need your attention" before you upgrade.
+
+## Changes that need your attention
+
+* A command now exits with status 1 when an appliance refuses an
+action, also when the other appliances succeed. Before, the exit status
+was 0 unless the command stopped with an error. Check the scripts that
+call MAST and test the exit status. Commands whose result is a download
+or a table of their own (`fetch-logs`, `check-connectivity` and others)
+and the steps of `git-deploy` do not report a failure this way yet.
+* `test-mast` exits with status 1 when a test fails.
+* The Windows launchers (`mast-system.bat` and the others) return the
+exit status of the command. Before, they always returned 0.
+* An option whose value has no usable default is now required, for
+example `--file-in` of `firmware-upgrade`, `deploy` and `set-file`.
+* A bad option value is refused before the command starts, with exit
+status 2 and a message that names the option.
+* A plugin from outside this repository must declare its parameters
+with a model (`mast.cli.Params`). A command of the old form, with its
+options in the signature of a function, is refused when it is
+registered.
+* `git-deploy` opens its progress window only with `--progress-window`.
+* The Windows `PATH` no longer has the Anaconda `Library\bin` folder.
+* The installer is built with `./mast-setup` (see the Contributing
+Guide). `build.py` and the `*-requirements.txt` files are gone.
+
+## Features
+
+* The job queue. Each command of the DataPower plugins, and each form
+of the web GUI, is a job in a database (SQLite, or PostgreSQL in
+`etc/local/jobs.conf`), with its progress, its result and its status.
+Jobs for one appliance run one at a time, in the order of submission.
+Commands that only read can share an appliance.
+* `mast-worker` runs jobs from the queue. `mastd` hosts one too. With
+no worker running, a command does its own job, as before.
+* `mast-jobs` lists, shows, follows and cancels jobs, and lists the
+workers.
+* Every queued command has `--detach` (queue the job and return) and
+`--local` (do the job in this process).
+* Ctrl-C cancels the job of a command at its next step.
+* The web GUI shows the progress of a job while it runs, with a Cancel
+link, and then its output.
+* The credentials of a waiting job are stored encrypted, and secret
+values are removed from the progress, the result and the history of a
+job before these are stored.
+* Every command declares its parameters with a pydantic model. The
+command line, the web form and the help are all made from it.
+* A command prints the response of each appliance, also when the action
+failed. The list commands print a table.
+* The installer has its own Python (python-build-standalone 3.14.10)
+and every library, at versions locked in `uv.lock`. It runs with no
+internet access. The Linux installer runs on glibc 2.28 and newer
+(RHEL 8, Debian 10, Ubuntu 20.04). Installers for Windows, Linux and
+macOS are built for each release.
+* The console scripts of the installer (`python/<version>/bin`) work
+from any directory, with no `MAST_HOME` set.
+* MAST finds its home without the launchers: from `MAST_HOME`, from the
+current directory, or from its Python interpreter.
+* A relative `soma_spec_file` is relative to `MAST_HOME`.
+
+## Bug Fixes
+
+* `mastd` no longer fails when it checks its plugins after the first
+minute (`Thread.isAlive` was removed from Python).
+* `system copy-file` no longer fails (`base64.encodestring` was removed
+from Python).
+* `firmware-upgrade` no longer waits for the appliance for ever. It
+checks every 5 seconds and stops the remaining upgrades on timeout.
+* `firmware-upgrade` no longer fails on its second clean-up when the
+backup directory exists.
+* `disable-domain` and `enable-domain` no longer repeat rows in the web
+table.
+* `deployment clean-up` no longer ends with a `NameError` on the
+command line.
+* With `--save-config`, several `network` commands showed the responses
+of the change twice instead of the responses of the save.
+* `display-ethernet-interface` now uses `--timeout`.
+* Two web GUI jobs of one command in the same second no longer share
+their output files.
+* `git-deploy` no longer changes the working directory of the process,
+and its log files no longer collect the logs of later deployments.
+
 # MAST Version 3.11.6.post2
 
 ## Bug Fixes

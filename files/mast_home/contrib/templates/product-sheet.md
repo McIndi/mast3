@@ -48,8 +48,9 @@ support and security knowledge.
     * Certificates and keys
 * Examine any of the DataPower Status Providers ad-hoc (e.g. during maintenance and/or troubleshooting) or on a scheduled basis.
 * View or manage a single appliance or a user defined environment (a set of appliances in a single configuration file) that can be referred to by name anywhere MAST asks for a hostname/IP.
-* Post processing capabilities can be configured to output in numerous formats (raw, XML spreadsheet, csv, console based table, SQL lite....) to be viewed locally, sent to a file, or as an email alert.
-* Cross platform compatibility (Windows and Linux, with OSX support in development) allows for staffing flexibility, uniform presentations and command commonality.
+* Results can be viewed in the terminal or the web GUI, saved to files, or processed further with the Python API.
+* Every command is recorded as a job, with who ran it, its progress, its result and its status, so you have an audit trail of what was done to which appliance and how it went. Jobs for one appliance run one at a time, in order.
+* Cross platform compatibility (Windows, Linux and macOS, each with a self-contained installer that brings its own Python) allows for staffing flexibility, uniform presentations and command commonality.
 * To protect the company's infrastructure investments and for maximum flexibility, MAST can run in a dedicated workstation(s)/server(s), virtualized workstation(s)/server(s) or container(s) and is supported for both on-premises and in private / external clouds.
 * MAST performance is maximized through lazy loading, reducing resource usage by only loading elements as needed, and a small foot print for the MAST installation itself.
 
@@ -64,14 +65,14 @@ support and security knowledge.
 * Three access points:
     * Web GUI - common parameters (such as the hostnames of the appliances) appear in a common area of the screen which always visible and affects any task you might perform.
     * CLI client - each CLI command accepts a standard set of arguments which all behave the same way.
-    * Simple API - all of MAST's CLI commands are dynamically generated from functions based on their signature. These functions are also importable, so you can use them from our API without spawning a separate process.
+    * Simple API - each MAST command declares its parameters once, with a model, and the CLI, the web form and the help are all made from that model. The commands are also importable, so you can use them from our API without spawning a separate process.
 
 ### Support
 
 * Development
     * The MAST development team is continually seeking improved speed, functionality, feature extensions, and welcomes input and requests from clients and the open-source community.
-    * Hotfixes are available immediately after release from the Git Hub repository.
-* Documentation is regenerated with every hotfix and MAST version change and resides in the local installation.
+    * Fixes are available from the [GitHub repository](https://github.com/McIndi/mast3) as soon as they are merged, and each release has installers on its [GitHub release page](https://github.com/McIndi/mast3/releases).
+* Documentation can be regenerated from the installed version with `mast contrib/gendocs.py`, and resides in the local installation.
 * Contract Services
     * Service level options
         * 24x7x4h
@@ -91,5 +92,5 @@ support and security knowledge.
 
 ### Contact information
 
-* Sales: [mcindi.com](www.mcindi.com/sales/mast) & [email](mailto:mastsales@mcindi.com)
-* Support: [mcindi.com/support](www.mcindi.com/support/mast) & [email](mailto:mastsupport@mcind.com)
+* Sales: [mcindi.com](https://www.mcindi.com/software/mast/) & [email](mailto:sales@mcindi.com)
+* Support: [mcindi.com](https://www.mcindi.com/) & [email](mailto:support@mcindi.com)

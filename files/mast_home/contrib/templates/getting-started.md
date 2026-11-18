@@ -140,7 +140,7 @@ is not in your system's trust-store, you will need to add a "-n" to each
 of these commands to disable hostname verification.
 
 We will cover some basic usage of MAST here, but for more details see the
-[CLI Reference](/CLIReference.html) and the [API Reference](/APIReference). We
+[CLI Reference](./CLIReference.html) and the [API Reference](./APIReference.html). We
 will go over some common use-case scenarios and complete them using the CLI.
 Here are the scenarios we will cover:
 
@@ -159,25 +159,25 @@ In order to list the users we currently have on the appliances, we can
 issue the following command:
 
     :::bash
-    $ ./mast-accounts list-users -a all -c username:password
+    $ ./mast-accounts list-users -a dev -c username:password
     dev_dp_1
     ========
-    user_1
-    user_2
-    user_3
+        user_1
+        user_2
+        user_3
 
     dev_dp_2
     ========
-    user_1
-    user_2
-    user_3
-    user_4
+        user_1
+        user_2
+        user_3
+        user_4
 
-    common
+    Common
     ======
-    user_1
-    user_2
-    user_3
+        user_1
+        user_2
+        user_3
 
 We can see here that there is one user which only exists on the dev_dp_2
 appliance. This may or may not be purposeful (and I've just included it here
@@ -186,35 +186,35 @@ this is irrelevant. We need to add the new user to the dev appliances. We can
 do that with the following command:
 
     :::bash
-    `$ ./mast-accounts add-user -a dev -c username:password -u new_user -p pa55word -g developer -s`
+    $ ./mast-accounts add-user -a dev -c username:password -u new_user -p pa55word -g developer -s
 
 This will add a user to both dev appliances and associate them with the
 developer group. We can then verify that it was added by listing the users
 just as we did above:
 
     :::bash
-    `$ ./mast-accounts list-users -a all -c username:password`
+    $ ./mast-accounts list-users -a dev -c username:password
     dev_dp_1
     ========
-    user_1
-    user_2
-    user_3
-    new_user
+        user_1
+        user_2
+        user_3
+        new_user
 
     dev_dp_2
     ========
-    user_1
-    user_2
-    user_3
-    user_4
-    new_user
+        user_1
+        user_2
+        user_3
+        user_4
+        new_user
 
-    common
+    Common
     ======
-    user_1
-    user_2
-    user_3
-    new_user
+        user_1
+        user_2
+        user_3
+        new_user
 
 The "-s" flag to the add-users command told MAST to save the configuration
 after the user was added, so we could stop here, but we should probably
@@ -222,7 +222,7 @@ ensure that our new user needs to change their password on the next login. We
 can do that with the following command:
 
     :::bash
-    `$ ./mast-accounts force-change-password -a dev -c username:password -U new_user`
+    $ ./mast-accounts force-change-password -a dev -c username:password -U new_user
 
 Now when the new user goes to log onto the appliance, they will be forced to
 change their password. That concludes our first use case, now we will look at
@@ -243,57 +243,57 @@ our development appliances. We can do that with the following command:
     $ ./mast-system list-domains -a dev -c username:password
     dev_dp_1
     ========
-    default
-    domain_1
-    domain_2
+        default
+        domain_1
+        domain_2
 
     dev_dp_2
     ========
-    default
-    domain_1
-    domain_2
-    domain_3
+        default
+        domain_1
+        domain_2
+        domain_3
 
-    common
+    Common
     ======
-    default
-    domain_1
-    domain_2
+        default
+        domain_1
+        domain_2
 
 We can see again that dev_dp_2 has one domain that doesn't exists on dev_dp_1,
 but that's not our concern right now. We need to add a domain named new_domain
 to both boxes. We can do that with the following command:
 
     :::bash
-    `$ ./mast-system add-domain -a dev -c username:password -d new_domain -s`
+    $ ./mast-system add-domain -a dev -c username:password -d new_domain -s
 
 This will add our domain and the "-s" flag will cause MAST to save the
 configuration. Now all that is left to do is to list all the domains again,
 just to be sure that it was added.
 
     :::bash
-    `$ ./mast-system list-domains -a dev -c username:password`
+    $ ./mast-system list-domains -a dev -c username:password
     dev_dp_1
     ========
-    default
-    domain_1
-    domain_2
-    new_domain
+        default
+        domain_1
+        domain_2
+        new_domain
 
     dev_dp_2
     ========
-    default
-    domain_1
-    domain_2
-    domain_3
-    new_domain
+        default
+        domain_1
+        domain_2
+        domain_3
+        new_domain
 
-    common
+    Common
     ======
-    default
-    domain_1
-    domain_2
-    new_domain
+        default
+        domain_1
+        domain_2
+        new_domain
 
 As we can see our new domain is now on both boxes. Next we will look at how to
 import a configuration ZIP file into our new domain.
@@ -307,17 +307,42 @@ task to import the configuration into our dev environment. We can do that with
 this command:
 
     :::bash
-    `$ ./mast-developer import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip`
+    $ ./mast-developer import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip
 
 Now, there is a reason that this command does not persist the changes and that
 is to give the interested parties a chance to "check-out" the results. Once
 that's done, you can save the configuration with the following command:
 
     :::bash
-    `$ ./mast-system save -a dev -c username:password -D new_domain`
+    $ ./mast-system save -a dev -c username:password -D new_domain
 
 That's it, simple really, but this is all in dev. There are a lot more
 restrictions about making changes in our qa and prod environments.
+
+# Jobs
+
+Each command that we ran above was recorded as a job, with its progress,
+its result and its status. You can list the newest jobs, and look at one
+of them, with mast-jobs. The start of the id of a job is enough:
+
+    :::bash
+    $ ./mast-jobs list
+    $ ./mast-jobs show -j 3f2a
+
+A command exits with status 1 if it failed on any of the appliances, so a
+script can check `$?`. Ctrl-C cancels the job of
+a command at its next step.
+
+With a worker running (`./mast-worker`, or the one that mastd hosts), a
+long command can be left to the worker. `--detach` prints the id of the
+job and returns at once:
+
+    :::bash
+    $ ./mast-backups normal-backup -a dev -c username:password -D all-domains --detach
+    $ ./mast-jobs follow -j 3f2a
+
+The [Installation Guide](./installation.html) explains how to set up the
+job queue, including how to use a PostgreSQL database.
 
 # Conclusion
 

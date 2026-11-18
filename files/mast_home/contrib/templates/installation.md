@@ -17,9 +17,13 @@ possible. Let's first review the requirements:
 
 The following platforms are supported:
 
-* Linux
+* Linux, with glibc 2.28 or newer (for example RHEL 8, Debian 10 or Ubuntu 20.04)
 * Windows
-* OS X
+* macOS
+
+The installation zip file has its own Python and every library that MAST
+needs, so nothing else has to be installed and no internet access is needed.
+The one exception is `git-deploy`, which needs the `git` program on the `PATH`.
 
 ## Security concerns
 
@@ -34,7 +38,36 @@ there is the option to install MAST on your team's workstation.
 # Installing MAST
 
 The easiest way to install MAST for IBM DataPower is to place the installation zip file
-in the directory you want your MAST installation and extract it.
+in the directory you want your MAST installation and extract it. That directory is
+`$MAST_HOME`. Put your own configuration in `$MAST_HOME/etc/local`: a file there
+overrides the settings of the file with the same name in `$MAST_HOME/etc/default`.
+
+The launchers in `$MAST_HOME` (`mast-system`, `mast-backups` and so on, with `.bat`
+on Windows) are the usual way to run MAST. The console scripts in
+`$MAST_HOME/python/<version>/bin` (`Scripts` on Windows) also work from any directory,
+for example through a link in `/usr/local/bin`. On macOS they need macOS 13 or newer.
+
+# The job queue
+
+Each command of the DataPower plugins, and each form of the web GUI, is a job in the
+job queue. You do not have to set anything up: by default the queue is a SQLite
+database in `$MAST_HOME/var/jobs`, and a command with no worker to run it does its own
+job.
+
+* To use PostgreSQL instead, set `url` in the `[database]` section of
+`$MAST_HOME/etc/local/jobs.conf`, for example
+`postgresql+psycopg://user:password@host/database`. `$MAST_HOME/etc/default/jobs.conf`
+explains every setting.
+* The credentials of a waiting job are encrypted with the key in
+`$MAST_HOME/etc/local/jobs.key`. MAST makes this file the first time it is needed.
+Every process that uses the database must read the same key, so back it up with the
+database, and copy it to every MAST installation that shares a PostgreSQL database.
+* Workers run the jobs. `mastd` hosts one, unless `mastd = false` is in the `[worker]`
+section of `jobs.conf`. To run workers without `mastd`, start `mast-worker` as a
+service. A worker stops when it gets SIGTERM, after its running jobs end.
+* A job of the web GUI is done by a worker if one is running, and otherwise by the web
+server. If the web server (`mastd` or `mast-web`) stops before such a job starts, the
+job is cancelled.
 
 # Installing mastd
 
