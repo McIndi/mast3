@@ -62,7 +62,7 @@ class Work(Params):
     appliances: list[str] = Option(
         default_factory=list, short="a", widget="appliances")
     credentials: list[str] = Option(
-        default_factory=list, short="c", secret=True)
+        default_factory=list, short="c", secret=True, widget="credentials")
     seconds: float = Option(0.0, help="How long to work")
     fail: bool = Option(False, help="Raise an exception")
     exit_status: int | None = Option(None, help="Call sys.exit")
@@ -181,6 +181,16 @@ def make_cli():
     def judge(params: Work):
         """Fail on each appliance whose name starts with "bad"."""
         return Judged(params.appliances)
+
+    @cli.command("basic")
+    def basic(params: Work):
+        """Decode xor encoded credentials, as Environment does, and
+        repeat them in a header."""
+        from mast.xor import xordecode
+        decoded = xordecode(params.credentials[0]).decode()
+        say("Authorization: Basic " + base64.b64encode(
+            decoded.encode()).decode())
+        return Text("sent as " + decoded, history="<p>{}</p>".format(decoded))
 
     @cli.command("encode", queued=False)
     def encode(params: Work):
@@ -973,6 +983,42 @@ class TestRunner(SqliteCase):
         found = secrets.redactor(Work, {"credentials": ["user:passw"]})
         self.assertEqual(found("Basic {}\n".format(padded)),
                          "Basic ********\n")
+
+    def test_xor_encoded_credentials_are_decoded(self):
+        from mast.xor import xorencode
+        encoded = xorencode("user:s3cret")
+        self.assertNotIn(":", encoded)
+        found = secrets.redactor(Work, {"credentials": [encoded]})
+        basic = base64.b64encode(b"user:s3cret").decode()
+        self.assertEqual(
+            found("{} | {} | {}".format(encoded, "user:s3cret", basic)),
+            "******** | ******** | ********")
+        # Only the credentials are decoded
+        class Other(Params):
+            token: str = Option("", secret=True)
+        found = secrets.redactor(Other, {"token": encoded})
+        self.assertEqual(found("user:s3cret " + encoded),
+                         "user:s3cret ********")
+        # A value that is not xor encoded is no problem
+        found = secrets.redactor(Work, {"credentials": ["not base64!"]})
+        self.assertEqual(found("not base64!"), "********")
+
+    def test_xor_encoded_credentials_are_not_stored(self):
+        from mast.xor import xorencode
+        encoded = xorencode("user:s3cret")
+        basic = base64.b64encode(b"user:s3cret").decode()
+        job_id = jobs.submit("test.basic", {"credentials": [encoded]})
+        jobs.run_next("w1")
+        info, result = jobs.get(job_id), jobs.result(job_id)
+        self.assertEqual(info.status, jobs.SUCCEEDED)
+        self.assertIn("Authorization: Basic ********",
+                      [e.message for e in jobs.events(job_id)])
+        self.assertEqual(result.text, "sent as ********")
+        self.assertEqual(result.history, "<p>********</p>")
+        for found in [e.message for e in jobs.events(job_id)] + [
+                result.text, result.html, result.history]:
+            for secret in ("s3cret", basic, encoded):
+                self.assertNotIn(secret, found)
 
     def test_a_secret_with_the_characters_of_a_pattern(self):
         redact = secrets.Redactor({"p@ss.w*rd(1)"})

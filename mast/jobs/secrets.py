@@ -49,6 +49,9 @@ __all__ = ["seal", "unseal", "scrub", "redactor", "Redactor",
 
 _MARK = "$secret"
 
+# The widget of the credentials, see mast.plugin_utils.params.CREDENTIALS
+_CREDENTIALS_WIDGET = "credentials"
+
 # What stands in the place of a secret value in the record of a job
 REDACTED = "********"
 
@@ -236,13 +239,40 @@ def redactor(model, values):
     has the parameters of the job, not encrypted.
 
     A value is found as it was given, base64 encoded, and escaped for
-    XML or HTML (once or twice). A command that changes a secret in
-    another way before it reports it must not report it.
+    XML or HTML (once or twice).
+
+    Credentials can be given xor encoded (the output of `mast-system
+    xor`), and the command decodes them before it uses them. Such a
+    value is decoded here too, and the decoded `user:password` is
+    found in the same forms. It is decoded with the key in `xor.conf`
+    of the host that runs the job. That must be the key of the host
+    that gave the value, or the job could not use the credentials.
     """
     found = set()
-    for name in _secret_fields(model):
-        value = values.get(name)
+    for spec in cli_params.options(model):
+        if not spec.secret:
+            continue
+        value = values.get(spec.name)
         for item in value if isinstance(value, list) else [value]:
-            if isinstance(item, str) and item:
-                found.update(_forms(item))
+            if not isinstance(item, str) or not item:
+                continue
+            found.update(_forms(item))
+            if spec.widget == _CREDENTIALS_WIDGET and ":" not in item:
+                decoded = _xor_decoded(item)
+                if decoded:
+                    found.update(_forms(decoded))
     return Redactor(found)
+
+
+def _xor_decoded(value):
+    """Return the credentials in `value`, which is xor encoded, or
+    `None` if it is not."""
+    # Imported here: mast.xor reads xor.conf
+    from mast.xor import xordecode
+    try:
+        decoded = xordecode(value)
+        if isinstance(decoded, bytes):
+            decoded = decoded.decode("utf-8")
+    except Exception:
+        return None
+    return decoded if ":" in decoded else None
