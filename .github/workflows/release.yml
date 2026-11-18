@@ -31,11 +31,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # setup-python runs ./mast-setup. The installer bundles its own
+      # interpreter from python-build-standalone.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      # The build exports the pinned dependencies from uv.lock.
+      # mast-setup installs the dependencies of uv.lock with uv.
       - uses: astral-sh/setup-uv@v10.3.3
+      # The interpreter is pinned in pyproject.toml, so the download can be
+      # cached by that file.
+      - uses: actions/cache@v4
+        with:
+          path: build-cache
+          key: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Check that the tag matches the MAST version
         shell: bash
@@ -52,13 +61,7 @@ jobs:
           esac
 
       - name: Build the installer
-        env:
-          # build.py reads the python-build-standalone release from the
-          # GitHub API. The token prevents rate-limit failures.
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python -m pip install requests
-          python build.py --log-level 20
+        run: python mast-setup --log-level 20
 
       - name: Run the installer (Linux and macOS)
         if: runner.os != 'Windows'

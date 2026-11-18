@@ -87,6 +87,16 @@ system = "mast.datapower.system:WebPlugin"
 mastd_web_plugin = "mast.datapower.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
 
+# The interpreter that ./mast-setup bundles. The installer ships the
+# newest patch release of `python` in the python-build-standalone release
+# `python-build-standalone`, so a build of the same commit always ships
+# the same interpreter. To upgrade it, run
+# `./mast-setup --python-build-standalone latest` and put the release
+# that it reports here.
+[tool.mast-setup]
+python = "3.14"
+python-build-standalone = "20261110"
+
 [tool.setuptools.packages.find]
 include = ["mast", "mast.*"]
 
