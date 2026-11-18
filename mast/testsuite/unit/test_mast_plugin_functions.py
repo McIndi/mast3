@@ -379,6 +379,24 @@ class WebFormTestCase(unittest.TestCase):
         self.assertIn("&lt;ok&gt;", state["html"])
         self.assertTrue(jobs.get(job_id).worker_id.startswith(worker.id))
 
+    def test_the_job_is_done_here_when_the_last_worker_stops_before_it(self):
+        # A worker is recorded as alive, but it stops before it takes
+        # the job. The web server must then do the job, once, and the
+        # browser must see it end.
+        jobs.worker_seen("ghost", "host", 1, 1)
+        self.addCleanup(jobs.worker_gone, "ghost")
+        job_id = self.job_id(self.submit(callable="example"))
+        for _ in range(5):
+            time.sleep(0.05)
+            self.assertEqual("queued", self.state(job_id)["status"])
+        self.assertEqual([], calls)
+        jobs.worker_gone("ghost")
+        state = self.finished(job_id)
+        self.assertEqual("succeeded", state["status"])
+        self.assertIn("&lt;ok&gt;", state["html"])
+        self.assertEqual(1, len(calls))
+        self.assertNotEqual("ghost", jobs.get(job_id).worker_id)
+
     def test_invalid_value_is_reported(self):
         html = self.post(callable="example", retries="many")
         self.assertIn("retries", html)

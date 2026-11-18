@@ -47,7 +47,7 @@ from sqlalchemy import func, select, text
 
 from mast import jobs
 from mast.cli import Cli, Option, Params, Table, Text, checkpoint, say
-from mast.jobs import client, db, queue, registry, secrets
+from mast.jobs import client, config, db, queue, registry, runner, secrets
 from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Base, Job, JobTarget
 from mast.jobs.worker import Plugin, Worker
@@ -1844,7 +1844,118 @@ class TestWorkersTogether(SqliteCase):
             self.assertEqual(worker.exitcode, 0)
 
 
+class TestStart(SqliteCase):
+    """
+    client.start, which the web GUI uses: a thread of the web server
+    watches each job until it leaves the queue, and does the job when
+    no worker is alive. The tests take the place of that thread and
+    call its step() themselves, so that they decide what happens
+    between two steps.
+    """
+    def setUp(self):
+        super().setUp()
+        del sent[:]
+
+    def start(self):
+        """Start a job as the web GUI does, without the thread. Return
+        the id of the job and its monitor."""
+        # Only the threading of client.py: patching threading.Thread
+        # itself would break the modules that subclass it on import
+        with mock.patch.object(client, "threading") as threading_:
+            job_id = client.start("test.requests", {"appliances": ["dp1"]})
+        thread = threading_.Thread
+        monitor = thread.call_args.kwargs["target"].__self__
+        self.assertIsInstance(monitor, client._Monitor)
+        thread.return_value.start.assert_called_once_with()
+        return job_id, monitor
+
+    def worker_alive(self, worker_id="ghost"):
+        """Record a worker as alive. No such worker takes jobs."""
+        jobs.worker_seen(worker_id, "host", 1, 1)
+
+    def test_a_job_waits_while_a_worker_is_alive(self):
+        self.worker_alive()
+        job_id, monitor = self.start()
+        for _ in range(3):
+            self.assertFalse(monitor.step())
+        self.assertEqual(jobs.get(job_id).status, "queued")
+        self.assertIsNotNone(self.attached_until(job_id))
+        self.assertEqual(sent, [])
+
+    def test_the_job_runs_here_once_when_the_last_worker_stops_first(self):
+        self.worker_alive()
+        job_id, monitor = self.start()
+        self.assertFalse(monitor.step())
+        jobs.worker_gone("ghost")
+        self.assertTrue(monitor.step())
+        self.assertEqual(sent, ["dp1"])
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, "succeeded")
+        self.assertEqual(info.worker_id, monitor.local.worker_id)
+        self.assertEqual(jobs.result(job_id).text, "sent")
+        # Nothing more happens
+        self.assertTrue(monitor.step())
+        self.assertEqual(sent, ["dp1"])
+
+    def test_a_worker_that_comes_back_first_does_the_job(self):
+        job_id, monitor = self.start()
+        self.worker_alive("back")
+        # While a worker is alive, the monitor leaves the job to it
+        self.assertFalse(monitor.step())
+        self.assertEqual(jobs.claim("back", job_id=job_id), job_id)
+        self.assertTrue(monitor.step())
+        self.assertFalse(monitor.local.running)
+        runner.run_job(job_id, "back")
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(jobs.get(job_id).worker_id, "back")
+
+    def test_a_worker_that_comes_back_late_does_not_get_the_job(self):
+        job_id, monitor = self.start()
+        self.assertTrue(monitor.step())
+        self.worker_alive("back")
+        self.assertIsNone(jobs.claim("back", job_id=job_id))
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(jobs.get(job_id).worker_id, monitor.local.worker_id)
+
+    def test_a_job_cancelled_while_it_waits_never_runs(self):
+        self.worker_alive()
+        job_id, monitor = self.start()
+        self.assertFalse(monitor.step())
+        jobs.cancel(job_id)
+        self.assertTrue(monitor.step())
+        jobs.worker_gone("ghost")
+        self.assertTrue(monitor.step())
+        self.assertEqual(sent, [])
+        self.assertEqual(jobs.get(job_id).status, "cancelled")
+
+    def test_the_job_is_cancelled_when_this_process_stops_before_it_starts(self):
+        clock = self.use_clock()
+        self.worker_alive()
+        job_id, monitor = self.start()
+        # The process stops: the monitor does no more steps
+        clock.advance(config.lease_seconds() + 1)
+        jobs.reap()
+        info = jobs.get(job_id)
+        self.assertEqual(info.status, "cancelled")
+        self.assertIn("stopped before the job started", info.error)
+        self.assertEqual(sent, [])
+
+    def test_the_thread_does_the_job_when_no_worker_is_alive(self):
+        job_id = client.start("test.requests", {"appliances": ["dp1"]})
+        self.assertTrue(wait_for(lambda: jobs.get(job_id).finished))
+        self.assertEqual(jobs.get(job_id).status, "succeeded")
+        self.assertEqual(sent, ["dp1"])
+
+    def attached_until(self, job_id):
+        with db.session() as session:
+            return session.get(Job, job_id).attached_until
+
+
 class TestSchemaPostgres(PostgresMixin, TestSchema):
+    pass
+
+
+class TestStartPostgres(PostgresMixin, TestStart):
     pass
 
 

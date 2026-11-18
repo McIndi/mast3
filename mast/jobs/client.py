@@ -213,23 +213,25 @@ def start(command, params, principal=queue.LOCAL, job_id=None):
     its id at once. The web GUI uses this. The caller then asks the
     queue for the progress and the result of the job.
 
-    If a worker is alive, the worker does the job. If not, a thread of
-    this process does it, so that a web server with no worker still
-    works. That job belongs to this process: if the process stops
-    before the job starts, the job is cancelled.
+    A thread of this process watches the job while it waits (see
+    `_Monitor`). While a worker is alive, the thread leaves the job to
+    the workers. When no worker is alive, the thread does the job
+    itself, so that a web server with no worker still works, and a job
+    is still done when the last worker stops before it takes the job.
+
+    The job belongs to this process until it starts: if the process
+    stops before that, the job is cancelled. The browser that shows
+    the job does not have to stay open.
 
     `job_id` is the id for the job, see `mast.jobs.queue.submit`.
     """
-    if queue.workers():
-        return queue.submit(
-            command, params, principal=principal, job_id=job_id)
     worker_id = runner.new_worker_id()
     job_id = queue.submit(
-        command, params, principal=principal, attached=True,
-        reserved_for=worker_id, job_id=job_id)
+        command, params, principal=principal, attached=True, job_id=job_id)
+    monitor = _Monitor(job_id, worker_id)
     threading.Thread(
-        target=_do, args=(job_id, worker_id),
-        name="mast-job-{}".format(job_id[:8]), daemon=True).start()
+        target=monitor.run, name="mast-job-{}".format(job_id[:8]),
+        daemon=True).start()
     return job_id
 
 
@@ -285,24 +287,46 @@ class _Local(object):
         return queue.abandon(self.job_id, self.worker_id, reason)
 
 
-def _do(job_id, worker_id, poll_seconds=0.25):
-    """Wait until the job can start, then run it."""
-    logger = make_logger("mast.jobs")
-    local = _Local(job_id, worker_id)
-    next_attach = 0
-    while True:
-        try:
-            if time.monotonic() >= next_attach:
-                queue.attach(job_id)
-                next_attach = time.monotonic() + config.lease_seconds() / 3.0
-            if queue.get(job_id).status != QUEUED:
-                # It was cancelled
-                return
-            if local.try_start():
-                local.join()
-                return
-        except Exception:
-            # The database can be away. Keep trying.
-            logger.exception(
-                "Could not start the job {} in this process".format(job_id))
-        time.sleep(poll_seconds)
+class _Monitor(object):
+    """
+    Watches a job that `start` submitted, until the job leaves the
+    queue.
+
+    While the job is queued, the monitor says that this process still
+    waits for it (`mast.jobs.queue.attach`). While no worker is alive,
+    it tries to take the job and do it in this process (`_Local`). A
+    worker that comes back can try to take the job at the same time:
+    `mast.jobs.queue.claim` gives the job to only one of them. Once a
+    worker has the job, the monitor stops, and the lease of the worker
+    decides what happens if the worker dies.
+    """
+    def __init__(self, job_id, worker_id):
+        self.job_id = job_id
+        self.local = _Local(job_id, worker_id)
+        self._next_attach = 0
+
+    def step(self):
+        """Do one round. Return True when there is nothing more to
+        do: the job ran here, a worker took it, or it was cancelled."""
+        if time.monotonic() >= self._next_attach:
+            queue.attach(self.job_id)
+            self._next_attach = time.monotonic() + config.lease_seconds() / 3.0
+        if queue.get(self.job_id).status != QUEUED:
+            return True
+        if not queue.workers() and self.local.try_start():
+            self.local.join()
+            return True
+        return False
+
+    def run(self, poll_seconds=0.25):
+        """Do rounds until there is nothing more to do."""
+        while True:
+            try:
+                if self.step():
+                    return
+            except Exception:
+                # The database can be away. Keep trying.
+                make_logger("mast.jobs").exception(
+                    "Could not watch the job {} in this process".format(
+                        self.job_id))
+            time.sleep(poll_seconds)
