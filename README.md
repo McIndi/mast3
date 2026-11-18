@@ -44,7 +44,7 @@ The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the la
 
 ### 1. Build the installer
 
-MAST builds a self-contained distribution with its own Python runtime. The build machine needs Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). The machine where MAST runs needs nothing: the zip has its own Python and every library, so it also works on a jump server with no internet access.
+MAST builds a self-contained distribution with its own Python runtime. The build machine needs Python 3.11 or newer and [uv](https://docs.astral.sh/uv/). The machine where MAST runs needs no Python and no internet access: the zip has its own Python and every library, so it also works on a jump server. Only `git-deploy` needs a program from the machine: `git` must be on the `PATH`.
 
 ```shell
 ./mast-setup                    # Linux and macOS
@@ -59,9 +59,13 @@ You do not have to build a release yourself. When a tag that starts with `v` is 
 
 ### 2. Install
 
-Unzip the archive from `dist/` wherever you want MAST to live, then run `mast` from that folder. No separate Python install is needed.
+Unzip the archive from `dist/` wherever you want MAST to live. That folder is `MAST_HOME`. Run the launchers in it (`mast-system`, `mast-backups` and so on, or `mast-system.bat` on Windows). No separate Python install is needed.
+
+The console scripts in `MAST_HOME/python/<version>/bin` (`Scripts` on Windows) also work, from any directory and with no `MAST_HOME` set, for example through a link in `/usr/local/bin`. On macOS they need macOS 13 or newer.
 
 ### 3. Describe your appliances
+
+Put these files in `MAST_HOME/etc/local/`. `etc/default/` has the same files with every setting explained.
 
 `hosts.conf`:
 
@@ -80,7 +84,16 @@ appliances: dp1 dp2
 
 ### 4. Run a command against the whole environment
 
+On Linux and macOS:
+
 ```shell
+MAST_CREDS=username:password
+./mast-ssh -a lab -c "$MAST_CREDS" -d default
+```
+
+On Windows:
+
+```bat
 set MAST_CREDS=username:password
 mast-ssh -a lab -c %MAST_CREDS% -d default
 ```
@@ -89,18 +102,21 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 ## The job queue
 
-Each command that you run is recorded as a job in a database, with its progress and its result. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
+Each command of `mast-accounts`, `mast-backups`, `mast-crypto`, `mast-deployment`, `mast-developer`, `mast-network` and `mast-system`, and each form that you submit in the web UI, is recorded as a job in a database, with its progress and its result. `mast-ssh`, the scripts in `contrib` and `mast-system xor` are not jobs. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
 
 You do not have to set anything up. If no worker is running, the command does its own job and you see the same output as before.
 
-To have jobs done by a worker process, start one or more workers. `mastd` also hosts one.
+To have jobs done by a worker process, start one or more workers. `mastd` also hosts one, unless `mastd = false` is in the `[worker]` section of `etc/local/jobs.conf`.
 
 ```shell
 mast-worker             # run jobs until Ctrl-C
 mast-worker -c 4        # up to four jobs at the same time
+mast-worker -d          # stop when no job waits in the queue
 ```
 
-With a worker running, a command can return at once and leave the job to the worker:
+To stop a worker, press Ctrl-C or send it SIGTERM. It takes no more jobs and stops when its running jobs end. A second Ctrl-C or SIGTERM stops it at once: its running jobs become `lost`, and its exit status is 1.
+
+With a worker running, a command waits for the worker to do its job and shows the progress as before. With `--local` the command does its own job, also when a worker is running. With `--detach` it returns at once and leaves the job to the worker:
 
 ```shell
 mast-backups normal-backup -a lab -c admin:password -D default --detach
@@ -111,7 +127,7 @@ mast-jobs cancel -j 3f2a
 mast-jobs workers
 ```
 
-The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link.
+The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link. A worker does the job if one is running. If none is, the web server does it, also when the last worker stops before it takes the job. You can close the browser: the job goes on. If the web server (`mast-web` or `mastd`) stops before the job starts, the job is cancelled.
 
 Most commands do not stop when one appliance refuses an action: they continue with the other appliances and show what happened on each one. The status of the job tells you how that went.
 
@@ -127,13 +143,13 @@ Most commands do not stop when one appliance refuses an action: they continue wi
 
 Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
 
-If a worker cannot reach the database for longer than its lease (60 seconds by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
+If a worker cannot reach the database for longer than its lease (`lease_seconds`, 60 by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
 
 Only one `git-deploy` runs at a time, because every deployment uses the same directory of checkouts.
 
-The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there.
+The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf`. That file also sets the lease, the number of jobs that a worker runs at a time (`concurrency`) and how often an idle worker looks for a job (`poll_seconds`); `etc/default/jobs.conf` explains each setting. Workers and commands must share one `MAST_HOME`, because jobs read and write files there.
 
-The credentials of a waiting job, and the other secret parameters such as a new password, are stored encrypted with the key in `etc/local/jobs.key`. They are removed when the job ends. The values are also removed from the progress, the result and the request history of the job before these are stored. The `xor` utility is not a job, and nothing about it is stored.
+The credentials of a waiting job, and the other secret parameters such as a new password, are stored encrypted with the key in `etc/local/jobs.key`, which MAST makes the first time it needs it. Every process that uses the database must have the same key, so keep it with the database when you back up or move MAST. They are removed when the job ends. The values are also removed from the progress, the result and the request history of the job before these are stored. The `xor` utility is not a job, and nothing about it is stored.
 
 ## Development
 
@@ -161,7 +177,7 @@ uv run pytest mast/testsuite/unit mast/testsuite/regression tools
 
 From a checkout, run MAST through `.dev/mast_home` made by `./mast-setup --development-mode`. Do not make another MAST_HOME by hand, except in tests (`conftest.py` does that).
 
-**MAST runs with its home as the current directory.** The launchers set `MAST_HOME` and change to that folder before they start Python, and some paths in the configuration (`soma_spec_file`, `out_dir`, the web folders) are relative to it. Without `MAST_HOME`, MAST looks for its home in the current directory and its parents (`mast/home.py`).
+**MAST runs with its home as the current directory.** The launchers set `MAST_HOME` and change to that folder before they start Python, and some paths in the configuration (`soma_spec_file`, `out_dir`, the web folders) are relative to it. Without `MAST_HOME`, MAST looks for its home in the current directory and its parents, and then in the folders that contain its Python interpreter (`mast/home.py`). The interpreter of an installer or of a development home is in `MAST_HOME/python`, so its console scripts work from any directory.
 
 ## Running the tests
 
@@ -169,8 +185,10 @@ The tests run with [pytest](https://docs.pytest.org) from a source checkout. Ins
 
 ```shell
 uv sync
-uv run pytest mast/testsuite/unit mast/testsuite/regression
+uv run pytest mast/testsuite/unit mast/testsuite/regression tools
 ```
+
+The job queue tests run against SQLite. To run them against PostgreSQL too, set `MAST_TEST_JOBS_DB_URL` to an empty database that the tests may erase, for example `postgresql+psycopg://mast:mast@localhost/mast_test`. CI does this.
 
 ### Integration tests
 
@@ -188,6 +206,7 @@ Without that variable, or without a container runtime, the integration tests are
 | `MAST_TEST_DATAPOWER_ACCEPT_LICENSE` | Must be `true` for the tests to run. |
 | `MAST_TEST_DATAPOWER_IMAGE` | The image to test against. The default is `icr.io/cpopen/datapower/datapower-limited:11.0.0.3`. |
 | `MAST_TEST_DATAPOWER_KEEP` | Set to `true` to keep the container (`mast-test-keep`) and use it again in the next run. |
+| `MAST_TEST_DATAPOWER_TIMEOUT` | Seconds to wait for the gateway to start. The default is 300. |
 | `MAST_TEST_CONTAINER_RUNTIME` | `podman` or `docker`. The default is the first one found. |
 | `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast-system` and so on), as users do. Without it they run `python -m` with the interpreter of the tests. |
 

@@ -73,7 +73,7 @@ mast-accounts list-users -n -a lab -c %MAST_CREDS%
 mast-accounts add-user -n -a lab -c %MAST_CREDS% -u new_user -p pa55word -g developer -s
 
 # Add a priviledged user
-mast-accounts add-user -n -a dev -c %MAST_CREDS% -u priv_user -p pa55word -P -s
+mast-accounts add-user -n -a lab -c %MAST_CREDS% -u priv_user -p pa55word -P -s
 
 # Force change password
 mast-accounts force-change-password -n -a lab -c %XOR_MAST_CREDS% -U new_user
@@ -85,10 +85,54 @@ mast-system list-domains -n -a lab -c %MAST_CREDS%
 mast-system add-domain -n -a lab -c %MAST_CREDS% -d new_domain -s
 
 # Import configuration
-mast-developer import -a dev -c %MAST_CREDS% -D new_domain -f ~/Downloads/export.zip
+mast-developer import -n -a lab -c %MAST_CREDS% -D new_domain -f ~/Downloads/export.zip
 
 # Save a domain
 mast-system save -n -a lab -c %MAST_CREDS% -D new_domain
+
+# The job queue
+
+These use the `lab` environment and `%MAST_CREDS%` from above. Run them
+once with the default SQLite database, and once with PostgreSQL: put
+`[database]` and `url = postgresql+psycopg://user:password@host/database`
+in `etc\local\jobs.conf`.
+
+    # No worker: the command does its own job, and the job is recorded
+    mast-jobs workers
+    mast-system list-domains -n -a lab -c %MAST_CREDS%
+    mast-jobs list
+    mast-jobs show -j <start of the id>
+    mast-jobs show -j <start of the id> -H      # with the request history
+
+    # Exit status 1 when an appliance cannot be reached: add an
+    # unreachable address to hosts.conf (dp3: 192.0.2.1) and to the lab
+    # environment. The command stops with the error.
+    mast-system save -n -a lab -c %MAST_CREDS% -t 5
+    echo %ERRORLEVEL%                            # 1
+    mast-jobs list -n 1                          # the job is failed
+
+    # With a worker. In a second terminal:
+    mast-worker
+    mast-jobs workers
+    mast-backups normal-backup -n -a lab -c %MAST_CREDS% -D all-domains -C "Queue test" -o tmp --detach
+    mast-jobs follow -j <start of the id>
+
+    # --local runs the job here although a worker is alive
+    mast-system list-domains -n -a lab -c %MAST_CREDS% --local
+    mast-jobs show -j <start of the id>          # its worker is not the mast-worker
+
+    # Cancel: start a long command, then
+    #   - press Ctrl-C once: the job is cancelled at its next step, exit status 130
+    #   - or, from another terminal: mast-jobs cancel -j <start of the id>
+    #   - or, in the web GUI: the Cancel link of the running job
+
+    # A worker that is stopped twice: start a long command with --detach,
+    # press Ctrl-C twice in the worker's terminal. The job becomes lost.
+    mast-jobs show -j <start of the id>
+
+    # Web GUI: stop mast-worker, submit a form, and see that the web server
+    # does the job. Start mast-worker, submit a form, and see that the
+    # worker does it (mast-jobs show).
 
 # Run the installer with no internet access (Linux, podman)
 

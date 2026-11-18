@@ -39,7 +39,7 @@ from mast.jobs.models import (
 
 __all__ = ["cli"]
 
-cli = Cli(description="Look at the MAST job queue.")
+cli = Cli(description="Look at the MAST job queue.", prog="mast-jobs")
 
 
 def _when(time):

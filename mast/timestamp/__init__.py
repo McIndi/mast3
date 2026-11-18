@@ -126,7 +126,7 @@ class Timestamp(object):
 
         Returns: the timestamp in a format specified by the _format param.
         This should be a string following the rules
-        [here](https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior)
+        [here](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior)
 
         Parameters:
 

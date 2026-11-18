@@ -12,7 +12,9 @@ It ensures that each deployment is **repeatable, auditable, and safe**, using Gi
 * Automates deployment of DataPower configurations from a versioned Git repository.
 * Clones or updates repositories, checks out specific commits or branches, and copies that exact tree for auditing.
 * Plans and executes safe deployments with backups, checkpoints, file uploads, configuration imports, and service management.
-* Supports multiple appliances and environments, with optional GUI (web mode).
+* Supports multiple appliances and environments, from the command line or the web GUI.
+* Needs the `git` program on the `PATH` of the machine that runs MAST.
+* Runs as a job in the MAST job queue. Only one `git-deploy` runs at a time, because every deployment uses the same directory of checkouts.
 * Provides full traceability through logging and artifact preservation.
 
 ---
@@ -137,7 +139,7 @@ Each appliance executes the plan in this general order:
 
 * All API requests/responses, backups, and configurations are saved to the output directory.
 * Logs and summary tables are produced.
-* In web/GUI mode, live progress is displayed via Tkinter queues.
+* The web GUI shows a summary of the steps. With `--progress-window`, a window on the machine that runs MAST shows the progress of the deployment (it needs Tkinter).
 
 ---
 

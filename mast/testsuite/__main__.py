@@ -99,7 +99,7 @@ failed = False
 
 
 if __name__ == "__main__":
-    cli = Cli(main=main, description=main.__doc__)
+    cli = Cli(main=main, description=main.__doc__, prog="test-mast")
     try:
         cli.run()
     except SystemExit:

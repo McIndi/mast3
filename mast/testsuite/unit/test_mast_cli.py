@@ -253,6 +253,32 @@ class TestNotACommand(unittest.TestCase):
         self.assertEqual(["greet", "part"], list(cli.commands))
 
 
+class TestProgramName(unittest.TestCase):
+
+    def usage(self, cli, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            cli.parser.parse_args(list(argv) + ["--help"])
+        return out.getvalue().splitlines()[0]
+
+    def test_a_plugin_is_named_after_its_launcher(self):
+        # A plugin module is imported by `python -m` before Python knows
+        # its name, so argparse would say "-m"
+        cli = Cli(namespace="backups")
+
+        @cli.command("normal-backup")
+        def normal_backup(params: Greet):
+            pass
+
+        self.assertTrue(self.usage(cli).startswith("usage: mast-backups "))
+        self.assertTrue(self.usage(cli, "normal-backup").startswith(
+            "usage: mast-backups normal-backup "))
+
+    def test_prog_is_used_as_given(self):
+        cli = Cli(namespace="backups", prog="other")
+        self.assertTrue(self.usage(cli).startswith("usage: other "))
+
+
 class TestResults(unittest.TestCase):
 
     def test_say_prints_unless_captured(self):

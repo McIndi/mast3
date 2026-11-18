@@ -36,7 +36,7 @@ def term_highlight(text):
 
     Use ANSI escape sequences to syntax highlight text. Will handle most
     formats like XML, XSLT, Python, JSON etc. for a full list of supported
-    languages see [this page](http://pygments.org/languages/).
+    languages see [this page](https://pygments.org/languages/).
 
     When run on Windows, `sys.stdout.write` is overriden with a function
     which filters ANSI Escape Sequences and substitutes Win32 API calls
