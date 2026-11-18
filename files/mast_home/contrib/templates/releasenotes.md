@@ -4,11 +4,12 @@
 
 [TOC]
 
-# MAST Version 3.14.10
+# MAST Version 3.15.2
 
 This release brings a job queue, a new command line built on pydantic
-models, and a new installer with its own Python 3.14.10. Please read
-"Changes that need your attention" before you upgrade.
+models, and an installer built from locked versions, with its own
+Python 3.15.2. Please read "Changes that need your attention" before
+you upgrade.
 
 ## Changes that need your attention
 
@@ -57,11 +58,11 @@ job before these are stored.
 command line, the web form and the help are all made from it.
 * A command prints the response of each appliance, also when the action
 failed. The list commands print a table.
-* The installer has its own Python (python-build-standalone 3.14.10)
-and every library, at versions locked in `uv.lock`. It runs with no
-internet access. The Linux installer runs on glibc 2.28 and newer
-(RHEL 8, Debian 10, Ubuntu 20.04). Installers for Windows, Linux and
-macOS are built for each release.
+* The installer has Python 3.15.2 from a pinned python-build-standalone
+release, and every library at the versions locked in `uv.lock`, so two
+builds of one commit ship the same files. It runs with no internet
+access. The Linux installer runs on glibc 2.28 and newer (RHEL 8,
+Debian 10, Ubuntu 20.04).
 * The console scripts of the installer (`python/<version>/bin`) work
 from any directory, with no `MAST_HOME` set.
 * MAST finds its home without the launchers: from `MAST_HOME`, from the
@@ -89,6 +90,28 @@ of the change twice instead of the responses of the save.
 their output files.
 * `git-deploy` no longer changes the working directory of the process,
 and its log files no longer collect the logs of later deployments.
+
+# MAST Version 3.14.10
+
+## Features
+
+* SOMA spec files for DataPower 10.5.0.23, 10.6.0.11, 10.6.6.0 and
+11.0.0.3. `etc/v11.0.0.3-C.xml` is the default.
+* The installer uses the newest patch release of the requested Python
+minor version.
+* Installers for Windows, Linux and macOS are built by GitHub Actions
+when a version tag is pushed, and published as a GitHub release.
+* The packaging is declared in `pyproject.toml`.
+* `dulwich` is installed, and a script that needs `pandas` says so.
+
+## Bug Fixes
+
+* Python 2 leftovers that failed or warned on Python 3.
+* Every bare `except:` clause is replaced, so errors are no longer
+hidden.
+* The deployment tools load on a Python that has no tkinter.
+* Integration tests against a DataPower container, and the bugs that
+they found.
 
 # MAST Version 3.11.6.post2
 

@@ -38,7 +38,6 @@ scheduled and long-running work does not need a person to type them.
     * A secret key for the web GUI that is made when MAST first runs,
     as the key of the job queue is.
     * Support for Python 3.13, 3.14 and 3.15, tested on each release.
-    The self-contained installer stays on Python 3.14.
     * A review of the dependencies.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
@@ -115,15 +114,21 @@ set your own `secret_key` in the `[server]` section of
     * Documentation made from the source code.
 * Version 3.0
     * Python 3.
-* Version 3.14.10 - Complete
+* Versions 3.13 and 3.14
+    * An installer with its own Python from python-build-standalone,
+    which replaces Anaconda.
+    * Installers for Windows, Linux and macOS, built and published by
+    GitHub Actions for each release.
+    * SOMA spec files for current DataPower versions, and integration
+    tests against a DataPower container.
+* Version 3.15.2 - Complete
     * The job queue: every command is a job with its progress, its
     result and its status, run by workers or by the command itself.
     * A new command line: each command declares its parameters with a
     model, and the command line, the web form and the help are made
     from it.
-    * A new installer with its own Python (python-build-standalone,
-    which replaces Anaconda), locked dependencies, and no need for
-    internet access. Installers for Windows, Linux and macOS.
+    * An installer built from locked versions with `./mast-setup`,
+    with Python 3.15.2 and no need for internet access.
 
 # Conclusion
 
