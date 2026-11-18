@@ -33,6 +33,9 @@ STATE_DIR = ".mast-setup"
 MANAGED_FILE = "managed.txt"
 STAMP_FILE = "packages.sha256"
 PLACEHOLDER = ".empty"
+# Change this when the install step changes, so that existing development
+# homes install the packages again. 2: relocatable console scripts.
+LAYOUT_VERSION = "2"
 
 
 def _read_lines(path):
@@ -184,7 +187,7 @@ def develop(repo, home, platform, prepare_python, install=install_packages,
     python, version = prepare_python(home)
 
     stamp_file = home / STATE_DIR / STAMP_FILE
-    stamp = f"{packages_stamp(repo)} {version}"
+    stamp = f"{packages_stamp(repo)} {version} {LAYOUT_VERSION}"
     if not stamp_file.exists() or stamp_file.read_text().strip() != stamp:
         install(repo, python, home)
         stamp_file.write_text(stamp + "\n")

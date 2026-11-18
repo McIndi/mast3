@@ -84,12 +84,20 @@ class TestBuild(unittest.TestCase):
                 self.assertEqual(sorted(new - old), [], "files new in the installer")
 
             if sys.platform != "win32":
+                # Move the build folder away, so that nothing in the
+                # installer can work through a path into it.
+                (tmp / "build").rename(tmp / "build.moved")
                 home = tmp / "unzipped"
                 subprocess.run(["unzip", "-q", str(zips[0]), "-d", str(home)], check=True)
-                result = subprocess.run([str(home / "mast-version")], capture_output=True,
-                                        text=True, cwd="/", env=clean_environment())
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("Version {}".format(mast_version()), result.stdout)
+                scripts = next(home.glob("python/*/bin"))
+                for command in ([home / "mast-version"], [scripts / "mast-version"],
+                                [scripts / "pip3", "--version"]):
+                    with self.subTest(command=command[0].name):
+                        result = subprocess.run([str(c) for c in command], capture_output=True,
+                                                text=True, cwd="/", env=clean_environment())
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        if command[0].name == "mast-version":
+                            self.assertIn("Version {}".format(mast_version()), result.stdout)
 
 
 @unittest.skipUnless(SLOW, "set MAST_SETUP_TEST_BUILD=true to run the slow tests")

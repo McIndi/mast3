@@ -18,7 +18,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from . import assemble, develop, python_dist
+from . import assemble, develop, python_dist, scripts
 from .python_dist import SetupError
 
 REPO = Path(__file__).resolve().parents[2]
@@ -131,6 +131,7 @@ def build(args, platform, machine):
     assemble.install_requirements(python, requirements, python_platform)
     wheel = assemble.build_wheel(REPO, build_directory / "wheel")
     assemble.install_mast(python, wheel)
+    scripts.make_relocatable(python, platform)
     assemble.copy_home_files(REPO, home)
     assemble.write_launchers(REPO, home, version, platform)
     mast_version = assemble.read_mast_version(python, home)
@@ -156,8 +157,12 @@ def development(args, platform, machine):
             assemble.upgrade_pip(python)
         return python, version
 
+    def install(repo, python, home):
+        develop.install_packages(repo, python, home)
+        scripts.make_relocatable(python, platform)
+
     develop.develop(REPO, args.home, platform, prepare_python,
-                    recreate=args.recreate)
+                    install=install, recreate=args.recreate)
     for line in develop.usage(REPO, args.home, platform):
         print(line)
 

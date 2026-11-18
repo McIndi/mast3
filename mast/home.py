@@ -34,11 +34,13 @@ is in every home.
 There are three functions in this module:
 
 1. `find_home()`: Return the home from the `MAST_HOME` environment
-variable, or from the current directory and its parents.
+variable, from the current directory and its parents, or from the
+interpreter (the Python of an installer is in its home).
 2. `find_from(path)`: Return the home that contains `path`.
 3. `enter(home=None)`: Set `MAST_HOME` and change to the home.
 """
 import os
+import sys
 
 MARKER = os.path.join("etc", "default", "server.conf")
 
@@ -96,18 +98,26 @@ def find_home():
 
     1. The `MAST_HOME` environment variable.
     2. The current directory, or its nearest parent that is a home.
+    3. The home that contains the interpreter (`sys.executable`). The
+    Python of an installer or of a development home is in
+    `MAST_HOME/python`, so its console scripts (for example
+    `MAST_HOME/python/3.14.10/bin/mast-system`) work from any directory.
 
-    Raise `MastHomeNotFound` if neither gives a home.
+    Raise `MastHomeNotFound` if none of these gives a home.
     """
     home = os.environ.get("MAST_HOME")
     if home:
         return os.path.abspath(home)
-    try:
-        return find_from(os.getcwd())
-    except MastHomeNotFound:
-        raise MastHomeNotFound(
-            "MAST_HOME is not set and {} is not in a MAST home. {}".format(
-                os.getcwd(), HELP)) from None
+    for start in (os.getcwd(), sys.executable):
+        if not start:
+            continue
+        try:
+            return find_from(start)
+        except MastHomeNotFound:
+            pass
+    raise MastHomeNotFound(
+        "MAST_HOME is not set and neither {} nor the interpreter {} is in "
+        "a MAST home. {}".format(os.getcwd(), sys.executable, HELP))
 
 
 def enter(home=None):

@@ -37,6 +37,11 @@ def make_home(parent):
     return path
 
 
+# Run code in a new interpreter as if that interpreter were not in a
+# MAST home: in an installer, the interpreter of the tests is in one.
+OUTSIDE_INTERPRETER = "import sys; sys.executable = sys.argv[1]; "
+
+
 def clean_environment():
     """The environment of the test without MAST_HOME."""
     env = dict(os.environ)
@@ -77,9 +82,28 @@ class TestFindHome(HomeTestCase):
         with mock.patch.dict(os.environ, clean_environment(), clear=True):
             self.assertEqual(home.find_home(), self.home)
 
+    def test_found_from_the_interpreter(self):
+        # The Python of an installer is in MAST_HOME/python, so its console
+        # scripts work from any directory.
+        os.chdir(self.outside)
+        python = os.path.join(self.home, "python", "3.14.10", "bin", "python3")
+        with mock.patch.dict(os.environ, clean_environment(), clear=True), \
+                mock.patch.object(sys, "executable", python):
+            self.assertEqual(home.find_home(), self.home)
+
+    def test_current_directory_wins_over_the_interpreter(self):
+        other = make_home(os.path.join(self.tmp, "other"))
+        os.chdir(other)
+        python = os.path.join(self.home, "python", "3.14.10", "bin", "python3")
+        with mock.patch.dict(os.environ, clean_environment(), clear=True), \
+                mock.patch.object(sys, "executable", python):
+            self.assertEqual(home.find_home(), other)
+
     def test_not_found_outside_a_home(self):
         os.chdir(self.outside)
-        with mock.patch.dict(os.environ, clean_environment(), clear=True):
+        python = os.path.join(self.outside, "bin", "python3")
+        with mock.patch.dict(os.environ, clean_environment(), clear=True), \
+                mock.patch.object(sys, "executable", python):
             with self.assertRaises(home.MastHomeNotFound) as cm:
                 home.find_home()
         self.assertIn("Set MAST_HOME", str(cm.exception))
@@ -89,7 +113,8 @@ class TestFindHome(HomeTestCase):
         # mast.config is already imported in this process, so import it
         # in a new one.
         result = subprocess.run(
-            [sys.executable, "-c", "import mast.config"],
+            [sys.executable, "-c", OUTSIDE_INTERPRETER + "import mast.config",
+             os.path.join(self.outside, "python3")],
             cwd=self.outside, env=clean_environment(),
             capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
@@ -172,12 +197,24 @@ class TestConsoleScript(HomeTestCase):
             self.skipTest("the console scripts are not installed")
         env = clean_environment()
         env["MAST_HOME"] = mast.config.MAST_HOME
-        # In an unzipped installer, the first line of the script names
-        # the interpreter where the installer was built. The launchers do
-        # not use these scripts, so run it with this interpreter.
-        command = [script] if sys.platform == "win32" else [sys.executable, script]
         result = subprocess.run(
-            command, cwd=self.outside, env=env,
+            [script], cwd=self.outside, env=env,
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Version {}".format(mast.__version__), result.stdout)
+
+    def test_console_script_of_an_installer_needs_no_mast_home(self):
+        # In an installer or a development home, the console scripts find
+        # the home from their interpreter. test-mast runs this test there.
+        try:
+            home.find_from(sys.executable)
+        except home.MastHomeNotFound:
+            self.skipTest("the interpreter of the tests is not in a MAST home")
+        name = "mast-version.exe" if sys.platform == "win32" else "mast-version"
+        script = os.path.join(sysconfig.get_path("scripts"), name)
+        self.assertTrue(os.path.isfile(script), script)
+        result = subprocess.run(
+            [script], cwd=self.outside, env=clean_environment(),
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Version {}".format(mast.__version__), result.stdout)
@@ -185,7 +222,8 @@ class TestConsoleScript(HomeTestCase):
     def test_console_script_without_a_home_exits_with_the_message(self):
         result = subprocess.run(
             [sys.executable, "-c",
-             "import mast._entry; mast._entry.version()"],
+             OUTSIDE_INTERPRETER + "import mast._entry; mast._entry.version()",
+             os.path.join(self.outside, "python3")],
             cwd=self.outside, env=clean_environment(),
             capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)

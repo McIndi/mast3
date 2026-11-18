@@ -13,6 +13,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import scripts
 from .python_dist import SetupError
 
 log = logging.getLogger(__name__)
@@ -126,7 +127,8 @@ def build_wheel(repo, out_dir):
 def install_mast(python, source, editable=False):
     """
     Install MAST into the interpreter of a home, without dependencies.
-    `source` is a wheel, or the checkout when `editable` is true.
+    `source` is a wheel, or the checkout when `editable` is true. Call
+    `scripts.make_relocatable` after the last install.
     """
     command = ["uv", "pip", "install", "--python", python, "--no-deps",
                "--link-mode", "copy", "--compile-bytecode", "--reinstall-package", "mast"]
@@ -232,7 +234,9 @@ def check_bundle(root):
       `*.dist-info/direct_url.json` (a wheel that was installed from a
       local file is fine: its code is in the folder);
     * a `__editable__` file of setuptools;
-    * a path in a `*.pth` file that is outside the folder.
+    * a path in a `*.pth` file that is outside the folder;
+    * a console script that runs the interpreter of the folder by its
+      absolute path (see scripts.py), which breaks once it is unzipped.
     """
     root = Path(root).resolve()
     problems = []
@@ -252,6 +256,7 @@ def check_bundle(root):
                 problems.extend(_check_direct_url(path, relative))
             if name.endswith(".pth") and path.is_file():
                 problems.extend(_check_pth(path, relative, root))
+    problems.extend(scripts.check(root))
     if problems:
         raise BundleError(
             f"{root} refers to files outside itself and must not be shipped:\n  "
