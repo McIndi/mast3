@@ -873,6 +873,18 @@ class TestRunner(SqliteCase):
         self.assertEqual(outcome, [jobs.CANCELLED])
         self.assertEqual(jobs.get(job_id).status, jobs.CANCELLED)
 
+    def test_the_lease_of_the_worker_starts_when_it_claims(self):
+        del sent[:]
+        job_id = jobs.submit("test.requests", {"appliances": ["dp1"]})
+        # The worker asked for the job 3 seconds ago, and the lease is
+        # 2 seconds: the queue can give the appliance to another job
+        claimed_at = time.monotonic() - 3
+        self.assertEqual(jobs.claim("w1", lease_seconds=2), job_id)
+        self.assertIsNone(jobs.run_job(
+            job_id, "w1", lease_seconds=2, claimed_at=claimed_at))
+        self.assertEqual(sent, [])
+        self.assertEqual(jobs.get(job_id).status, jobs.LOST)
+
     def test_a_job_that_keeps_its_lease_sends_every_request(self):
         job_id, thread, outcome = self.run_requests(lease_seconds=0.6)
         time.sleep(0.8)

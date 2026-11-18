@@ -83,11 +83,15 @@ class JobLost(BaseException):
 
 
 class _Lease(object):
-    """What a worker knows about its hold on a job."""
-    def __init__(self, seconds):
+    """What a worker knows about its hold on a job. `started_at` is
+    the time (`time.monotonic()`) at which the worker asked for the
+    job: the lease in the database began after it."""
+    def __init__(self, seconds, started_at=None):
+        if started_at is None:
+            started_at = time.monotonic()
         self.seconds = seconds
         self._lost = threading.Event()
-        self._good_until = time.monotonic() + seconds
+        self._good_until = started_at + seconds
         # Set by the heartbeat when somebody asked to cancel the job
         self.cancel_requested = False
 
@@ -225,10 +229,11 @@ def _call(job_id, worker_id, store, guard, redact):
                 "history": traceback.format_exc()}
 
 
-def run_job(job_id, worker_id, lease_seconds=None, echo=None):
+def run_job(job_id, worker_id, lease_seconds=None, echo=None,
+            claimed_at=None):
     """
     _function_: `mast.jobs.runner.run_job(job_id, worker_id,
-    lease_seconds=None, echo=None)`
+    lease_seconds=None, echo=None, claimed_at=None)`
 
     Run a job that `worker_id` claimed, and store its progress and its
     result. Heartbeats are sent from another thread while the command
@@ -241,13 +246,19 @@ def run_job(job_id, worker_id, lease_seconds=None, echo=None):
     The job is `failed` and the traceback is in its history.
 
     `echo`, if given, is called with each line of progress from the
-    command after the line is stored. A program that runs its own job
-    shows the progress this way.
+    command after the line is stored.
+
+    `claimed_at` is the value of `time.monotonic()` just before the
+    worker called `queue.claim`. The worker counts its lease from
+    then, so that it stops the job no later than the queue gives the
+    appliances to another job. Without it, the lease is counted from
+    now, which is later than the queue counts it: the job could then
+    send a request after it was lost. Always give it.
     """
     logger = make_logger("mast.jobs")
     if lease_seconds is None:
         lease_seconds = config.lease_seconds()
-    lease = _Lease(lease_seconds)
+    lease = _Lease(lease_seconds, started_at=claimed_at)
     stop = threading.Event()
     beat = threading.Thread(
         target=_beat, args=(job_id, worker_id, lease, stop),
@@ -292,7 +303,10 @@ def run_next(worker_id, lease_seconds=None):
     Claim the next job and run it. Return the id of the job, or `None`
     if there was no job to run.
     """
+    # Before the claim: a lease that is counted from too early ends too
+    # soon, never too late
+    claimed_at = time.monotonic()
     job_id = queue.claim(worker_id, lease_seconds)
     if job_id is not None:
-        run_job(job_id, worker_id, lease_seconds)
+        run_job(job_id, worker_id, lease_seconds, claimed_at=claimed_at)
     return job_id

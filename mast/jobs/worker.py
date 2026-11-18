@@ -132,6 +132,8 @@ class Worker(object):
         """The loop of one thread: claim a job, run it, again."""
         while not self._stop.is_set():
             try:
+                # Taken before the claim, see runner.run_job
+                claimed_at = time.monotonic()
                 job_id = queue.claim(slot_id, self.lease_seconds)
                 if job_id is None and self.drain and not queue.list_jobs(
                         status=QUEUED, limit=1):
@@ -148,7 +150,9 @@ class Worker(object):
                 self._running[slot_id] = job_id
             self._say("job {} started".format(job_id))
             try:
-                status = runner.run_job(job_id, slot_id, self.lease_seconds)
+                status = runner.run_job(
+                    job_id, slot_id, self.lease_seconds,
+                    claimed_at=claimed_at)
                 self._say("job {} {}".format(job_id, status or "lost"))
             except Exception:
                 self._logger.exception(

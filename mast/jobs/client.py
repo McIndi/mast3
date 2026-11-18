@@ -250,17 +250,19 @@ class _Local(object):
     def try_start(self):
         """Claim the job if it can start now, and start the thread.
         Return True if the thread runs."""
+        # Taken before the claim, see runner.run_job
+        claimed_at = time.monotonic()
         if not queue.claim(self.worker_id, job_id=self.job_id):
             return False
         self._thread = threading.Thread(
-            target=self._run, name="mast-job-{}".format(self.job_id[:8]),
+            target=self._run, args=(claimed_at,), name="mast-job-{}".format(self.job_id[:8]),
             daemon=True)
         self._thread.start()
         return True
 
-    def _run(self):
+    def _run(self, claimed_at):
         try:
-            runner.run_job(self.job_id, self.worker_id)
+            runner.run_job(self.job_id, self.worker_id, claimed_at=claimed_at)
         except Exception:
             make_logger("mast.jobs").exception(
                 "The job {} could not be completed in this process".format(
