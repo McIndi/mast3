@@ -105,8 +105,13 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
     worker `worker_id`.
 
     The first Ctrl-C asks to cancel the job, and the job is still
-    shown until it ends. The second Ctrl-C returns at once. The job
-    then continues without this program.
+    shown until it ends. It stops at its next step, see
+    `mast.jobs.runner`. The second Ctrl-C returns at once:
+
+    * A job on a worker then continues without this program.
+    * A job that this process does cannot continue, because it stops
+    with the process. It is declared `lost`, as nobody knows how much
+    of it was done.
     """
     last_event = 0
     local_job = None
@@ -141,8 +146,16 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
             time.sleep(poll_seconds)
         except KeyboardInterrupt:
             if interrupted:
-                _note("The job {} continues. To see it: mast-jobs show "
-                      "-j {}".format(job_id[:8], job_id[:8]))
+                if local_job is not None and local_job.running:
+                    # The job ends with this process. If it cannot be
+                    # declared lost now, its lease ends soon.
+                    _abandon(local_job)
+                    _note("The job {} was stopped before it ended. It is "
+                          "not known how much of it was done.".format(
+                              job_id[:8]))
+                else:
+                    _note("The job {} continues. To see it: mast-jobs show "
+                          "-j {}".format(job_id[:8], job_id[:8]))
                 return INTERRUPTED
             interrupted = True
             if queue.cancel(job_id, principal).finished:
@@ -154,6 +167,20 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
         # The job is stored. The thread only has to end.
         local_job.join()
     return _show_end(info, queue.result(job_id, principal), interrupted)
+
+
+_STOPPED = ("The program that ran the job was stopped (Ctrl-C) before the "
+            "job ended. It is not known how much of it was done.")
+
+
+def _abandon(local_job):
+    """Declare a job of this process lost. Return True if it was."""
+    try:
+        return local_job.abandon(_STOPPED)
+    except Exception:
+        make_logger("mast.jobs").exception(
+            "Could not declare the job {} lost".format(local_job.job_id))
+        return False
 
 
 def _show_end(info, result, interrupted):

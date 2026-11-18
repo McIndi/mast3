@@ -1361,6 +1361,53 @@ class TestCommandLine(CliCase):
         self.assertNotIn("all steps done", out)
         self.assertEqual(self.only_job().status, jobs.CANCELLED)
 
+    def interrupt_at(self, *numbers):
+        """Patch time.sleep so that the main thread gets a Ctrl-C at
+        its calls with these numbers."""
+        real, calls = time.sleep, []
+
+        def sleep(seconds):
+            # time.sleep is the same function for the command, which
+            # runs in another thread
+            if threading.current_thread() is threading.main_thread():
+                calls.append(seconds)
+                if len(calls) in numbers:
+                    raise KeyboardInterrupt
+            real(seconds)
+
+        return mock.patch.object(client.time, "sleep", sleep)
+
+    def test_ctrl_c_cancels_a_job_done_here_at_its_next_step(self):
+        with self.interrupt_at(3):
+            status, out, err = self.run_cli(
+                "steps", "--steps", "400", "--local")
+        self.assertEqual(status, client.INTERRUPTED)
+        self.assertIn("Asked to cancel", err)
+        self.assertNotIn("all steps done", out)
+        info = self.only_job()
+        self.assertEqual(info.status, jobs.CANCELLED)
+        self.assertIn("cancelled while it ran", info.error)
+
+    def test_ctrl_c_twice_stops_a_job_done_here(self):
+        with self.interrupt_at(3, 4), mock.patch.object(
+                jobs.runner, "_call", side_effect=self.endless_call):
+            status, out, err = self.run_cli("steps", "--local")
+        self.assertEqual(status, client.INTERRUPTED)
+        self.assertIn("was stopped before it ended", err)
+        self.assertNotIn("continues", err)
+        info = self.only_job()
+        self.assertEqual(info.status, jobs.LOST)
+        self.assertEqual(info.error, client._STOPPED)
+
+    def endless_call(self, job_id, worker_id, store, guard, redact):
+        """A command that reports progress and cannot be cancelled, so
+        that the second Ctrl-C comes while it runs."""
+        release = threading.Event()
+        self.addCleanup(release.set)
+        store("working")
+        release.wait(10)
+        raise jobs.JobLost()
+
     def test_ctrl_c_twice_leaves_the_job(self):
         ahead = submit("dp1")
         jobs.claim("somebody")
