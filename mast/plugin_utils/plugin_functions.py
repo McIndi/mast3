@@ -934,11 +934,31 @@ def call_method(plugin, form):
     # The namespace is the name of the plugin, which is how a worker
     # finds the command
     namespace = getattr(cli, "namespace", None) or plugin
-    jobs_registry.register(namespace, cli)
-    jobs_client.start(
-        jobs_registry.command_id(namespace, command), kwargs, job_id=job_id)
+    try:
+        jobs_registry.register(namespace, cli)
+        jobs_client.start(
+            jobs_registry.command_id(namespace, command), kwargs,
+            job_id=job_id)
+    except Exception as exc:
+        # The browser shows this box. Without it, the user would see
+        # nothing at all.
+        make_logger("mast.plugin_functions").exception(
+            "Could not queue {}".format(name))
+        # The box shows no parameters, so the credentials in kwargs are
+        # not shown
+        return _render_output(
+            name, t, kwargs, Markup(html_escape(_queue_error_message(exc))),
+            _save_history(traceback.format_exc(), job_id), job_id)
     return flask.render_template(
         "pending.html", job_id=job_id, callable=name, timestamp=str(t))
+
+
+def _queue_error_message(exc):
+    """What the user sees when a command could not be queued."""
+    if isinstance(exc, jobs.Forbidden):
+        return "You are not allowed to run this command on these appliances."
+    return ("Sorry, an unhandled exception occurred while performing "
+            "action:\n\n\t {}".format(exc))
 
 
 def _call_now(command, values):

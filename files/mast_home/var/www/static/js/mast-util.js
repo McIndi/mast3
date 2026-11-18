@@ -135,6 +135,11 @@ var addHandlerForFormSubmission = function(plugin){
             added.filter(".job_pending").each(function(index, box){
                 followJob($(box));
             });
+        }).fail(function(xhr){
+            // Without this, a request that fails shows nothing at all
+            var message = $("<div>").addClass("width-100 output").text(
+                "The server could not queue the command (HTTP " + xhr.status + ").");
+            $("#mast\\.datapower\\."+plugin+"OutputResults").prepend(message);
         });
     });
 };

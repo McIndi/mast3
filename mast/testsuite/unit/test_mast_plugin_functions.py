@@ -313,6 +313,23 @@ class WebFormTestCase(unittest.TestCase):
         self.assertIn("was cancelled while it ran", state["html"])
         self.assertNotIn("all the steps", state["html"])
 
+    def test_a_command_that_cannot_be_queued_shows_why(self):
+        with mock.patch.object(
+                pf.jobs_client, "start",
+                side_effect=RuntimeError("database is locked")):
+            html = self.submit(callable="example", Domain="default")
+        self.assertNotIn("job_pending", html)
+        self.assertIn("output_header", html)
+        self.assertIn("unhandled exception", html)
+        self.assertIn("database is locked", html)
+        # The credentials are not shown
+        self.assertNotIn("user:pass", html)
+        self.assertEqual([], calls)
+        with mock.patch.object(
+                pf.jobs_client, "start", side_effect=jobs.Forbidden("no")):
+            html = self.submit(callable="example", Domain="default")
+        self.assertIn("You are not allowed to run this command", html)
+
     def test_the_job_of_a_dead_worker_is_shown_as_lost(self):
         jobs.registry.register("example", cli)
         job_id = jobs.submit("example.judge", {"appliances": ["dp1"]})
