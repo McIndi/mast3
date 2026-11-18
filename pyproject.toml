@@ -55,6 +55,23 @@ dev = ["pytest"]
 [project.urls]
 Homepage = "http://github.com/mcindi/mast"
 
+# One console script for each launcher of the installer. Each one finds
+# MAST_HOME (see mast/home.py), changes to it and runs the same module as
+# the launcher. The installer does not use these scripts.
+[project.scripts]
+mast-accounts = "mast._entry:accounts"
+mast-backups = "mast._entry:backups"
+mast-crypto = "mast._entry:crypto"
+mast-deployment = "mast._entry:deployment"
+mast-developer = "mast._entry:developer"
+mast-network = "mast._entry:network"
+mast-ssh = "mast._entry:ssh"
+mast-system = "mast._entry:system"
+mast-version = "mast._entry:version"
+mast-web = "mast._entry:web"
+mastd = "mast._entry:daemon"
+test-mast = "mast._entry:testsuite"
+
 [project.entry-points.mast_web_plugin]
 accounts = "mast.datapower.accounts:WebPlugin"
 backups = "mast.datapower.backups:WebPlugin"
