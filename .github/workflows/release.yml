@@ -126,6 +126,12 @@ jobs:
             Write-Error "Scripts\mast-version.exe did not report version $env:MAST_VERSION"
             exit 1
           }
+          # The launchers return the exit status of Python.
+          & "$env:RUNNER_TEMP\mast\mast.bat" -c "import sys; sys.exit(3)"
+          if ($LASTEXITCODE -ne 3) {
+            Write-Error "mast.bat returned $LASTEXITCODE, not the exit status 3 of Python"
+            exit 1
+          }
           & "$env:RUNNER_TEMP\mast\test-mast.bat" --unit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

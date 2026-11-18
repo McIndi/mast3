@@ -672,7 +672,7 @@ class DataPower(object):
         # A relative spec file (etc/v11.0.0.3-C.xml in appliances.conf) is
         # in MAST_HOME, whatever the current directory is.
         if isinstance(self.test_case, str) and not os.path.isabs(self.test_case):
-            self.test_case = os.path.join(MAST_HOME, self.test_case)
+            self.test_case = os.path.normpath(os.path.join(MAST_HOME, self.test_case))
 
         self.request = Request(self.scheme,
                                self._hostname,
