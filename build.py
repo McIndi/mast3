@@ -171,7 +171,14 @@ elif platform.startswith('cygwin'):
 else:
     fail_for_unsupported_platform(platform)
 
-requirements_file = HERE.joinpath(f'{platform}-requirements.txt')
+# The dependencies are pinned in uv.lock. The export keeps the platform
+# markers, so each platform installs only what applies to it.
+requirements_file = BUILD_DIRECTORY.joinpath('requirements.txt')
+subprocess.run(
+    ['uv', 'export', '--frozen', '--no-dev', '--no-emit-project',
+     '--format', 'requirements-txt', '-o', str(requirements_file)],
+    cwd=HERE, check=True,
+)
 log.debug(f"Found requirements_file: {requirements_file}")
 
 # Download a prebuilt Python distribution
@@ -338,7 +345,7 @@ command = f'{python_executable} -m pip install --upgrade pip'
 subprocess.run(command, shell=True, check=True)
 
 # Install dependencies
-command = f'{python_executable} -m pip install --no-warn-script-location -r {requirements_file}'
+command = f'{python_executable} -m pip install --no-warn-script-location --require-hashes -r {requirements_file}'
 subprocess.run(command, shell=True, check=True)
 
 # Install mast package

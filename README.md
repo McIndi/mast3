@@ -89,13 +89,11 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 ## Running the tests
 
-The tests run with [pytest](https://docs.pytest.org) from a source checkout. This example is for Linux; on Windows or macOS, use the requirements file for that platform.
+The tests run with [pytest](https://docs.pytest.org) from a source checkout. Install [uv](https://docs.astral.sh/uv/) first. `uv sync` makes `.venv` with the versions in `uv.lock`, on every platform.
 
 ```shell
-python -m venv .venv
-.venv/bin/pip install -r linux-requirements.txt pytest
-.venv/bin/pip install .
-.venv/bin/python -m pytest mast/testsuite/unit mast/testsuite/regression
+uv sync
+uv run pytest mast/testsuite/unit mast/testsuite/regression
 ```
 
 ### Integration tests
@@ -104,7 +102,7 @@ The integration tests start a real IBM DataPower Gateway in a container, with po
 
 ```shell
 export MAST_TEST_DATAPOWER_ACCEPT_LICENSE=true
-.venv/bin/python -m pytest mast/testsuite/integration
+uv run pytest mast/testsuite/integration
 ```
 
 Without that variable, or without a container runtime, the integration tests are skipped.

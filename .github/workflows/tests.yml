@@ -13,15 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
-      - name: Install MAST and its dependencies
-        run: |
-          python -m pip install -r linux-requirements.txt pytest
-          python -m pip install .
+      - name: Check that uv.lock matches pyproject.toml
+        run: uv lock --check
+      - name: Install MAST and its dependencies from uv.lock
+        run: uv sync --locked
       - name: Run the unit and regression tests
-        run: python -m pytest mast/testsuite/unit mast/testsuite/regression
+        run: uv run --locked pytest mast/testsuite/unit mast/testsuite/regression
 
   integration:
     runs-on: ubuntu-latest
@@ -32,12 +32,10 @@ jobs:
       MAST_TEST_DATAPOWER_ACCEPT_LICENSE: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.14"
-      - name: Install MAST and its dependencies
-        run: |
-          python -m pip install -r linux-requirements.txt pytest
-          python -m pip install .
+      - name: Install MAST and its dependencies from uv.lock
+        run: uv sync --locked
       - name: Run the integration tests against a DataPower container
-        run: python -m pytest mast/testsuite/integration
+        run: uv run --locked pytest mast/testsuite/integration

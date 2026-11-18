@@ -36,9 +36,21 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Topic :: Utilities",
 ]
-# The runtime dependencies are in the per-platform requirements files
-# (windows-requirements.txt and so on), which build.py installs.
-dependencies = []
+requires-python = ">=3.14"
+# uv.lock pins these for every platform. After a change here, run `uv lock`
+# and commit uv.lock. The installer bundles exactly what the lock lists.
+dependencies = [
+    "commandr", "cherrypy", "paramiko", "markdown", "ecdsa",
+    "python-dateutil", "flask", "pydantic>=2", "openpyxl", "lxml",
+    "pygments", "colorama", "pyOpenSSL", "requests", "wheel", "mock",
+    "dulwich", "sqlalchemy>=2", "alembic", "cryptography",
+    "psycopg[binary]",
+    "pyreadline3; sys_platform == 'win32'",
+    "pywin32; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = ["pytest"]
 
 [project.urls]
 Homepage = "http://github.com/mcindi/mast"
