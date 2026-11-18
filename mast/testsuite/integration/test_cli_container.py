@@ -23,6 +23,13 @@ then asks the gateway whether the command did what it reported.
 The commands run with a private MAST_HOME, so that the tests can add
 the container to `hosts.conf`, `appliances.conf` and
 `environments.conf` and leave the real configuration alone.
+
+By default the commands run as `python -m mast.datapower.<module>` with
+the interpreter of the tests. If MAST_TEST_HOME names a MAST home (a
+development home made by `./mast-setup --development-mode`, or an
+unzipped installer), the commands run through the launchers of that
+home (`<home>/mast-<module>`). The private home is then a copy of that
+home without its runtime files. The interpreter is linked, not copied.
 """
 import glob
 import os
@@ -45,6 +52,14 @@ from mast.testsuite.integration.test_datapower_container import (
     GOOD_PASSWORD,
 )
 
+TEST_HOME = os.environ.get("MAST_TEST_HOME")
+
+# Not copied from MAST_TEST_HOME: the runtime files of that home, and the
+# interpreter, which is linked.
+_NOT_COPIED = {
+    os.path.join("etc", "local"), "var", "tmp", "python", ".mast-setup",
+}
+
 ALIAS = "dp1"
 ENVIRONMENT = "lab"
 CREDENTIALS = "{}:{}".format(USERNAME, PASSWORD)
@@ -57,13 +72,17 @@ class CLITestCase(ContainerTestCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.mast_home = os.path.join(cls.workdir, "mast_home")
-        shutil.copytree(
-            os.path.join(os.environ["MAST_HOME"], "etc"),
-            os.path.join(cls.mast_home, "etc"),
-            ignore=shutil.ignore_patterns("local"))
+        if TEST_HOME:
+            cls._copy_test_home(os.path.abspath(TEST_HOME), cls.mast_home)
+        else:
+            shutil.copytree(
+                os.path.join(os.environ["MAST_HOME"], "etc"),
+                os.path.join(cls.mast_home, "etc"),
+                ignore=shutil.ignore_patterns("local"))
         local = os.path.join(cls.mast_home, "etc", "local")
-        for name in (local, "tmp", os.path.join("var", "log")):
-            os.makedirs(os.path.join(cls.mast_home, name))
+        for name in (local, "tmp", os.path.join("var", "log"),
+                     os.path.join("var", "run")):
+            os.makedirs(os.path.join(cls.mast_home, name), exist_ok=True)
         ports = cls.container.ports
         cls._write(local, "hosts.conf", "[hosts]\n{}: 127.0.0.1\n".format(ALIAS))
         cls._write(local, "environments.conf", "[{}]\nappliances: {}\n".format(
@@ -73,6 +92,25 @@ class CLITestCase(ContainerTestCase):
                 ALIAS, ports[SOMA_PORT], ports[WEB_PORT], ports[SSH_PORT])))
 
     @staticmethod
+    def _copy_test_home(source, destination):
+        """Copy a MAST home without its runtime files. Symlinks (the
+        links of a development home into the checkout) stay symlinks."""
+        def ignore(directory, names):
+            relative = os.path.relpath(directory, source)
+            return [n for n in names
+                    if os.path.normpath(os.path.join(relative, n)) in _NOT_COPIED]
+        shutil.copytree(source, destination, symlinks=True, ignore=ignore)
+        os.symlink(os.path.join(source, "python"),
+                   os.path.join(destination, "python"),
+                   target_is_directory=True)
+
+    def launcher(self, name):
+        """The path of a launcher of the private home."""
+        if sys.platform == "win32":
+            name += ".bat"
+        return os.path.join(self.mast_home, name)
+
+    @staticmethod
     def _write(directory, name, contents):
         with open(os.path.join(directory, name), "w") as fout:
             fout.write(contents)
@@ -80,11 +118,18 @@ class CLITestCase(ContainerTestCase):
     def mast(self, module, *args, credentials=CREDENTIALS, appliance=ENVIRONMENT):
         """Run `mast-<module> <args>` and return its output. The test
         fails if the command does not exit with status 0."""
-        command = [sys.executable, "-m", "mast.datapower." + module]
+        if TEST_HOME:
+            # The launcher sets MAST_HOME and changes to the home.
+            command = [self.launcher("mast-" + module)]
+            env = dict(os.environ)
+            env.pop("MAST_HOME", None)
+        else:
+            command = [sys.executable, "-m", "mast.datapower." + module]
+            env = dict(os.environ, MAST_HOME=self.mast_home)
+        name = "mast-{} {}".format(module, " ".join(args))
         command += list(args)
         if appliance:
             command += ["-a", appliance, "-c", credentials, "-n"]
-        env = dict(os.environ, MAST_HOME=self.mast_home)
         proc = subprocess.run(
             command,
             cwd=self.mast_home,
@@ -95,7 +140,7 @@ class CLITestCase(ContainerTestCase):
             timeout=300)
         self.assertEqual(
             0, proc.returncode,
-            "{} failed:\n{}".format(" ".join(command[2:]), proc.stdout))
+            "{} failed:\n{}".format(name, proc.stdout))
         return proc.stdout
 
     def path(self, *parts):
@@ -107,6 +152,25 @@ class CLITestCase(ContainerTestCase):
 
 
 class TestSystemCLI(CLITestCase):
+
+    @unittest.skipUnless(TEST_HOME, "MAST_TEST_HOME is not set")
+    def test_commands_run_through_the_launchers(self):
+        # The launcher `mast` runs the interpreter of the home with its
+        # arguments, after it changed to the home.
+        proc = subprocess.run(
+            [self.launcher("mast"), "-c",
+             "import os, sys; print(sys.executable); print(os.getcwd())"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, timeout=60)
+        self.assertEqual(0, proc.returncode, proc.stdout)
+        executable, cwd = proc.stdout.strip().splitlines()[-2:]
+        home = os.path.realpath(self.mast_home)
+        self.assertTrue(
+            os.path.realpath(os.path.dirname(executable)).startswith(
+                os.path.realpath(os.path.join(TEST_HOME, "python"))),
+            executable)
+        self.assertTrue(executable.startswith(self.mast_home), executable)
+        self.assertEqual(os.path.realpath(cwd), home)
 
     def test_xor(self):
         encoded = self.mast(

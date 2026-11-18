@@ -31,6 +31,12 @@ import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
+# The integration tests can run the launchers of a home (see
+# test_cli_container.py). A relative path is relative to where pytest
+# was started, not to the test home below.
+if os.environ.get("MAST_TEST_HOME"):
+    os.environ["MAST_TEST_HOME"] = os.path.abspath(os.environ["MAST_TEST_HOME"])
+
 if "MAST_HOME" not in os.environ:
     _tmp = tempfile.mkdtemp(prefix="mast-test-home-")
     _home = os.path.join(_tmp, "mast_home")
