@@ -15,6 +15,8 @@ import mast.datapower.status
 import mast.datapower.system
 import mast.datapower.web
 import mast.hashes
+import mast.home
+import mast.jobs
 import mast.logging
 import mast.plugins
 import mast.plugin_utils
@@ -170,6 +172,8 @@ api_modules = LastUpdatedOrderedDict([
     (mast.datapower.datapower, LastUpdatedOrderedDict()),
     (mast.datapower.web, LastUpdatedOrderedDict()),
     (mast.hashes, LastUpdatedOrderedDict()),
+    (mast.home, LastUpdatedOrderedDict()),
+    (mast.jobs, LastUpdatedOrderedDict()),
     (mast.logging, LastUpdatedOrderedDict()),
     (mast.plugins, LastUpdatedOrderedDict()),
     (mast.plugin_utils, LastUpdatedOrderedDict()),
@@ -284,13 +288,15 @@ def generate_cli_reference():
             err = err.decode()
         out = out.replace("  -", "    -")
 
-        # Put all subcommand into an unordered list
-        subcommands = re.search(r"  \{.*?\}", out)
-        if subcommands is None:
-            subcommands = []
-        else:
-            subcommands = subcommands[0].strip().replace('{', '').replace('}', '')
-            subcommands = subcommands.split(",")
+        # The names of the subcommands, from the "commands:" section of
+        # the help. Each name is indented by four spaces; a long name is
+        # on a line of its own, with its description on the next line.
+        subcommands = []
+        section = re.search(r"^commands:\n(.*?)(?:\n\S|\Z)", out,
+                            flags=re.MULTILINE | re.DOTALL)
+        if section is not None:
+            subcommands = re.findall(r"^ {4}([a-z][\w-]*)(?: |$)",
+                                     section.group(1), flags=re.MULTILINE)
         # print(subcommands)
         # import sys; sys.exit()
         # out = re.sub(r"\{.*?\}", r"\1", out, flags=re.MULTILINE)
