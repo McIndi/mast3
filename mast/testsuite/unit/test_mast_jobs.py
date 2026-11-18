@@ -284,6 +284,40 @@ class TestSchema(SqliteCase):
         db.upgrade()
         self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
 
+    def test_a_reader_does_not_wait_for_a_writer(self):
+        if db.engine().dialect.name != "sqlite":
+            self.skipTest("only SQLite locks the database for a write")
+        job_id = submit("dp1")
+        holding, release = threading.Event(), threading.Event()
+
+        def write(started=None):
+            with db.session() as session:
+                session.get(Job, job_id).error = "written"
+                if started is not None:
+                    started.set()
+                release.wait(10)
+
+        writer = threading.Thread(target=write, args=(holding,))
+        writer.start()
+        self.addCleanup(writer.join, 10)
+        self.addCleanup(release.set)
+        self.assertTrue(holding.wait(10))
+        began = time.monotonic()
+        self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
+        self.assertEqual(len(jobs.events(job_id)), 1)
+        self.assertLess(time.monotonic() - began, 1)
+        # Another write waits
+        second = threading.Thread(target=write)
+        second.start()
+        self.addCleanup(second.join, 10)
+        time.sleep(0.3)
+        self.assertTrue(second.is_alive())
+        release.set()
+        writer.join(10)
+        second.join(10)
+        self.assertFalse(second.is_alive())
+        self.assertEqual(jobs.get(job_id).error, "written")
+
     def test_another_database_is_refused(self):
         db.configure("mysql://localhost/mast")
         with self.assertRaises(ValueError):

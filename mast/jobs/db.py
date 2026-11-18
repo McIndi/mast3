@@ -112,10 +112,16 @@ def _create_engine(url):
 
     @event.listens_for(created, "begin")
     def _on_begin(connection):
-        # Take the write lock at the start. A transaction that reads
-        # and then writes would otherwise fail if another process
-        # wrote in between. This also makes claim() atomic.
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        # A transaction that writes takes the write lock at the start.
+        # A transaction that reads and then writes would otherwise fail
+        # if another process wrote in between. This also makes claim()
+        # atomic. A transaction that only reads (session(write=False))
+        # takes no lock, so that a program that follows a job does not
+        # wait for the heartbeats, and they do not wait for it.
+        if connection.get_execution_options().get("mast_read_only"):
+            connection.exec_driver_sql("BEGIN")
+        else:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     return created
 
@@ -145,7 +151,8 @@ def lock_queue(connection):
 
     Make the current transaction the only one that claims a job or
     changes the schema, until it ends. SQLite does this for every
-    transaction (see `_create_engine`).
+    transaction that writes (see `_create_engine`). A transaction that
+    only reads is not stopped by it.
     """
     if connection.dialect.name == "postgresql":
         connection.execute(
@@ -186,13 +193,20 @@ def upgrade(target=None):
 
 
 @contextlib.contextmanager
-def session():
+def session(write=True):
     """
-    _function_: `mast.jobs.db.session()`
+    _function_: `mast.jobs.db.session(write=True)`
 
     A context manager for one transaction. It commits at the end, or
     rolls back if there was an exception.
+
+    Give `write=False` for a transaction that only reads. On SQLite
+    such a transaction does not wait for the transactions that write,
+    and they do not wait for it. It must not write.
     """
-    with Session(engine(), expire_on_commit=False) as _session:
+    bind = engine()
+    if not write:
+        bind = bind.execution_options(mast_read_only=True)
+    with Session(bind, expire_on_commit=False) as _session:
         with _session.begin():
             yield _session

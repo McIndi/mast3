@@ -348,7 +348,7 @@ def get(job_id, principal=LOCAL):
 
     Return the `JobInfo` of a job. Raises `JobNotFound`.
     """
-    with db.session() as session:
+    with db.session(write=False) as session:
         job = _require(session, job_id)
         info = _info(session, job)
     authorize(principal, "read", command=info.command, targets=info.targets)
@@ -367,7 +367,7 @@ def find(prefix, principal=LOCAL):
     prefix = prefix.strip().lower()
     if not prefix or not all(c in "0123456789abcdef" for c in prefix):
         raise JobNotFound(prefix)
-    with db.session() as session:
+    with db.session(write=False) as session:
         found = session.scalars(
             select(Job.id).where(Job.id.startswith(prefix, autoescape=True))
             .limit(2)).all()
@@ -392,7 +392,7 @@ def list_jobs(status=None, limit=50, principal=LOCAL):
     if status is not None:
         statuses = [status] if isinstance(status, str) else list(status)
         query = query.where(Job.status.in_(statuses))
-    with db.session() as session:
+    with db.session(write=False) as session:
         return [_info(session, job) for job in session.scalars(query)]
 
 
@@ -406,7 +406,7 @@ def events(job_id, after=0, principal=LOCAL):
     `after`.
     """
     get(job_id, principal)
-    with db.session() as session:
+    with db.session(write=False) as session:
         return [EventInfo.model_validate(row) for row in session.scalars(
             select(JobEvent)
             .where(JobEvent.job_id == job_id, JobEvent.id > after)
@@ -421,7 +421,7 @@ def result(job_id, principal=LOCAL):
     (it is not finished, or it was cancelled or lost).
     """
     get(job_id, principal)
-    with db.session() as session:
+    with db.session(write=False) as session:
         row = session.get(JobResult, job_id)
         return None if row is None else ResultInfo.model_validate(row)
 
@@ -752,6 +752,6 @@ def workers(alive=True, principal=LOCAL):
     if alive:
         query = query.where(Worker.last_seen_at >= _now() - timedelta(
             seconds=config.lease_seconds()))
-    with db.session() as session:
+    with db.session(write=False) as session:
         return [WorkerInfo.model_validate(row)
                 for row in session.scalars(query)]
