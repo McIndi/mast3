@@ -36,7 +36,7 @@ the following process:
 There are three convenience functions defined in this module:
 
 1. `get_config(filename)`: This will parse the configuration for
-`filename` and return a [ConfigParser.ConfigParser](https://docs.python.org/2/library/configparser.html#ConfigParser.ConfigParser)
+`filename` and return a [ConfigParser.ConfigParser](https://docs.python.org/3/library/configparser.html#configparser.ConfigParser)
 instance containing the results.
 2. `get_config_dict(filename)`: This will parse configuration for
 `filename` and return a `dict` containing the configuration.

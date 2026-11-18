@@ -122,7 +122,7 @@ def make_logger(
     _function_: `mast.logging.make_logger(name, level=level, fmt=_format, filename=None, when=unit, interval=interval, propagate=propagate, backup_count=backup_count)`
 
     Returns an instance of logging.Logger configured with
-    a [logging.handlers.TimedRotatingFileHandler](https://docs.python.org/2/library/logging.handlers.html#timedrotatingfilehandler)
+    a [logging.handlers.TimedRotatingFileHandler](https://docs.python.org/3/library/logging.handlers.html#timedrotatingfilehandler)
     handler.
 
     Arguments passed to this function determine the format,
@@ -134,28 +134,28 @@ def make_logger(
     Parameters:
 
     * `name`: Required. the name of the logger instance. This follows
-    conventions mentioned [here](https://docs.python.org/2/library/logging.html#logger-objects)
+    conventions mentioned [here](https://docs.python.org/3/library/logging.html#logger-objects)
     * `level`: The logging level to listen for. Accepts an `int` or
     one of the logging modules convenience constants defined
-    [here](https://docs.python.org/2/library/logging.html#logging-levels)
+    [here](https://docs.python.org/3/library/logging.html#logging-levels)
     * `fmt`: The format of the log message, see
-    [here](https://docs.python.org/2/library/logging.html#formatter-objects)
-    and [here](https://docs.python.org/2/library/logging.html#logrecord-attributes)
+    [here](https://docs.python.org/3/library/logging.html#formatter-objects)
+    and [here](https://docs.python.org/3/library/logging.html#logrecord-attributes)
     for more details
     * `filename`: The filename to log to. Defaults to the name of the logger
     appended with `.log` in the `$MAST_HOME/var/log` directory or
     `$MAST_HOME/var/log/mastd` directory if running as `mastd`
     * `when`: The time unit to use for rolling over the log file
-    as detailed [here](https://docs.python.org/2/library/logging.handlers.html#timedrotatingfilehandler)
+    as detailed [here](https://docs.python.org/3/library/logging.handlers.html#timedrotatingfilehandler)
     * `interval`: The number of time units to wait before rolling the
-    log files as detailed [here](https://docs.python.org/2/library/logging.handlers.html#timedrotatingfilehandler)
+    log files as detailed [here](https://docs.python.org/3/library/logging.handlers.html#timedrotatingfilehandler)
     * `propagate`: Whether to propagate log messages up the ancestry chain
     (ie. if you have a logger `mast.datapower`, and propagate is set to
     `False` messages sent to the this logger will not be propagated to the
-    `mast` logger). See [here](https://docs.python.org/2/library/logging.html#logging.Logger.propagate)
+    `mast` logger). See [here](https://docs.python.org/3/library/logging.html#logging.Logger.propagate)
     for more details.
     * `backup_count`: The number of "rolled" log files to keep, see
-    [here](https://docs.python.org/2/library/logging.handlers.html#timedrotatingfilehandler)
+    [here](https://docs.python.org/3/library/logging.handlers.html#timedrotatingfilehandler)
     for more details.
 
     Usage:

@@ -18,7 +18,7 @@ _module_: `mast.daemon`
 
 This module implements a daemon on Linux platforms or a
 Service on Windows platforms. It checks for any modules
-which have a registered [setuptools entrypoint](http://pythonhosted.org/setuptools/pkg_resources.html#entry-points)
+which have a registered [entry point](https://packaging.python.org/en/latest/specifications/entry-points/)
 called `mastd_plugin` which should be a subclass of `threading.Thread`.
 
 When `mastd` is started, it will search for and find `mastd_plugin`s and
@@ -62,7 +62,7 @@ def get_plugins():
     """
     _function_: `mast.daemon.get_plugins()`
 
-    This function will use [pkg_resources.iter_entry_points](http://pythonhosted.org/setuptools/pkg_resources.html#basic-workingset-methods)
+    This function will use [importlib.metadata.entry_points](https://docs.python.org/3/library/importlib.metadata.html#entry-points)
     to find `entry_points` for `mastd_plugin` and return them.
     """
     named_objects = {}
@@ -224,7 +224,7 @@ else:
             """
             _method_: `mast.daemon.MASTd.get_plugins(self)`
 
-            This method uses `pkg_resources.iter_entry_points` to locate
+            This method uses `importlib.metadata.entry_points` to locate
             all `mastd_plugin`s and return them.
             """
             logger = make_logger("mast.daemon")

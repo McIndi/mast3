@@ -18,7 +18,7 @@ _module_: `mast.daemon`
 
 This module implements a daemon on Linux platforms or a
 Service on Windows platforms. It checks for any modules
-which have a registered [setuptools entrypoint](http://pythonhosted.org/setuptools/pkg_resources.html#entry-points)
+which have a registered [entry point](https://packaging.python.org/en/latest/specifications/entry-points/)
 called `mastd_plugin` which should be a subclass of `threading.Thread`.
 
 When `mastd` is started, it will search for and find `mastd_plugin`s and

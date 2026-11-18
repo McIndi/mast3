@@ -17,7 +17,7 @@
 _module_: `mast.hashes`
 
 This module provides a number of functions which are wrappers
-around Python's [hashlib](https://docs.python.org/2/library/hashlib.html)
+around Python's [hashlib](https://docs.python.org/3/library/hashlib.html)
 library.
 
 While your version of OpenSSL may allow for more hashing algorithms,
