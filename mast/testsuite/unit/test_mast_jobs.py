@@ -1182,6 +1182,14 @@ class TestCommandLine(CliCase):
             self.assertEqual(job.status, jobs.SUCCEEDED)
             self.assertFalse(job.worker_id.startswith(worker.id))
 
+    def test_the_progress_of_a_job_done_here_is_shown_once(self):
+        expected = "".join("step {}\n".format(n) for n in range(8)) \
+            + "all steps done\n"
+        for argv in ((), ("--local",)):
+            with self.subTest(argv=argv):
+                status, out, err = self.run_cli("steps", "--steps", "8", *argv)
+                self.assertEqual((status, out, err), (0, expected, ""))
+
     def test_a_reserved_job_is_only_for_its_worker(self):
         reserved = jobs.submit(
             "test.work", {"appliances": ["dp1"]}, reserved_for="me")

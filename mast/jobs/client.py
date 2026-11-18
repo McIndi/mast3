@@ -109,6 +109,7 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
     then continues without this program.
     """
     last_event = 0
+    local_job = None
     interrupted = False
     next_attach = 0
     told_waiting = False
@@ -125,15 +126,12 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
             if info.status == QUEUED and time.monotonic() >= next_attach:
                 queue.attach(job_id)
                 next_attach = time.monotonic() + config.lease_seconds() / 3.0
-            if info.status == QUEUED and (local or not queue.workers()):
+            if info.status == QUEUED and local_job is None \
+                    and (local or not queue.workers()):
                 worker_id = worker_id or runner.new_worker_id()
-                if queue.claim(worker_id, job_id=job_id):
-                    try:
-                        runner.run_job(job_id, worker_id, echo=_out)
-                    finally:
-                        # The progress was printed as it happened
-                        shown = queue.events(job_id, last_event, principal)
-                        last_event = shown[-1].id if shown else last_event
+                candidate = _Local(job_id, worker_id)
+                if candidate.try_start():
+                    local_job = candidate
                     continue
             if (info.status == QUEUED and not told_waiting
                     and time.monotonic() - started > 2):
@@ -152,6 +150,9 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
             _note("Asked to cancel the job {}. It stops at its next "
                   "step. Press Ctrl-C again to stop waiting for "
                   "it.".format(job_id[:8]))
+    if local_job is not None:
+        # The job is stored. The thread only has to end.
+        local_job.join()
     return _show_end(info, queue.result(job_id, principal), interrupted)
 
 
@@ -203,20 +204,71 @@ def start(command, params, principal=queue.LOCAL, job_id=None):
     return job_id
 
 
+class _Local(object):
+    """
+    A job that this process runs itself, in a thread of its own.
+
+    The thread does what a worker does: it runs the job with
+    `mast.jobs.runner.run_job` and stores its progress and its result.
+    The program shows the progress as it does for a job on a worker,
+    from the queue.
+    """
+    def __init__(self, job_id, worker_id):
+        self.job_id = job_id
+        self.worker_id = worker_id
+        self._thread = None
+
+    def try_start(self):
+        """Claim the job if it can start now, and start the thread.
+        Return True if the thread runs."""
+        if not queue.claim(self.worker_id, job_id=self.job_id):
+            return False
+        self._thread = threading.Thread(
+            target=self._run, name="mast-job-{}".format(self.job_id[:8]),
+            daemon=True)
+        self._thread.start()
+        return True
+
+    def _run(self):
+        try:
+            runner.run_job(self.job_id, self.worker_id)
+        except Exception:
+            make_logger("mast.jobs").exception(
+                "The job {} could not be completed in this process".format(
+                    self.job_id))
+
+    @property
+    def running(self):
+        """True while the thread runs."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def join(self, timeout=None):
+        """Wait until the thread ends."""
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    def abandon(self, reason):
+        """Declare the job lost, because this process stops before the
+        job ends. Return False if the job is not running here any
+        more."""
+        return queue.abandon(self.job_id, self.worker_id, reason)
+
+
 def _do(job_id, worker_id, poll_seconds=0.25):
     """Wait until the job can start, then run it."""
     logger = make_logger("mast.jobs")
+    local = _Local(job_id, worker_id)
     next_attach = 0
     while True:
         try:
-            if queue.get(job_id).status != QUEUED:
-                # It was cancelled
-                return
             if time.monotonic() >= next_attach:
                 queue.attach(job_id)
                 next_attach = time.monotonic() + config.lease_seconds() / 3.0
-            if queue.claim(worker_id, job_id=job_id):
-                runner.run_job(job_id, worker_id)
+            if queue.get(job_id).status != QUEUED:
+                # It was cancelled
+                return
+            if local.try_start():
+                local.join()
                 return
         except Exception:
             # The database can be away. Keep trying.
