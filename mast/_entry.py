@@ -65,6 +65,10 @@ def developer():
     _run("mast.datapower.developer")
 
 
+def jobs():
+    _run("mast.jobs")
+
+
 def network():
     _run("mast.datapower.network")
 
@@ -83,6 +87,10 @@ def version():
 
 def web():
     _run("mast.datapower.web")
+
+
+def worker():
+    _run("mast.jobs.worker")
 
 
 def daemon():

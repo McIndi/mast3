@@ -43,7 +43,7 @@ from mast.plugin_utils.steps import save_config as save_default_domain
 import mast.plugin_utils.plugin_functions as pf
 from mast.datapower.backups import get_normal_backup
 
-cli = Cli()
+cli = Cli(namespace="system")
 
 from mast.config import MAST_HOME
 
@@ -260,7 +260,9 @@ class Xor(Params):
         "", short="s", help="The string to xor and base64 encode")
 
 
-@cli.command('xor', category='utilities')
+# Not queued: the string is a credential, and the result can be
+# decoded
+@cli.command('xor', category='utilities', queued=False)
 def xor(params: Xor):
     """This will xor encode and base64 encode the given string
 for suitable use in passing credentials to MAST CLI commands.
@@ -540,7 +542,7 @@ appliances."""
 # enable-domain - set the admin-state to enabled for the specified domain
 #
 
-@cli.command('list-domains', category='domains')
+@cli.command('list-domains', category='domains', exclusive=False)
 def list_domains(params: ApplianceParams):
     """Lists the domains on the specified appliances as well as all common
 domains."""
@@ -1599,7 +1601,7 @@ class GetStatus(ApplianceParams):
              "collapsed and newlines removed")
 
 
-@cli.command('get-status', category='auditing')
+@cli.command('get-status', category='auditing', exclusive=False)
 def get_status(params: GetStatus):
     """This will query the status of the specified appliances in
 in the specified Domain for the specified StatusProviders."""
@@ -1645,7 +1647,7 @@ class GetConfig(ApplianceParams):
              "collapsed and newlines removed")
 
 
-@cli.command('get-config', category='auditing')
+@cli.command('get-config', category='auditing', exclusive=False)
 def get_config(params: GetConfig):
     """This will get the config of obj_name from the specified
 domain on the specified appliances."""

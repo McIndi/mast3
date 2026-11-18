@@ -128,7 +128,81 @@ var addHandlerForFormSubmission = function(plugin){
         $.post('/'+uri, data, function(data){
             console.log("Received response");
             console.log("#mast\\.datapower\\."+plugin+"OutputResults");
-            $("#mast\\.datapower\\."+plugin+"OutputResults").prepend(data);
+            // The response is the output of a command that could not be
+            // queued, or the box of a job that the browser must follow.
+            var added = $($.parseHTML($.trim(data)));
+            $("#mast\\.datapower\\."+plugin+"OutputResults").prepend(added);
+            added.filter(".job_pending").each(function(index, box){
+                followJob($(box));
+            });
+        }).fail(function(xhr){
+            // Without this, a request that fails shows nothing at all
+            var message = $("<div>").addClass("width-100 output").text(
+                "The server could not queue the command (HTTP " + xhr.status + ").");
+            $("#mast\\.datapower\\."+plugin+"OutputResults").prepend(message);
         });
     });
+};
+
+// Fill the box of a job with its progress, then replace the box with
+// the output of the job. The server answers at /jobs/<id>.
+var followJob = function(box){
+    var job = box.attr("data-job");
+    var after = 0;
+    var stopped = false;
+
+    // requestedAfter is the value of after when the state was asked
+    // for. The events of a state are shown only if no other answer has
+    // shown events since, so that no line is shown twice (a poll and a
+    // cancel can be answered at the same time).
+    var show = function(state, requestedAfter){
+        if (stopped){
+            // Another answer has already replaced the box
+            return;
+        }
+        if (requestedAfter === after){
+            $.each(state.events, function(index, message){
+                box.find(".job_progress").append(document.createTextNode(message + "\n"));
+            });
+            after = state.last_event;
+        }
+        box.find(".job_status").text(
+            state.cancel_requested && !state.finished ? "cancelling" : state.status);
+        if (state.finished){
+            stopped = true;
+            box.replaceWith($.parseHTML($.trim(state.html)));
+        }
+    };
+
+    var poll = function(){
+        if (stopped || !$.contains(document.documentElement, box[0])){
+            return;
+        }
+        var asked = after;
+        $.ajax({url: "/jobs/" + job, data: {after: asked}, dataType: "json", global: false})
+            .done(function(state){
+                show(state, asked);
+                setTimeout(poll, 1000);
+            })
+            .fail(function(xhr){
+                if (xhr.status == 404){
+                    box.find(".job_status").text("unknown job");
+                    return;
+                }
+                // The server can be away for a moment
+                setTimeout(poll, 5000);
+            });
+    };
+
+    box.find(".job_cancel").on("click", function(event){
+        event.preventDefault();
+        var asked = after;
+        $.ajax({url: "/jobs/" + job + "/cancel", type: "POST", data: {after: asked},
+                dataType: "json", global: false})
+            .done(function(state){
+                show(state, asked);
+            });
+    });
+
+    poll();
 };

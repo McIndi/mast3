@@ -36,7 +36,7 @@ from dateutil import parser, tz, relativedelta
 import mast.plugin_utils.plugin_functions as pf
 from mast import __version__
 
-cli = Cli()
+cli = Cli(namespace="crypto")
 
 
 class CertAudit(ApplianceParams):

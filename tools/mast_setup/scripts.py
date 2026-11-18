@@ -2,8 +2,9 @@
 Make the console scripts of a home relocatable.
 
 uv writes the absolute path of the interpreter into each console script
-(`mast-system`, `flask`, `pip` ...): the first line of a script on Linux
-and macOS, and a resource of the `.exe` launcher on Windows. That path
+(`mast-system`, `flask`, `pip` ...): the header of a script on Linux
+and macOS (a `#!` line, or a `/bin/sh` header when the path is long or
+has a space), and a resource of the `.exe` launcher on Windows. That path
 is in the build folder, so the scripts fail once the installer is
 unzipped somewhere else. This module replaces it with a path relative
 to the script:
@@ -19,6 +20,8 @@ to the script:
 """
 import logging
 import os
+import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -42,24 +45,55 @@ def scripts_directory(python, platform):
     return python.parent
 
 
-def _absolute_shebang(path):
-    """Return the interpreter of an absolute `#!` line, or None."""
+# When the path of the interpreter is too long for a `#!` line (127
+# bytes on Linux) or has a space, uv writes this header instead:
+#
+#     #!/bin/sh
+#     '''exec' '/path/of/python' "$0" "$@"
+#     ' '''
+#
+# The path is quoted for the shell, so shlex reads it back.
+UV_SH_HEADER = re.compile(rb"\A#!/bin/sh\n('''exec' .*)\n' '''\n")
+
+
+def _uv_sh_interpreter(line):
+    """Return the interpreter of the exec line of a uv header, or None."""
+    try:
+        words = shlex.split(line.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if len(words) == 4 and words[0] == "exec" and words[2:] == ["$0", "$@"] \
+            and words[1].startswith("/"):
+        return words[1]
+    return None
+
+
+def _absolute_interpreter(path):
+    """
+    Return the absolute interpreter path in the header of a script, and
+    the length of that header in bytes, or (None, 0).
+    """
     try:
         with open(path, "rb") as fp:
-            first = fp.readline(4096)
+            start = fp.read(8192)
     except OSError:
-        return None
-    if not first.startswith(b"#!/"):
-        return None
+        return None, 0
+    match = UV_SH_HEADER.match(start)
+    if match:
+        target = _uv_sh_interpreter(match.group(1))
+        return (target, match.end()) if target else (None, 0)
+    if not start.startswith(b"#!/"):
+        return None, 0
+    first = start.split(b"\n", 1)[0]
     target = first[2:].strip()
-    # "#!/usr/bin/env python3" and "#!/bin/sh" have arguments or point
-    # outside the interpreter folder; only a bare path is a candidate.
+    # "#!/usr/bin/env python3" has an argument; only a bare path is a
+    # candidate.
     if b" " in target:
-        return None
+        return None, 0
     try:
-        return target.decode("utf-8")
+        return target.decode("utf-8"), len(first) + 1
     except UnicodeDecodeError:
-        return None
+        return None, 0
 
 
 def relocate_posix(bin_dir):
@@ -72,11 +106,10 @@ def relocate_posix(bin_dir):
     for path in sorted(bin_dir.iterdir()):
         if path.is_symlink() or not path.is_file():
             continue
-        target = _absolute_shebang(path)
+        target, length = _absolute_interpreter(path)
         if target is None or Path(target).parent.resolve() != bin_dir:
             continue
-        data = path.read_bytes()
-        rest = data.split(b"\n", 1)[1] if b"\n" in data else b""
+        rest = path.read_bytes()[length:]
         header = POSIX_HEADER.format(name=Path(target).name).encode("utf-8")
         mode = path.stat().st_mode
         path.write_bytes(header + rest)
@@ -91,7 +124,7 @@ def check_posix(bin_dir, root):
     for path in sorted(Path(bin_dir).iterdir()):
         if path.is_symlink() or not path.is_file():
             continue
-        target = _absolute_shebang(path)
+        target, _ = _absolute_interpreter(path)
         # Resolve the folder, not the interpreter: the interpreter can be
         # a link to another file.
         if target and Path(target).parent.resolve().is_relative_to(root):

@@ -35,7 +35,7 @@ from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
 
-cli = Cli()
+cli = Cli(namespace="network")
 
 
 def _change(params, action, description, **kwargs):
@@ -165,7 +165,7 @@ host at each remote port."""
 #
 
 @logged("mast.datapower.network")
-@cli.command("display-routing-table", category="network config")
+@cli.command("display-routing-table", category="network config", exclusive=False)
 def display_routing_table(params: ApplianceParams):
     """Display the routing table for the specified appliances
 
@@ -240,7 +240,7 @@ class DisplayEthernetInterface(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('display-ethernet-interface', category='network config')
+@cli.command('display-ethernet-interface', category='network config', exclusive=False)
 def display_ethernet_interface(params: DisplayEthernetInterface):
     """This will display the details of the specified ethernet interface
 on the specified appliances."""
@@ -261,7 +261,7 @@ on the specified appliances."""
 
 
 @logged("mast.datapower.network")
-@cli.command('list-host-aliases', category='network config')
+@cli.command('list-host-aliases', category='network config', exclusive=False)
 def list_host_aliases(params: ApplianceParams):
     """Lists the host aliases of the specified appliances as well as
 the host aliases common to all specified appliances."""
@@ -329,7 +329,7 @@ class ListSecondaryAddresses(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('list-secondary-addresses', category='network config')
+@cli.command('list-secondary-addresses', category='network config', exclusive=False)
 def list_secondary_addresses(params: ListSecondaryAddresses):
     """This will list the secondary IP Addresses on the specified
 Ethernet Interface for the specified appliances."""
@@ -391,7 +391,7 @@ specified ethernet interface"""
 
 
 @logged("mast.datapower.network")
-@cli.command('list-static-hosts', category='network config')
+@cli.command('list-static-hosts', category='network config', exclusive=False)
 def list_static_hosts(params: ApplianceParams):
     """This will list the static hosts on the specified appliances."""
     env = params.environment()
@@ -441,7 +441,7 @@ class ListStaticRoutes(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('list-static-routes', category='network config')
+@cli.command('list-static-routes', category='network config', exclusive=False)
 def list_static_routes(params: ListStaticRoutes):
     """This will list all of the static routes on the specified
 EthernetInterface on the specified appliances."""

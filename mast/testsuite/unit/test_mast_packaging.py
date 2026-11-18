@@ -27,8 +27,10 @@ load error. These tests load each entry point and fail with the error.
 import importlib
 import importlib.metadata as metadata
 import pkgutil
+import re
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import mast
 
@@ -47,6 +49,7 @@ EXPECTED_WEB_PLUGINS = {
 EXPECTED_DAEMON_PLUGINS = {
     "mastd_web_plugin": "mast.datapower.web:Plugin",
     "mastd_cron_plugin": "mast.cron:Plugin",
+    "mastd_worker_plugin": "mast.jobs.worker:Plugin",
 }
 
 # Packages that must have docroot/* files (the web GUI pages).
@@ -129,6 +132,24 @@ class TestMASTPackaging(unittest.TestCase):
                     # load() raises on a bad import or a missing attribute.
                     self.assertTrue(callable(ep.load()))
 
+    def test_every_launcher_has_a_console_script(self):
+        # Each launcher in the installer (`./mast -m <module>`) has a
+        # console script of the same name that runs the same module, for
+        # a development home and a `pip install`.
+        launchers = Path(mast.__file__).resolve().parents[1] / "files" / "invocation_scripts" / "linux"
+        if not launchers.is_dir():
+            self.skipTest("the launchers are only in a source checkout")
+        scripts = _entry_points("console_scripts")
+        for launcher in sorted(launchers.iterdir()):
+            match = re.search(r"\./mast -m (\S+)", launcher.read_text())
+            if match is None:
+                continue
+            with self.subTest(launcher=launcher.name):
+                self.assertIn(launcher.name, scripts)
+                with mock.patch("mast._entry._run") as run:
+                    scripts[launcher.name].load()()
+                run.assert_called_once_with(match.group(1))
+
     def test_every_subpackage_imports(self):
         # Walk the installed package and import every package and module,
         # so that a package missing from the wheel fails here.
@@ -181,7 +202,8 @@ class TestMASTPackaging(unittest.TestCase):
                  if m.ispkg}
         expected = {
             "mast.cli", "mast.config", "mast.cron", "mast._daemon",
-            "mast.datapower", "mast.hashes", "mast.logging", "mast.plugins",
+            "mast.datapower", "mast.hashes", "mast.jobs", "mast.jobs.migrations",
+            "mast.jobs.migrations.versions", "mast.logging", "mast.plugins",
             "mast.plugin_utils", "mast.pprint", "mast.test", "mast.testsuite",
             "mast.testsuite.unit", "mast.testsuite.integration",
             "mast.testsuite.regression", "mast.timestamp", "mast.xor",

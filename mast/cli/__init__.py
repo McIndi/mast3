@@ -28,6 +28,12 @@ executes the appropriate function
 A command is a function that takes one parameter, which is annotated
 with a subclass of `mast.cli.Params`. The options, their help and their
 validation come from that model. See `mast.cli.params`.
+
+A `Cli` that has a `namespace` does not call its commands itself. It
+puts each invocation in the job queue (`mast.jobs`) and shows the
+progress and the result of the job. A command that is registered with
+`queued=False` is the exception: it is always called directly, and
+nothing about it is stored.
 """
 import sys
 import inspect
@@ -38,14 +44,18 @@ from mast import __version__
 from mast.logging import make_logger
 from mast.cli import params as _params
 from mast.cli.params import Params, Option
-from mast.cli.results import Result, Text, Table, say, captured
+from mast.cli.results import (
+    Result, Text, Table, say, captured, listening, checkpoint, guarded,
+    SUCCEEDED, PARTIAL, FAILED)
 
 from collections import defaultdict
 from pydantic import ValidationError
 
 __all__ = [
     "Cli", "Command", "Params", "Option",
-    "Result", "Text", "Table", "say", "captured",
+    "Result", "Text", "Table", "say", "captured", "listening",
+    "checkpoint", "guarded",
+    "SUCCEEDED", "PARTIAL", "FAILED",
 ]
 
 
@@ -81,14 +91,29 @@ class Command(object):
     instance or the fields of the model as keyword arguments.
     * `model`: The `Params` subclass.
     * `parser`: The `argparse` parser for this command.
+    * `exclusive`: False if the command only reads from the
+    appliances. The job queue runs such a command while other jobs
+    use the same appliances.
+    * `resources`: The names of what the command must not share with
+    another job, besides its appliances: a directory that it changes,
+    for example. Or a function that takes the `Params` instance and
+    returns the names. The job queue locks them as it locks the
+    appliances.
+    * `queued`: False if the command must never go through the job
+    queue. Such a command talks to no appliance, and its parameters
+    or its result must not be stored.
     """
-    def __init__(self, name, fn, category, model, parser):
+    def __init__(self, name, fn, category, model, parser, exclusive=True,
+                 resources=None, queued=True):
         self.name = name
         self.key = fn.__name__
         self.category = category
         self.fn = fn
         self.model = model
         self.parser = parser
+        self.exclusive = exclusive
+        self.resources = resources
+        self.queued = queued
 
     @property
     def doc(self):
@@ -141,7 +166,8 @@ class Cli(object):
             cli.run()
 
     The function returns a `mast.cli.Result` (or `None`) and `run`
-    prints it. The function can also be called from Python as
+    prints it. If the result says that some or all of the command
+    failed (see `Result.outcome`), the program exits with status 1. The function can also be called from Python as
     `greet(name="World")`.
 
     There are two ways to use this library. The example above has many
@@ -162,9 +188,10 @@ class Cli(object):
             cli = Cli(main=main)
             cli.run()
     """
-    def __init__(self, description="", main=None):
+    def __init__(self, description="", main=None, namespace=None):
         """
-        _method_: `mast.cli.Cli.__init__(self, description="", main=None)`
+        _method_: `mast.cli.Cli.__init__(self, description="", main=None,
+        namespace=None)`
 
         This is the constructor for this class. A few options are
         available which allows defining how the program will appear
@@ -182,7 +209,16 @@ class Cli(object):
         is called from the command line. __NOTE__ that if `main` is
         provided, you cannot create sub-commands using the `command`
         decorator.
+        * `namespace`: If given, `run` executes a command as a job in
+        the job queue, with the id `<namespace>.<name of the command>`
+        (see `mast.jobs`). Each command then also has the options
+        `--detach` and `--local`. A MAST plugin gives its own name
+        (`mast.datapower.backups` gives `backups`), which is how a
+        worker finds the command.
         """
+        if namespace is not None and main is not None:
+            raise ValueError("a Cli with main cannot have a namespace")
+        self.namespace = namespace
         self.main = main
         self.commands = {}
         self.parser = argparse.ArgumentParser(
@@ -218,7 +254,8 @@ class Cli(object):
                 return command
         raise KeyError(key)
 
-    def create_subparser(self, fn, name=None, category=None):
+    def create_subparser(self, fn, name=None, category=None,
+                         exclusive=True, resources=None, queued=True):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -236,6 +273,7 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
+        * `exclusive`, `resources`, `queued`: See `Command`.
         """
         if not name:
             name = fn.__name__
@@ -261,14 +299,29 @@ class Cli(object):
             _parser = self.parser
             if not _parser.description:
                 _parser.description = desc
-        command = Command(name, fn, category, model, _parser)
+        command = Command(name, fn, category, model, _parser, exclusive,
+                          resources, queued)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
         _params.add_arguments(_parser, model)
+        if self.namespace is not None and queued:
+            queue = _parser.add_argument_group("job queue")
+            queue.add_argument(
+                "--detach", dest="_detach", action="store_true",
+                default=False,
+                help="Put the job in the queue, print its id and return. "
+                     "A worker must be running to do the job. See "
+                     "mast-jobs.")
+            queue.add_argument(
+                "--local", dest="_local", action="store_true",
+                default=False,
+                help="Do the job in this process, also if a worker is "
+                     "running.")
         return fn
 
-    def command(self, name=None, category=None):
+    def command(self, name=None, category=None, exclusive=True,
+                resources=None, queued=True):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -282,12 +335,19 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
+        * `exclusive`: Give False for a command that only reads from
+        the appliances. See `Command`.
+        * `resources`: What the command must not share with another
+        job, besides its appliances. See `Command`.
+        * `queued`: Give False for a command that must never go
+        through the job queue. See `Command`.
         """
         def inner(fn):
             if self.main is not None:
                 print("The Cli decorator cannot be used when main is specified")
                 sys.exit(-1)
-            return self.create_subparser(fn, name, category)
+            return self.create_subparser(
+                fn, name, category, exclusive, resources, queued)
         return inner
 
     def run(self, argv=None):
@@ -318,6 +378,8 @@ class Cli(object):
         except ValidationError as exc:
             command.parser.error("; ".join(
                 _params.error_messages(command.model, exc)))
+        if self.namespace is not None and command.queued:
+            return self._run_job(command, args, values, log)
         log.info(f"Attempting to execute func: {command.fn}")
         try:
             result = command.fn(values)
@@ -326,6 +388,21 @@ class Cli(object):
             raise
         if isinstance(result, Result):
             result.emit()
+            if result.outcome != SUCCEEDED:
+                sys.exit(1)
+
+    def _run_job(self, command, args, values, log):
+        """Put the command in the job queue and show the job, see
+        `mast.jobs.client`."""
+        # Imported here, because mast.jobs imports this module
+        from mast.jobs import client, registry
+        registry.register(self.namespace, self)
+        command_id = registry.command_id(self.namespace, command)
+        log.info(f"Attempting to queue the command: {command_id}")
+        status = client.run(
+            command_id, values, detach=args._detach, local=args._local)
+        if status:
+            sys.exit(status)
 
 
 def _summary(doc):

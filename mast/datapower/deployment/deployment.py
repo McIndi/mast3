@@ -36,7 +36,7 @@ from mast.logging import make_logger, logged
 from functools import partial, update_wrapper
 import mast.plugin_utils.plugin_functions as pf
 
-cli = Cli()
+cli = Cli(namespace="deployment")
 
 
 def system_call(
@@ -777,7 +777,11 @@ def get_data_file(f):
     return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
 
 
-git_deploy = cli.command('git-deploy', category='deployment')(git_deploy)
+# Every git-deploy uses the same directory of checkouts, the same
+# default out_dir and the same log files, so only one runs at a time
+git_deploy = cli.command(
+    'git-deploy', category='deployment',
+    resources=["git-deploy"])(git_deploy)
 
 def _result_lines(response):
     """Return the lines of text in the result of a response."""
@@ -793,11 +797,15 @@ def _password_map_alias(params, method, action, message, **kwargs):
     env = params.environment()
 
     output = {}
+    failed = []
 
     def record(appliance, step, response):
         logger.info(repr(response))
         lines = _result_lines(response)
-        output["{}-{}".format(appliance.hostname, step)] = "\n".join(lines)
+        key = "{}-{}".format(appliance.hostname, step)
+        output[key] = "\n".join(lines)
+        if not response:
+            failed.append(key)
         say("\t\t{}".format("\n\t\t".join(lines).strip()))
 
     for appliance in env.appliances:
@@ -811,7 +819,7 @@ def _password_map_alias(params, method, action, message, **kwargs):
             record(appliance, "SaveConfig",
                    appliance.SaveConfig(domain=params.Domain))
     report = Report(env)
-    report.add(StatusResults(output), show=False)
+    report.add(StatusResults(output, failed=failed), show=False)
     return report
 
 

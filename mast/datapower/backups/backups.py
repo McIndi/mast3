@@ -40,7 +40,7 @@ class TimeoutError(Exception):
     pass
 
 
-cli = Cli()
+cli = Cli(namespace="backups")
 
 
 @logged("mast.datapower.backups")
@@ -441,7 +441,7 @@ class ListCheckpoints(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('list-checkpoints', category='checkpoints')
+@cli.command('list-checkpoints', category='checkpoints', exclusive=False)
 def list_checkpoints(params: ListCheckpoints):
     """Lists the checkpoints which are currently in the
     specified domain"""

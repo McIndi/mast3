@@ -70,7 +70,8 @@ class ActionResults(_EnvironmentResult):
     hostname to the response from that appliance.
 
     The command line prints each response. The web GUI shows a table
-    that says whether each appliance succeeded.
+    that says whether each appliance succeeded. A response that is
+    false is a failure.
     """
     def __init__(self, responses, env=None, suffix=None):
         self.responses = responses
@@ -88,6 +89,9 @@ class ActionResults(_EnvironmentResult):
             else:
                 lines.append(format_xml(response.xml))
         return "\n".join(lines)
+
+    def outcomes(self):
+        return [bool(response) for response in self.responses.values()]
 
     def html(self):
         return Table(
@@ -110,7 +114,8 @@ class Report(_EnvironmentResult):
     with `show=False`.
 
     A step can be the result of another command. The history of the
-    report is the history of its own `env`, then of each step.
+    report is the history of its own `env`, then of each step. The
+    outcomes of the report are the outcomes of all its steps.
     """
     def __init__(self, env=None):
         self.env = env
@@ -122,6 +127,9 @@ class Report(_EnvironmentResult):
         if text:
             say(text)
         return result
+
+    def outcomes(self):
+        return [worked for step in self.steps for worked in step.outcomes()]
 
     def html(self):
         return "".join(step.html() for step in self.steps)
@@ -215,15 +223,29 @@ class ListResults(_EnvironmentResult):
 
 class StatusResults(_EnvironmentResult):
     """
-    _class_: `mast.plugin_utils.results.StatusResults(results, env=None, suffix=None)`
+    _class_: `mast.plugin_utils.results.StatusResults(results, env=None,
+    suffix=None, failed=None)`
 
     One word of status ("Verified", "Failed") for each key. `results`
     maps each key (usually a hostname) to its status.
+
+    `failed` is the collection of the keys that failed. The default
+    is each key whose status is one of `StatusResults.BAD`. A command
+    whose statuses are other text gives `failed`.
     """
-    def __init__(self, results, env=None, suffix=None):
+    BAD = ("Failed", "Error", "Corrupt")
+
+    def __init__(self, results, env=None, suffix=None, failed=None):
         self.results = results
         self.env = env
         self.suffix = suffix
+        if failed is None:
+            failed = [key for key, status in results.items()
+                      if status in self.BAD]
+        self.failed = set(failed)
+
+    def outcomes(self):
+        return [key not in self.failed for key in self.results]
 
     def text(self):
         lines = []

@@ -64,11 +64,13 @@ mast-backups = "mast._entry:backups"
 mast-crypto = "mast._entry:crypto"
 mast-deployment = "mast._entry:deployment"
 mast-developer = "mast._entry:developer"
+mast-jobs = "mast._entry:jobs"
 mast-network = "mast._entry:network"
 mast-ssh = "mast._entry:ssh"
 mast-system = "mast._entry:system"
 mast-version = "mast._entry:version"
 mast-web = "mast._entry:web"
+mast-worker = "mast._entry:worker"
 mastd = "mast._entry:daemon"
 test-mast = "mast._entry:testsuite"
 
@@ -86,6 +88,7 @@ system = "mast.datapower.system:WebPlugin"
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.datapower.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
+mastd_worker_plugin = "mast.jobs.worker:Plugin"
 
 # The interpreter that ./mast-setup bundles. The installer ships the
 # newest patch release of `python` in the python-build-standalone release

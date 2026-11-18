@@ -23,16 +23,38 @@ A command returns a `Result`. The command does not know who called
 it: the command line prints the result as text, and the web GUI shows
 it as HTML.
 
+Most commands do not stop when one appliance refuses an action. They
+do the action on the other appliances and show what happened on each
+one. Such a result says how it went with `outcomes`, and the caller
+reads `outcome`: `succeeded`, `partial` (some of it failed) or
+`failed`. The command line turns this into its exit status and the
+job queue into the status of the job.
+
 A command reports progress with `say`. On the command line `say`
 prints. The web GUI collects the messages with `captured`.
+
+Code that is about to change something outside MAST calls
+`checkpoint` first. Whoever runs the command can stop it there (see
+`guarded`). The job queue stops a job in this way when the job was
+cancelled, or when the worker lost it and another job can have the
+appliances.
 """
 import contextlib
 import contextvars
 import html
 
-__all__ = ["Result", "Text", "Table", "say", "captured"]
+__all__ = ["Result", "Text", "Table", "say", "captured", "listening",
+           "checkpoint", "guarded",
+           "SUCCEEDED", "PARTIAL", "FAILED"]
+
+# The values of Result.outcome. The job queue uses the same words for
+# the status of a job.
+SUCCEEDED = "succeeded"
+PARTIAL = "partial"
+FAILED = "failed"
 
 _sink = contextvars.ContextVar("mast_cli_sink", default=None)
+_guard = contextvars.ContextVar("mast_cli_guard", default=None)
 
 
 def say(*parts):
@@ -51,6 +73,54 @@ def say(*parts):
 
 
 @contextlib.contextmanager
+def listening(callback):
+    """
+    _function_: `mast.cli.results.listening(callback)`
+
+    A context manager that gives each message from `say` to `callback`
+    and does not print it. The job queue stores the messages this way.
+
+        :::python
+        with listening(store_message):
+            result = command(params)
+    """
+    token = _sink.set(callback)
+    try:
+        yield
+    finally:
+        _sink.reset(token)
+
+
+def checkpoint():
+    """
+    _function_: `mast.cli.results.checkpoint()`
+
+    Say that the command is about to do its next step. Each request
+    to an appliance calls this before it is sent. It does nothing
+    unless the command runs inside `guarded`.
+    """
+    guard = _guard.get()
+    if guard is not None:
+        guard()
+
+
+@contextlib.contextmanager
+def guarded(callback):
+    """
+    _function_: `mast.cli.results.guarded(callback)`
+
+    A context manager that calls `callback` at each `checkpoint` of
+    the command. `callback` raises an exception to stop the command
+    before its next step.
+    """
+    token = _guard.set(callback)
+    try:
+        yield
+    finally:
+        _guard.reset(token)
+
+
+@contextlib.contextmanager
 def captured():
     """
     _function_: `mast.cli.results.captured()`
@@ -63,11 +133,8 @@ def captured():
             result = command(params)
     """
     messages = []
-    token = _sink.set(messages.append)
-    try:
+    with listening(messages.append):
         yield messages
-    finally:
-        _sink.reset(token)
 
 
 class Result(object):
@@ -80,9 +147,24 @@ class Result(object):
     * `html()`: The result for the web GUI.
     * `history`: The requests and responses that produced the result,
     for the web GUI's history download. May be empty.
+    * `outcomes()`: A list with True or False for each thing that the
+    command did (usually one action on one appliance): True if it
+    worked. A result that does not know this returns an empty list.
+    * `outcome`: `SUCCEEDED` if `outcomes()` has no False, `FAILED`
+    if it has only False, otherwise `PARTIAL`.
     * `emit()`: Print the result. The command line calls this.
     """
     history = ""
+
+    def outcomes(self):
+        return []
+
+    @property
+    def outcome(self):
+        outcomes = [bool(worked) for worked in self.outcomes()]
+        if all(outcomes):
+            return SUCCEEDED
+        return PARTIAL if any(outcomes) else FAILED
 
     def text(self):
         return ""

@@ -26,6 +26,7 @@ from mast.util import _s, _b
 from .dpSOMALib import SomaRequest as Request
 from .WSClientLib import etree
 from mast.logging import make_logger, logged
+from mast.cli.results import checkpoint
 # from lxml import etree
 from functools import partial, wraps
 from mast.timestamp import Timestamp
@@ -989,6 +990,7 @@ class DataPower(object):
         self.log_info(
             "Attempting to send SSH command: "
             "{}".format(_s(command).strip().replace(_s(password), "********")))
+        checkpoint()
         self._ssh_conn.sendall(command)
 
         # Wait for a response, but check for timeouts
@@ -1130,6 +1132,9 @@ class DataPower(object):
         * `boolean`: If True, It will be returned as a BooleanResponse
         which is a subclass of `DPResponse`
         """
+        # The job that sends this request can have been cancelled, or
+        # another job can have the appliance now
+        checkpoint()
         # Gather request and response and put in in self.history
         _hist = {"request": repr(self.request)}
         self.log_debug("Request built: {}".format(_escape(repr(self.request))))
@@ -1151,6 +1156,7 @@ class DataPower(object):
                 try:
                     self.log_info("Retrying in {} seconds".format(self.retry_interval))
                     sleep(self.retry_interval)
+                    checkpoint()
                     self.last_response = self.request.send(secure=self.check_hostname)
                     if b"Authentication failure" in self.last_response:
                         raise AuthenticationFailure(self.last_response)
@@ -4036,6 +4042,7 @@ xmlns:dp="http://www.datapower.com/schemas/appliance/management/3.0">
             headers={
                 'Content-Type': 'text/xml',
                 'Authorization': 'Basic {}'.format(creds)})
+        checkpoint()
         response_xml = urllib.request.urlopen(req, timeout=timeout, context=context)
         response_xml = response_xml.read()
         return AMPBooleanResponse(response_xml)

@@ -87,6 +87,54 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
 
+## The job queue
+
+Each command that you run is recorded as a job in a database, with its progress and its result. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
+
+You do not have to set anything up. If no worker is running, the command does its own job and you see the same output as before.
+
+To have jobs done by a worker process, start one or more workers. `mastd` also hosts one.
+
+```shell
+mast-worker             # run jobs until Ctrl-C
+mast-worker -c 4        # up to four jobs at the same time
+```
+
+With a worker running, a command can return at once and leave the job to the worker:
+
+```shell
+mast-backups normal-backup -a lab -c admin:password -D default --detach
+mast-jobs list          # the newest jobs
+mast-jobs show -j 3f2a  # one job: progress and result (the start of the id is enough)
+mast-jobs follow -j 3f2a
+mast-jobs cancel -j 3f2a
+mast-jobs workers
+```
+
+The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link.
+
+Most commands do not stop when one appliance refuses an action: they continue with the other appliances and show what happened on each one. The status of the job tells you how that went.
+
+| Status | Meaning | Exit status of the command |
+|---|---|---|
+| `succeeded` | Every action worked. | 0 |
+| `partial` | Some actions failed and some worked, for example on one of three appliances. | 1 |
+| `failed` | Every action failed, or the command stopped with an error. | 1 |
+| `cancelled` | Somebody cancelled the job. | 130 if you pressed Ctrl-C, otherwise 1 |
+| `lost` | The worker stopped or lost contact with the database while the job ran. | 1 |
+
+**Change from earlier versions:** a command now exits with status 1 when an appliance refuses an action. Before, the exit status was 0 unless the command stopped with an error. Check the scripts that call MAST and test `$?`. Commands whose result is a download or a table of their own (`fetch-logs`, `check-connectivity` and others) do not report a failure this way yet, and neither do the steps of `git-deploy`.
+
+Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
+
+If a worker cannot reach the database for longer than its lease (60 seconds by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
+
+Only one `git-deploy` runs at a time, because every deployment uses the same directory of checkouts.
+
+The database is SQLite in `var/jobs/` by default. To use PostgreSQL, set `url` in `etc/local/jobs.conf` (see `etc/default/jobs.conf`). Workers and commands must share one `MAST_HOME`, because jobs read and write files there.
+
+The credentials of a waiting job, and the other secret parameters such as a new password, are stored encrypted with the key in `etc/local/jobs.key`. They are removed when the job ends. The values are also removed from the progress, the result and the request history of the job before these are stored. The `xor` utility is not a job, and nothing about it is stored.
+
 ## Development
 
 From a checkout there are two environments. They are separate, and you can use both.

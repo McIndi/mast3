@@ -162,7 +162,7 @@ if "Windows" in platform.system():
                 while not self.stop_requested:
                     for key, value in list(PLUGINS.items()):
                         if key in list(threads.keys()):
-                            if threads[key].isAlive():
+                            if threads[key].is_alive():
                                 continue
                             else:
                                 logger.debug("Plugin {} found, but dead, attempting to restart".format(key))
@@ -265,7 +265,7 @@ else:
                 while True:
                     for key, value in list(self.named_objects.items()):
                         if key in list(threads.keys()):
-                            if threads[key].isAlive():
+                            if threads[key].is_alive():
                                 continue
                             else:
                                 logger.debug("Plugin {} found, but dead, attempting to restart".format(key))

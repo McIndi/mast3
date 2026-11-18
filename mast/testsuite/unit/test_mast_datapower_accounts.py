@@ -194,15 +194,34 @@ class TestAccountsCommands(unittest.TestCase):
                 ChangePassword(User="u", password="hunter2")):
             self.assertNotIn("hunter2", repr(params))
 
+    def run_cli(self, *argv):
+        """Run a command line and return its exit status."""
+        try:
+            cli.run(list(argv))
+        except SystemExit as exc:
+            return exc.code
+        return 0
+
     def test_command_line(self):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            cli.run(["add-user", "-a", "dp1", "-c", "user:pass", "-n",
-                     "-u", "new", "-p", "secret", "-P", "-S", "-s"])
-            cli.run(["add-group", "-a", "dp1", "-N", "g", "-A", "x", "-s"])
-            cli.run(["del-group", "-a", "dp1", "-U", "g"])
-            cli.run(["flush-aaa-cache", "-a", "dp1", "-D", "d", "-A", "p"])
-            cli.run(["list-users", "-a", "dp1"])
+        status = {}
+        with contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            status["add-user"] = self.run_cli(
+                "add-user", "-a", "dp1", "-c", "user:pass", "-n",
+                "-u", "new", "-p", "secret", "-P", "-S", "-s")
+            status["add-group"] = self.run_cli(
+                "add-group", "-a", "dp1", "-N", "g", "-A", "x", "-s")
+            status["del-group"] = self.run_cli(
+                "del-group", "-a", "dp1", "-U", "g")
+            status["flush-aaa-cache"] = self.run_cli(
+                "flush-aaa-cache", "-a", "dp1", "-D", "d", "-A", "p")
+            status["list-users"] = self.run_cli(
+                "list-users", "-a", "dp1")
+        # The fake dp2 refuses every action, and that is the exit status
+        self.assertEqual(status, {
+            "add-user": 1, "add-group": 1, "del-group": 1,
+            "flush-aaa-cache": 1, "list-users": 0})
         text = out.getvalue()
         # The message of a step comes before its responses
         self.assertLess(
