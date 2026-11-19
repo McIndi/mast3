@@ -1,8 +1,8 @@
 #!/bin/bash
 
-export MAST_HOME=$(dirname $0)
+export MAST_HOME="$(cd "$(dirname "$0")" && pwd)"
 
-cd $MAST_HOME
+cd "$MAST_HOME" || exit 1
 source ./set-env
 
-python/$PYTHON_VERSION/bin/python3 "$@"
+exec "python/$PYTHON_VERSION/bin/python3" "$@"

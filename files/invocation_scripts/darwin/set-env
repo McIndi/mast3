@@ -1,5 +1,5 @@
 export PYTHON_VERSION={PYTHON_VERSION}
-export MAST_HOME=$(dirname $0)
-export PATH=$MAST_HOME:$PATH
-export PATH=$MAST_HOME/bin:$PATH
-export PATH=$MAST_HOME/usrbin:$PATH
+export MAST_HOME="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+export PATH="$MAST_HOME:$PATH"
+export PATH="$MAST_HOME/bin:$PATH"
+export PATH="$MAST_HOME/usrbin:$PATH"
