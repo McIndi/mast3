@@ -188,6 +188,8 @@ uv sync
 uv run pytest mast/testsuite/unit mast/testsuite/regression tools
 ```
 
+MAST supports Python 3.13 and newer. CI runs the unit tests on 3.13, 3.14 and 3.15, and the other tests on 3.15, the Python of the installer. To test on another version, give it to uv, for example `uv run --python 3.13 pytest mast/testsuite/unit`.
+
 The job queue tests run against SQLite. To run them against PostgreSQL too, set `MAST_TEST_JOBS_DB_URL` to an empty database that the tests may erase, for example `postgresql+psycopg://mast:mast@localhost/mast_test`. CI does this.
 
 ### Integration tests
