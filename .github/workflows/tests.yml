@@ -70,6 +70,15 @@ jobs:
         run: uv sync --locked
       - name: Build the installer and a development home
         run: uv run --locked pytest tools/mast_setup/tests/test_slow.py -v
+      # The launchers, exit statuses, cancelled jobs and workers that
+      # stop, with the installer that users get. No DataPower is needed.
+      - name: Build the installer
+        run: uv run --locked python mast-setup --log-level 30
+      - name: Test the installed product
+        run: |
+          mkdir "$RUNNER_TEMP/mast"
+          unzip -q dist/*.zip -d "$RUNNER_TEMP/mast"
+          MAST_TEST_HOME="$RUNNER_TEMP/mast" uv run --locked pytest mast/testsuite/integration/test_installed.py -v
 
   integration:
     runs-on: ubuntu-latest

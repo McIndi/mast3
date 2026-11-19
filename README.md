@@ -210,7 +210,19 @@ Without that variable, or without a container runtime, the integration tests are
 | `MAST_TEST_DATAPOWER_KEEP` | Set to `true` to keep the container (`mast-test-keep`) and use it again in the next run. |
 | `MAST_TEST_DATAPOWER_TIMEOUT` | Seconds to wait for the gateway to start. The default is 300. |
 | `MAST_TEST_CONTAINER_RUNTIME` | `podman` or `docker`. The default is the first one found. |
-| `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast-system` and so on), as users do. Without it they run `python -m` with the interpreter of the tests. |
+| `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast-system` and so on), as users do. Without it they run `python -m` with the interpreter of the tests, and the tests of the installed product are skipped. |
+
+### Tests of the installed product
+
+`mast/testsuite/integration/test_installed.py` runs a MAST home as users do: through its launchers, from another directory, in a folder whose name has a space. It checks the launchers, the exit statuses, cancelled jobs (Ctrl-C, `mast-jobs cancel`, a job that waits) and workers that stop (SIGTERM once and twice, `--drain`), and that the web GUI answers. It needs no DataPower: the appliances are local servers that answer like SOMA after a delay. It runs on Linux and macOS, and only when `MAST_TEST_HOME` is set:
+
+```shell
+./mast-setup
+mkdir /tmp/mast && unzip -q dist/*.zip -d /tmp/mast
+MAST_TEST_HOME=/tmp/mast uv run pytest mast/testsuite/integration/test_installed.py
+```
+
+CI runs these tests against the installer on each pull request, and on Linux and macOS for each release. Use `MAST_TEST_HOME=.dev/mast_home` to test the code of the checkout.
 
 A container cannot test static hosts, secondary addresses, static routes or firmware upgrades, because DataPower locks that configuration when it runs in a container.
 
