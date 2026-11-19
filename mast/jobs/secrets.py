@@ -29,18 +29,18 @@ removes the secret values from the progress, the result and the
 history of a job before they are stored.
 
 The key is in the file that `jobs.conf` names (`etc/local/jobs.key`
-by default). It is made the first time it is needed. Every process
-that submits or runs jobs must read the same key file.
+by default). It is made the first time it is needed (see
+`mast.keyfile`). Every process that submits or runs jobs must read the
+same key file.
 """
 import base64
 import html
 import json
-import os
 import re
-import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from mast import keyfile
 from mast.cli import params as cli_params
 from mast.jobs import config
 
@@ -60,33 +60,11 @@ class SecretsError(Exception):
     """A secret parameter cannot be decrypted."""
 
 
-def _load_key(path):
-    # Another process can have made the file and not yet written the key
-    for _ in range(50):
-        with open(path, "rb") as fin:
-            key = fin.read().strip()
-        if key:
-            return key
-        time.sleep(0.02)
-    raise SecretsError("the key file {} is empty".format(path))
-
-
 def _key():
-    path = config.key_file()
     try:
-        return _load_key(path)
-    except FileNotFoundError:
-        pass
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    try:
-        # O_EXCL: if two processes start together, only one makes the key
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        return _load_key(path)
-    key = Fernet.generate_key()
-    with os.fdopen(fd, "wb") as fout:
-        fout.write(key)
-    return key
+        return keyfile.read_or_create(config.key_file())
+    except keyfile.KeyFileError as e:
+        raise SecretsError(str(e)) from None
 
 
 def _secret_fields(model):

@@ -4,6 +4,22 @@
 
 [TOC]
 
+# Next Release
+
+## Changes that need your attention
+
+* The web GUI signs its session cookie with a random key that MAST
+makes in `etc/local/server.key` the first time the web GUI starts.
+The `secret_key` that MAST shipped before
+(`INSECURE_SECRET_KEY_CHANGE_ME`) is ignored, with a warning in
+`gui.log`; remove it from `etc/local/server.conf` if you copied it
+there. A `secret_key` of your own is still used.
+
+## Features
+
+* MAST supports Python 3.13, 3.14 and 3.15, and the unit tests run on
+each of them. The installer still has its own Python 3.15.
+
 # MAST Version 3.15.2
 
 This release brings a job queue, a new command line built on pydantic

@@ -23,6 +23,7 @@ from mast.config import get_configs_dict, MAST_HOME
 from urllib.parse import unquote
 from mast.logging import make_logger
 from mast import jobs
+from mast import keyfile
 from mast.plugin_utils import plugin_functions
 import cherrypy
 from cheroot.ssl.builtin import BuiltinSSLAdapter
@@ -71,7 +72,42 @@ app = flask.Flask(
     template_folder=template_dir)
 
 
-app.secret_key = config["server"].get("secret_key", "changeme")
+# The values that MAST 3.15.2 and older shipped as secret_key. They are
+# not secret, so a server.conf that still has one gets a key file.
+_PUBLIC_SECRET_KEYS = {"", "INSECURE_SECRET_KEY_CHANGE_ME", "changeme"}
+
+
+def secret_key(server_config):
+    """
+    _function_: `mast.datapower.web.secret_key(server_config)`
+
+    Return the key that signs the session cookie of the web GUI: the
+    `secret_key` of the `[server]` stanza if it is set, or else the key
+    in `secret_key_file` (`etc/local/server.key`), which is made with a
+    random key the first time.
+
+    A `secret_key` that MAST once shipped as its default is not secret.
+    It is ignored, with a warning in `gui.log`.
+
+    Parameters:
+
+    * `server_config`: The `[server]` stanza of `server.conf`.
+    """
+    key = (server_config.get("secret_key") or "").strip()
+    if key and key not in _PUBLIC_SECRET_KEYS:
+        return key
+    if key:
+        make_logger("gui").warning(
+            "Ignoring the secret_key in server.conf: it is the default "
+            "of an older MAST and is not secret. Remove it from "
+            "etc/local/server.conf; MAST uses the key in secret_key_file.")
+    path = server_config.get("secret_key_file") or "etc/local/server.key"
+    if not os.path.isabs(path):
+        path = os.path.join(MAST_HOME, path)
+    return keyfile.read_or_create(path)
+
+
+app.secret_key = secret_key(config["server"])
 wzl = logging.getLogger("werkzeug")
 app.root_path = os.environ["MAST_HOME"]
 log_file = os.path.join(os.environ["MAST_HOME"], log_file)

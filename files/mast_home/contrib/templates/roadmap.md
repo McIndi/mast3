@@ -35,10 +35,27 @@ scheduled and long-running work does not need a person to type them.
     of it).
     * Tests that run the installed product: the launchers, the exit
     statuses, cancelled jobs and workers that stop.
-    * A secret key for the web GUI that is made when MAST first runs,
-    as the key of the job queue is.
-    * Support for Python 3.13, 3.14 and 3.15, tested on each release.
-    * A review of the dependencies.
+    * A cancel that a running job notices within about a second.
+    Today a job learns of a cancel from its heartbeat (every
+    `lease_seconds / 3`, 20 seconds by default) or when it reports
+    progress. A cheap check for a cancel will come every second or so,
+    apart from the heartbeat, and Ctrl-C will tell a job that runs in
+    the same program at once. A request to an appliance that has
+    started still ends first: a half-done upload or import is worse
+    than one more step.
+    * A clear message when the web GUI has no certificate: a fresh
+    install has none, and `secure = true` is the default. The web GUI
+    still does not start, but it says to set `key` and `cert` in the
+    `[server]` section of `etc/local/server.conf`, or to run
+    `./mast contrib/gen-cert.py` for a self-signed certificate.
+    * A check of the dependencies for known vulnerabilities
+    (`pip-audit`) on every pull request. Each GitHub release gets the
+    report of that check and a software bill of materials (SBOM) of
+    the installer, next to the installers.
+    * A web GUI that defends itself in the browser: a CSRF token that
+    each form which starts a job must send back, a strict Content
+    Security Policy (no inline scripts, nothing loaded from other
+    sites), and HSTS when the web GUI uses TLS.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
@@ -59,7 +76,9 @@ scheduled and long-running work does not need a person to type them.
     suites. Legacy crypto profiles and unused files are flagged.
     * It runs as one job per appliance, so a large estate is read in
     parallel, and you see the progress and the results of each
-    appliance as they come in.
+    appliance as they come in. Cancelling the inventory cancels the
+    jobs of its appliances: those that wait at once, those that run
+    within about a second (see step 1).
     * Ready for public TLS certificates of at most 100 days from March
     15, 2027, and for post-quantum readiness work.
 4. **A shared service** (needs step 2)
@@ -93,9 +112,19 @@ is decided.
 * The web GUI has no users or permissions yet (see step 4). Everybody
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
-* The default secret key of the web GUI is not secret. Until step 1,
-set your own `secret_key` in the `[server]` section of
-`etc/local/server.conf`.
+* The web GUI does not check a CSRF token, and sends no Content
+Security Policy and no HSTS header (see step 1). A web page in another
+tab of the same browser can send requests to the web GUI, for example
+to upload a file. It cannot start a job on an appliance unless it
+knows the appliance credentials. Until step 1, open the web GUI in a
+browser profile that you do not use for other sites.
+* A running job can take up to 20 seconds (`lease_seconds / 3`) to
+notice that it was cancelled, unless it reports progress (see step 1).
+A job that waits is cancelled at once.
+* On a fresh install the web GUI stops with a traceback that names a
+missing file, `etc/crypto/cert/mast.crt` (see step 1). Run
+`./mast contrib/gen-cert.py` for a self-signed certificate, or set
+`key` and `cert` in the `[server]` section of `etc/local/server.conf`.
 * `git-deploy` needs the `git` program on the `PATH`.
 
 # History
