@@ -30,8 +30,9 @@ class Main(Params):
     emailAddress: str = Option("", short="e", help="The e-mail address in the subject.")
     commonName: str = Option(
         "", short="c",
-        help="The common name of the subject. The default is the fully "
-             "qualified name of this computer.")
+        help="The common name of the subject, at most 64 characters. The "
+             "default is the fully qualified name of this computer, or its "
+             "host name if that is too long.")
     countryName: str = Option("", short="C", help="The two-letter country code in the subject.")
     localityName: str = Option("", short="l", help="The city in the subject.")
     stateOrProvinceName: str = Option("", short="s", help="The state or province in the subject.")
@@ -52,17 +53,42 @@ class Main(Params):
     force: bool = Option(False, short="f", help="Replace a key and certificate that are there.")
 
 
+# The longest common name that a certificate can have (RFC 5280, ub-common-name)
+MAX_COMMON_NAME = 64
+
+
+def default_common_name(fqdn, hostname):
+    """The first of the names of this computer that fits in a common
+    name. Browsers only look at the subject alternative names, which
+    have every name, also a longer one."""
+    for name in (fqdn, hostname):
+        if name and len(name) <= MAX_COMMON_NAME:
+            return name
+    return "localhost"
+
+
 def _subject(params, common_name):
+    """The subject, with the fields that have a value. Raises
+    ValueError, which names the option, for a value that a certificate
+    cannot have (too long, or a country that is not two letters)."""
     fields = (
-        (NameOID.COUNTRY_NAME, params.countryName),
-        (NameOID.STATE_OR_PROVINCE_NAME, params.stateOrProvinceName),
-        (NameOID.LOCALITY_NAME, params.localityName),
-        (NameOID.ORGANIZATION_NAME, params.organizationName),
-        (NameOID.ORGANIZATIONAL_UNIT_NAME, params.organizationUnitName),
-        (NameOID.COMMON_NAME, common_name),
-        (NameOID.EMAIL_ADDRESS, params.emailAddress),
+        ("countryName", NameOID.COUNTRY_NAME, params.countryName),
+        ("stateOrProvinceName", NameOID.STATE_OR_PROVINCE_NAME, params.stateOrProvinceName),
+        ("localityName", NameOID.LOCALITY_NAME, params.localityName),
+        ("organizationName", NameOID.ORGANIZATION_NAME, params.organizationName),
+        ("organizationUnitName", NameOID.ORGANIZATIONAL_UNIT_NAME, params.organizationUnitName),
+        ("commonName", NameOID.COMMON_NAME, common_name),
+        ("emailAddress", NameOID.EMAIL_ADDRESS, params.emailAddress),
     )
-    return x509.Name([x509.NameAttribute(oid, value) for oid, value in fields if value])
+    attributes = []
+    for option, oid, value in fields:
+        if not value:
+            continue
+        try:
+            attributes.append(x509.NameAttribute(oid, value))
+        except ValueError as e:
+            raise ValueError("--{}: {}".format(option, e)) from None
+    return x509.Name(attributes)
 
 
 def _alt_names(names):
@@ -104,11 +130,17 @@ def main(params: Main):
 
     fqdn = socket.getfqdn()
     hostname = socket.gethostname()
-    common_name = params.commonName or fqdn
+    common_name = params.commonName or default_common_name(fqdn, hostname)
     names = [common_name, fqdn, hostname, "localhost", "127.0.0.1", "::1"] + list(params.altName)
 
+    try:
+        subject = _subject(params, common_name)
+    except ValueError as e:
+        # A field of the subject that is too long, or a country name that
+        # is not two letters
+        print("gen-cert.py: error: {}".format(e), file=sys.stderr)
+        sys.exit(2)
     key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-    subject = _subject(params, common_name)
     now = datetime.datetime.now(datetime.timezone.utc)
     serial = params.serialNumber or x509.random_serial_number()
     cert = (

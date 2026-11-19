@@ -18,6 +18,7 @@
 Tests for the certificate of the web GUI: the message when it is
 missing, and `contrib/gen-cert.py`, which makes one.
 """
+import importlib.util
 import ipaddress
 import os
 import shutil
@@ -188,6 +189,25 @@ class TestGenCert(unittest.TestCase):
 
     def test_a_bad_option_exits_2(self):
         self.assertEqual(self.gen_cert("--serialNumber", "x").returncode, 2)
+
+    def test_a_subject_field_that_is_too_long_exits_2_and_names_the_option(self):
+        proc = self.gen_cert("--commonName", "a" * 65)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("--commonName", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertFalse(os.path.exists(self.key))
+
+    def test_the_default_common_name_fits_in_a_certificate(self):
+        # The fully qualified name of a computer can be longer than the 64
+        # characters of a common name (GitHub runners have such names).
+        spec = importlib.util.spec_from_file_location("gen_cert", GEN_CERT)
+        gen_cert = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen_cert)
+        long_name = "runner-" + "x" * 60 + ".example.net"
+        self.assertEqual(gen_cert.default_common_name("dp.example.net", "dp"),
+                         "dp.example.net")
+        self.assertEqual(gen_cert.default_common_name(long_name, "runner"), "runner")
+        self.assertEqual(gen_cert.default_common_name(long_name, "y" * 65), "localhost")
 
 
 if __name__ == "__main__":
