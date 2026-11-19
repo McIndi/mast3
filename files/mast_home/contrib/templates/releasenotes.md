@@ -30,8 +30,23 @@ in its HTML: the Content Security Policy blocks them. Its `js()` and
 `css()` are now served as files (`/plugins.js`, `/plugins.css`)
 instead of in the page.
 
+* `contrib/gen-cert.py` no longer replaces a key and certificate that
+are there, unless you give `--force`. Its subject has only the fields
+that you give; the common name is the name of the computer by default.
+
 ## Features
 
+* When the web GUI uses TLS and has no certificate (as on a fresh
+install), it says so and says how to fix it: set `key` and `cert` in
+the `[server]` section of `etc/local/server.conf`, or run
+`./mast contrib/gen-cert.py`. It still does not start: `mast-web`
+exits with status 1, and `mastd` runs without the web GUI and writes
+the message to its log. Before, it stopped with a traceback.
+* `contrib/gen-cert.py` makes a certificate that browsers can accept:
+it names the computer, `localhost`, `127.0.0.1`, `::1` and each
+`--altName`. Only the owner can read the private key; before, everyone
+could. It no longer prints warnings about deprecated functions, and
+its exit status is 1 or 2 when it fails.
 * MAST supports Python 3.13, 3.14 and 3.15, and the unit tests run on
 each of them. The installer still has its own Python 3.15.
 * The web GUI defends itself in the browser: a CSRF token for every

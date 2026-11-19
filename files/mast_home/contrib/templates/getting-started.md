@@ -21,13 +21,28 @@ that this will refer to the directory into which MAST was installed
 While there are a few different ways in which MAST can be secured, the most
 obvious one and the most necessary one is to use https for the mast-web ui.
 
-MAST comes with a script to generate a keypair for use with TLS.
+The web GUI uses TLS by default, and a fresh install has no certificate.
+Until it has one, the web GUI does not start, and it says what to do.
+Either set `key` and `cert` in the `[server]` section of
+`$MAST_HOME/etc/local/server.conf` to the files of your private key and
+certificate, or make a self-signed certificate with the script that comes
+with MAST. Run it in `$MAST_HOME`:
 
-Use the script like below. Please note that, by default, this script will
-put the key and cert files under `$MAST_HOME/etc/crypto` where the default
-server.conf will be expecting it.
+    :::bash
+    ./mast contrib/gen-cert.py
 
-`mast contrib\gen-cert.py --emailAddress admin@localhost.localdomain --commonName 127.0.0.1 --countryName US --localityName CITY --stateOrProvinceName STATE --organizationName ORG --organizationUnitName UNIT --serialNumber 1234`
+On Windows, run `mast.bat contrib\gen-cert.py`. The script puts the
+certificate in `etc/crypto/cert/mast.crt` and the private key in
+`etc/crypto/private/mast.key`, where the default `server.conf` expects
+them. Only the owner can read the key. The certificate names this
+computer, `localhost`, `127.0.0.1` and `::1`; add other names with
+`--altName`, once for each name. It does not replace a key that is there
+unless you give `--force`. `./mast contrib/gen-cert.py -h` lists the
+other options, such as the fields of the subject.
+
+Browsers warn about a self-signed certificate until you trust it. For a
+server that other people use, a certificate from your certificate
+authority is better.
 
 # Configuring your hosts
 

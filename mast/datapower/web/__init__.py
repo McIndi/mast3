@@ -59,5 +59,10 @@ class Plugin(threading.Thread):
         """
         logger = make_logger("mast.datapower.web")
         logger.info("Attempting to start web gui.")
-        main()
+        try:
+            main()
+        except CertificateNotFound as e:
+            # mastd goes on with its other plugins, without the web GUI
+            logger.error("The web GUI did not start. {}".format(e))
+            return
         logger.info("web gui stopped")

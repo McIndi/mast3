@@ -43,11 +43,6 @@ scheduled and long-running work does not need a person to type them.
     the same program at once. A request to an appliance that has
     started still ends first: a half-done upload or import is worse
     than one more step.
-    * A clear message when the web GUI has no certificate: a fresh
-    install has none, and `secure = true` is the default. The web GUI
-    still does not start, but it says to set `key` and `cert` in the
-    `[server]` section of `etc/local/server.conf`, or to run
-    `./mast contrib/gen-cert.py` for a self-signed certificate.
     * A check of the dependencies for known vulnerabilities
     (`pip-audit`) on every pull request. Each GitHub release gets the
     report of that check and a software bill of materials (SBOM) of
@@ -111,10 +106,6 @@ people who can reach it may do that.
 * A running job can take up to 20 seconds (`lease_seconds / 3`) to
 notice that it was cancelled, unless it reports progress (see step 1).
 A job that waits is cancelled at once.
-* On a fresh install the web GUI stops with a traceback that names a
-missing file, `etc/crypto/cert/mast.crt` (see step 1). Run
-`./mast contrib/gen-cert.py` for a self-signed certificate, or set
-`key` and `cert` in the `[server]` section of `etc/local/server.conf`.
 * `git-deploy` needs the `git` program on the `PATH`.
 
 # History

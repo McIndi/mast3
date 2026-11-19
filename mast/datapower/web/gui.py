@@ -609,6 +609,54 @@ with app.app_context():
     flask.current_app.PLUGINS = initialize_plugins()
 
 
+class CertificateNotFound(Exception):
+    """
+    _class_: `mast.datapower.web.CertificateNotFound`
+
+    The web GUI uses TLS (`secure = true`), but a file of its certificate
+    is not there or cannot be read. The message says how to fix it.
+    """
+
+
+def _in_home(path):
+    return path if os.path.isabs(path) else os.path.join(MAST_HOME, path)
+
+
+def check_certificate():
+    """
+    _function_: `mast.datapower.web.check_certificate()`
+
+    If the web GUI uses TLS, raise `CertificateNotFound` when the
+    `cert`, the `key` or the `cacert` (if set) of the `[server]` stanza
+    is not there or cannot be read. A fresh install has no certificate.
+    """
+    if not secure:
+        return
+    files = [("cert", cert), ("key", key)]
+    if cacert:
+        files.append(("cacert", cacert))
+    problems = []
+    for name, path in files:
+        full = _in_home(path)
+        if not os.path.isfile(full):
+            problems.append("{} = {} is not there".format(name, path))
+        elif not os.access(full, os.R_OK):
+            problems.append("{} = {} cannot be read".format(name, path))
+    if not problems:
+        return
+    if sys.platform == "win32":
+        command = "mast.bat contrib\\gen-cert.py"
+    else:
+        command = "./mast contrib/gen-cert.py"
+    raise CertificateNotFound(
+        "The web GUI uses TLS (secure = true in server.conf), but {}.\n"
+        "Set key and cert in the [server] section of "
+        "etc/local/server.conf to the files of your private key and "
+        "certificate, or make a self-signed certificate with this "
+        "command in {}:\n\n    {}\n\nThen start the web GUI again.".format(
+            "; ".join(problems), MAST_HOME, command))
+
+
 def main():
     """
     _function_: `mast.datapower.web.main()`
@@ -626,6 +674,7 @@ def main():
     logger = make_logger("gui.main")
     logger.debug("Running as user {}".format(getpass.getuser()))
     logger.debug("Running in directory {}".format(os.getcwd()))
+    check_certificate()
 
     cherrypy.tree.graft(app, '/')
 
@@ -642,9 +691,9 @@ def main():
         logger.debug("Configuring TLS")
         cherrypy.server.ssl_module = 'builtin'
         WSGIServer.ssl_adapter = BuiltinSSLAdapter(
-            cert,
-            key,
-            cacert)
+            _in_home(cert),
+            _in_home(key),
+            _in_home(cacert) if cacert else None)
 
     # Start the CherryPy WSGI web server
     try:
