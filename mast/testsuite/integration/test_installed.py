@@ -27,9 +27,10 @@ each test sets, so that a test can cancel a job or stop a worker while
 the job runs.
 
 The appliances of the environment `lab` are asked one after another,
-so a job that is cancelled in time never reaches the last one. A job
-learns that it was cancelled from its heartbeat, which comes every
-`lease_seconds / 3`; the private home sets a lease of 6 seconds.
+each one `SLOW` seconds. The job queue has its default settings: a
+lease of 60 seconds, so the heartbeats are 20 seconds apart, and a look
+for a cancel every second. A cancelled job must stop before it asks the
+second appliance, so it cannot wait for a heartbeat.
 
 POSIX only: the Windows launchers are batch files, and Windows has no
 SIGINT or SIGTERM to send to one process. See manual-tests.md.
@@ -56,10 +57,9 @@ COMMANDS = (
     "mast-jobs", "mast-worker", "test-mast",
 )
 
-LEASE_SECONDS = 6
 CREDENTIALS = "admin:admin"
-# Long enough that a cancel is noticed (within a heartbeat) before the
-# job asks the third appliance.
+# Long enough that a cancel is noticed (within cancel_poll_seconds, one
+# second) before the job asks the second appliance.
 SLOW = 4.0
 TIMEOUT = 120
 
@@ -92,9 +92,7 @@ class InstalledTestCase(unittest.TestCase):
         cls.write("hosts.conf", hosts)
         cls.write("appliances.conf", appliances)
         cls.write("environments.conf", ["[lab]", "appliances: " + " ".join(names)])
-        cls.write("jobs.conf", ["[worker]",
-                                "lease_seconds = {}".format(LEASE_SECONDS),
-                                "poll_seconds = 1"])
+        cls.write("jobs.conf", ["[worker]", "poll_seconds = 1"])
         cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
 
     @classmethod
@@ -291,7 +289,7 @@ class TestCancel(InstalledTestCase):
         out = self.communicate(proc, TIMEOUT)
         self.assertEqual(proc.returncode, 130, out)
         self.assertEqual(self.status(job_id), "cancelled")
-        self.assertEqual(self.requests()[2], 0, "the job went on after the cancel")
+        self.assertEqual(self.requests()[1:], [0, 0], "the job went on after the cancel")
 
     def test_ctrl_c_twice_stops_at_once_and_the_job_is_lost(self):
         self.slow(SLOW)
@@ -316,7 +314,7 @@ class TestCancel(InstalledTestCase):
         out = self.communicate(proc, TIMEOUT)
         self.assertNotEqual(proc.returncode, 0, out)
         self.assertEqual(self.status(job_id), "cancelled")
-        self.assertEqual(self.requests()[2], 0, "the job went on after the cancel")
+        self.assertEqual(self.requests()[1:], [0, 0], "the job went on after the cancel")
 
     def test_a_job_that_waits_is_cancelled_at_once(self):
         # No worker runs, so a detached job waits in the queue.

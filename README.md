@@ -143,7 +143,7 @@ Most commands do not stop when one appliance refuses an action: they continue wi
 
 **Change from earlier versions:** a command now exits with status 1 when an appliance refuses an action. Before, the exit status was 0 unless the command stopped with an error. Check the scripts that call MAST and test `$?`. Commands whose result is a download or a table of their own (`fetch-logs`, `check-connectivity` and others) do not report a failure this way yet, and neither do the steps of `git-deploy`.
 
-Ctrl-C in a command cancels its job. A job that is running stops at its next step, and what it did before that is not undone.
+Ctrl-C in a command cancels its job. A job that is running stops at its next step, before its next request to an appliance, and what it did before that is not undone. A job that runs in the same program stops at once after Ctrl-C. A job that is cancelled with `mast-jobs cancel` or the Cancel link of the web GUI stops within about a second (`cancel_poll_seconds` in the `[worker]` section of `jobs.conf`). A request to an appliance that has started is completed first.
 
 If a worker cannot reach the database for longer than its lease (`lease_seconds`, 60 by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
 

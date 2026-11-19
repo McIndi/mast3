@@ -160,6 +160,10 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
                           "-j {}".format(job_id[:8], job_id[:8]))
                 return INTERRUPTED
             interrupted = True
+            if local_job is not None:
+                # The job runs here: it stops at its next step now, not
+                # when it next looks at the queue
+                local_job.cancel()
             if queue.cancel(job_id, principal).finished:
                 continue
             _note("Asked to cancel the job {}. It stops at its next "
@@ -248,6 +252,8 @@ class _Local(object):
         self.job_id = job_id
         self.worker_id = worker_id
         self._thread = None
+        # Tells the job to stop at its next step, without the database
+        self._cancel = threading.Event()
 
     def try_start(self):
         """Claim the job if it can start now, and start the thread.
@@ -264,7 +270,8 @@ class _Local(object):
 
     def _run(self, claimed_at):
         try:
-            runner.run_job(self.job_id, self.worker_id, claimed_at=claimed_at)
+            runner.run_job(self.job_id, self.worker_id, claimed_at=claimed_at,
+                           cancel=self._cancel)
         except Exception:
             make_logger("mast.jobs").exception(
                 "The job {} could not be completed in this process".format(
@@ -279,6 +286,12 @@ class _Local(object):
         """Wait until the thread ends."""
         if self._thread is not None:
             self._thread.join(timeout)
+
+    def cancel(self):
+        """Stop the job at its next step. Store the request to cancel
+        in the queue too (`mast.jobs.queue.cancel`): this only tells the
+        thread at once."""
+        self._cancel.set()
 
     def abandon(self, reason):
         """Declare the job lost, because this process stops before the

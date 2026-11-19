@@ -68,7 +68,8 @@ from mast.jobs.models import (
 __all__ = [
     "new_job_id", "submit", "attach", "get", "find", "list_jobs", "events", "result",
     "cancel", "reap_if_expired",
-    "claim", "load", "heartbeat", "add_event", "finish", "abandon", "reap",
+    "claim", "load", "heartbeat", "cancel_requested", "add_event", "finish",
+    "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner", "NotQueued",
@@ -668,6 +669,18 @@ def heartbeat(job_id, worker_id, lease_seconds=None):
             return Heartbeat(owned=False)
         return Heartbeat(owned=True, cancel_requested=bool(session.scalar(
             select(Job.cancel_requested).where(Job.id == job_id))))
+
+
+def cancel_requested(job_id):
+    """
+    _function_: `mast.jobs.queue.cancel_requested(job_id)`
+
+    Return True if somebody asked to cancel the job. It only reads, so
+    a running job can ask often (`cancel_poll_seconds` in `jobs.conf`).
+    """
+    with db.session() as session:
+        return bool(session.scalar(
+            select(Job.cancel_requested).where(Job.id == job_id)))
 
 
 def add_event(job_id, message, kind="say", worker_id=None):

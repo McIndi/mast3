@@ -56,6 +56,14 @@ each of them. The installer still has its own Python 3.15.
 vulnerabilities (`pip-audit`) and a software bill of materials
 (CycloneDX), next to the installers. A known vulnerability stops the
 release.
+* A running job that is cancelled stops within about a second, before
+its next request to an appliance. Before, it could take up to 20
+seconds (a third of `lease_seconds`), unless the command reported
+progress. The job looks for a cancel every `cancel_poll_seconds` (a
+new setting in the `[worker]` section of `jobs.conf`, one second by
+default), apart from its heartbeat. Ctrl-C stops a job that runs in
+the same program at once. A request to an appliance that has started
+is still completed first.
 * Tests of the installed product: its launchers, the exit statuses,
 cancelled jobs and workers that stop. They run on each pull request and
 each release, on Linux and macOS.

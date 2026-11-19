@@ -825,10 +825,11 @@ class TestRunner(SqliteCase):
         self.assertEqual(len(self.said(job_id)), steps)
         self.assertIsNone(jobs.result(job_id))
 
-    def run_requests(self, **kwargs):
+    def run_requests(self, run_kwargs=None, **kwargs):
         """Start a job that sends a request to dp1, which does not
         return, and then to dp2. Return the id of the job, the thread
-        and the list that gets what `run_job` returned."""
+        and the list that gets what `run_job` returned. `kwargs` go to
+        `claim` and `run_job`, `run_kwargs` only to `run_job`."""
         del sent[:]
         blocked["dp1"] = threading.Event()
         self.addCleanup(blocked.clear)
@@ -838,7 +839,7 @@ class TestRunner(SqliteCase):
         outcome = []
         thread = threading.Thread(
             target=lambda: outcome.append(
-                jobs.run_job(job_id, "w1", **kwargs)))
+                jobs.run_job(job_id, "w1", **kwargs, **(run_kwargs or {}))))
         thread.start()
         self.addCleanup(thread.join, 15)
         self.addCleanup(blocked["dp1"].set)
@@ -882,6 +883,44 @@ class TestRunner(SqliteCase):
         self.assertEqual(sent, ["dp1"])
         self.assertEqual(outcome, [jobs.CANCELLED])
         self.assertEqual(jobs.get(job_id).status, jobs.CANCELLED)
+
+    def test_a_cancel_is_seen_long_before_the_next_heartbeat(self):
+        # A lease of a minute: the first heartbeat comes after 20 seconds
+        with mock.patch.object(queue, "heartbeat", wraps=queue.heartbeat) as beat:
+            job_id, thread, outcome = self.run_requests(
+                run_kwargs={"cancel_poll_seconds": 0.05}, lease_seconds=60)
+            jobs.cancel(job_id)
+            time.sleep(0.3)
+            blocked["dp1"].set()
+            thread.join(5)
+        self.assertEqual(beat.call_count, 0)
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(outcome, [jobs.CANCELLED])
+
+    def test_the_program_that_runs_the_job_can_cancel_it_at_once(self):
+        # Ctrl-C: no database, no heartbeat, no polling
+        cancel = threading.Event()
+        with mock.patch.object(queue, "cancel_requested",
+                               side_effect=AssertionError("asked the queue")):
+            job_id, thread, outcome = self.run_requests(
+                run_kwargs={"cancel": cancel, "cancel_poll_seconds": 60},
+                lease_seconds=60)
+            cancel.set()
+            blocked["dp1"].set()
+            thread.join(5)
+        self.assertEqual(sent, ["dp1"])
+        self.assertEqual(outcome, [jobs.CANCELLED])
+
+    def test_a_failed_look_for_a_cancel_does_not_stop_the_job(self):
+        with mock.patch.object(queue, "cancel_requested",
+                               side_effect=OSError("database away")) as look:
+            job_id, thread, outcome = self.run_requests(
+                run_kwargs={"cancel_poll_seconds": 0.05}, lease_seconds=60)
+            self.assertTrue(wait_for(lambda: look.call_count >= 2))
+            blocked["dp1"].set()
+            thread.join(5)
+        self.assertEqual(sent, ["dp1", "dp2"])
+        self.assertEqual(outcome, [jobs.SUCCEEDED])
 
     def test_the_lease_of_the_worker_starts_when_it_claims(self):
         del sent[:]
@@ -1085,6 +1124,24 @@ class TestRunner(SqliteCase):
         self.assertIn("cancelled", info.error)
         steps = [e for e in jobs.events(job_id) if e.kind == "say"]
         self.assertLess(len(steps), 200)
+
+
+class TestCancelPollSeconds(unittest.TestCase):
+
+    def value(self, text):
+        with mock.patch.object(config, "_get", return_value=text):
+            return config.cancel_poll_seconds()
+
+    def test_the_default_is_one_second(self):
+        self.assertEqual(config.cancel_poll_seconds(), 1.0)
+
+    def test_a_value_that_is_set(self):
+        self.assertEqual(self.value("0.25"), 0.25)
+
+    def test_a_value_that_cannot_be_used_is_the_default(self):
+        for text in ("0", "-1", "soon"):
+            with self.subTest(text=text):
+                self.assertEqual(self.value(text), 1.0)
 
 
 def wait_for(condition, seconds=10):
@@ -1862,6 +1919,8 @@ class TestStart(SqliteCase):
         # Only the threading of client.py: patching threading.Thread
         # itself would break the modules that subclass it on import
         with mock.patch.object(client, "threading") as threading_:
+            # Only Thread is replaced; the job needs a real Event
+            threading_.Event = threading.Event
             job_id = client.start("test.requests", {"appliances": ["dp1"]})
         thread = threading_.Thread
         monitor = thread.call_args.kwargs["target"].__self__
