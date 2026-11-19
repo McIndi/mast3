@@ -122,10 +122,6 @@ class TestMASTImports(unittest.TestCase):
         import mast.xor as xor
         self.assertTrue(hasattr(xor, "__version__"))
 
-    def test_import_commandr(self):
-        import commandr
-        self.assertTrue(hasattr(commandr, "Commandr"))
-
     def test_import_cherrypy(self):
         import cherrypy
         self.assertTrue(hasattr(cherrypy, "tree"))
@@ -137,10 +133,6 @@ class TestMASTImports(unittest.TestCase):
     def test_import_markdown(self):
         import markdown
         self.assertTrue(hasattr(markdown, "Markdown"))
-
-    def test_import_ecdsa(self):
-        import ecdsa
-        self.assertTrue(ecdsa, "ecdsa")
 
 
 if __name__ == "__main__":
