@@ -23,7 +23,7 @@ build-backend = "setuptools.build_meta"
 name = "mast"
 # The MAST version is only set here. mast.__version__ reads it from the
 # installed package metadata.
-version = "3.14.10"
+version = "3.15.2"
 description = "A utility to help manage multiple IBM DataPower appliances"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -102,7 +102,7 @@ mastd_worker_plugin = "mast.jobs.worker:Plugin"
 # for that glibc, whatever the glibc of the build machine. The release
 # workflow runs the installer in an image with that glibc.
 [tool.mast-setup]
-python = "3.14"
+python = "3.15"
 python-build-standalone = "20261110"
 linux-glibc = "2.28"
 

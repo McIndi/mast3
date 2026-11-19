@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Check that uv.lock matches pyproject.toml
         run: uv lock --check
       - name: Install MAST and its dependencies from uv.lock
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - uses: actions/cache@v4
         with:
           path: build-cache
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - name: Install MAST and its dependencies from uv.lock
         run: uv sync --locked
       - name: Run the integration tests against a DataPower container

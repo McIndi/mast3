@@ -35,7 +35,7 @@ jobs:
       # interpreter from python-build-standalone.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       # mast-setup installs the dependencies of uv.lock with uv.
       - uses: astral-sh/setup-uv@v10.3.3
       # The interpreter is pinned in pyproject.toml, so the download can be
