@@ -126,17 +126,33 @@ class InstalledTestCase(unittest.TestCase):
             timeout=timeout)
 
     def start(self, launcher, *args):
+        """Start a launcher in a process group of its own. The tests
+        signal only its process id, as `kill` or systemd do. Cleanup
+        kills the whole group, so that a launcher which did not pass a
+        signal on leaves no process behind."""
         proc = subprocess.Popen(
             self.command(launcher, *args), cwd=self._tmp, env=self.env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            start_new_session=True)
         self.addCleanup(self._stop, proc)
         return proc
 
     @staticmethod
     def _stop(proc):
-        if proc.poll() is None:
-            proc.kill()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         proc.communicate()
+
+    def communicate(self, proc, timeout):
+        """Wait for `proc` to end and return its output. Fail if it does
+        not end in time."""
+        try:
+            return proc.communicate(timeout=timeout)[0]
+        except subprocess.TimeoutExpired:
+            self.fail("{} did not stop within {} seconds".format(
+                os.path.basename(proc.args[0]), timeout))
 
     def list_domains(self, *args, environment="lab"):
         return ("mast-system", "list-domains", "-a", environment,
@@ -232,7 +248,7 @@ class TestLaunchers(InstalledTestCase):
                 return None
         self.assertEqual(self.wait_until(answers, "the web GUI"), 200)
         proc.send_signal(signal.SIGTERM)
-        proc.wait(timeout=30)
+        self.communicate(proc, 30)
         self.assertFalse(answers())
 
 
@@ -272,7 +288,7 @@ class TestCancel(InstalledTestCase):
         proc = self.start(*self.list_domains())
         job_id = self.wait_running(before)
         proc.send_signal(signal.SIGINT)
-        out = proc.communicate(timeout=TIMEOUT)[0]
+        out = self.communicate(proc, TIMEOUT)
         self.assertEqual(proc.returncode, 130, out)
         self.assertEqual(self.status(job_id), "cancelled")
         self.assertEqual(self.requests()[2], 0, "the job went on after the cancel")
@@ -285,7 +301,7 @@ class TestCancel(InstalledTestCase):
         proc.send_signal(signal.SIGINT)
         time.sleep(0.5)
         proc.send_signal(signal.SIGINT)
-        out = proc.communicate(timeout=SLOW * 2)[0]
+        out = self.communicate(proc, SLOW * 2)
         self.assertEqual(proc.returncode, 130, out)
         self.assertEqual(self.status(job_id), "lost")
 
@@ -297,7 +313,7 @@ class TestCancel(InstalledTestCase):
         job_id = self.wait_running(before)
         cancel = self.run_mast("mast-jobs", "cancel", "-j", job_id[:8])
         self.assertEqual(cancel.returncode, 0, cancel.stdout)
-        out = proc.communicate(timeout=TIMEOUT)[0]
+        out = self.communicate(proc, TIMEOUT)
         self.assertNotEqual(proc.returncode, 0, out)
         self.assertEqual(self.status(job_id), "cancelled")
         self.assertEqual(self.requests()[2], 0, "the job went on after the cancel")
@@ -340,7 +356,8 @@ class TestWorkers(InstalledTestCase):
         # The worker id, and the slot of the worker that ran the job
         self.assertTrue(self.show(job_id)["Worker"].startswith(worker_id + "/"))
         worker.send_signal(signal.SIGTERM)
-        self.assertEqual(worker.wait(timeout=30), 0)
+        self.communicate(worker, 30)
+        self.assertEqual(worker.returncode, 0)
 
     def test_sigterm_lets_the_running_job_end(self):
         self.slow(2)
@@ -350,7 +367,7 @@ class TestWorkers(InstalledTestCase):
         self.detach()
         job_id = self.wait_running(before)
         worker.send_signal(signal.SIGTERM)
-        out = worker.communicate(timeout=TIMEOUT)[0]
+        out = self.communicate(worker, TIMEOUT)
         self.assertEqual(worker.returncode, 0, out)
         self.assertIn("stopping when 1 running job(s) end", out)
         self.assertEqual(self.status(job_id), "succeeded")
@@ -365,7 +382,7 @@ class TestWorkers(InstalledTestCase):
         worker.send_signal(signal.SIGTERM)
         time.sleep(0.5)
         worker.send_signal(signal.SIGTERM)
-        out = worker.communicate(timeout=SLOW * 2)[0]
+        out = self.communicate(worker, SLOW * 2)
         self.assertEqual(worker.returncode, 1, out)
         self.assertEqual(self.status(job_id), "lost")
         self.assertNotIn(worker_id, self.run_mast("mast-jobs", "workers").stdout)
@@ -373,7 +390,7 @@ class TestWorkers(InstalledTestCase):
     def test_drain_stops_when_the_queue_is_empty(self):
         job_id = self.detach()
         worker = self.start("mast-worker", "--drain")
-        out = worker.communicate(timeout=TIMEOUT)[0]
+        out = self.communicate(worker, TIMEOUT)
         self.assertEqual(worker.returncode, 0, out)
         self.assertEqual(self.status(job_id), "succeeded")
 
