@@ -23,7 +23,7 @@ import unittest
 import urllib.error
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 
 import mast.datapower.network as network
 from mast.cli import Table, captured

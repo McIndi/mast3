@@ -15,7 +15,7 @@
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 import mast.datapower.datapower
 import unittest
-import mock
+from unittest import mock
 
 
 mock_response = mast.datapower.datapower.DPResponse("""
@@ -32,8 +32,11 @@ mock_response = mast.datapower.datapower.DPResponse("""
 
 class TestForRegressionInGetFile(unittest.TestCase):
     
-    @mock.patch("mast.datapower.datapower.DataPower.send_request",
-                return_value=mock_response)
+    # patch.object, because the name mast.datapower.datapower.DataPower
+    # is both the class and its module, and unittest.mock.patch imports
+    # the module.
+    @mock.patch.object(mast.datapower.datapower.DataPower, "send_request",
+                       return_value=mock_response)
     def test_getfile_will_create_empty_file_when_file_node_is_empty(
             self,
             send_request_mock):

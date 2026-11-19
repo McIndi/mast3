@@ -27,7 +27,7 @@ import unittest
 import zipfile
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 
 import mast.datapower.backups as backups
 from mast.cli import captured

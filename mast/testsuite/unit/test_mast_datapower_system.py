@@ -27,7 +27,7 @@ import tempfile
 import unittest
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 
 import mast.datapower.system as system
 from mast.cli import Table, Text, captured

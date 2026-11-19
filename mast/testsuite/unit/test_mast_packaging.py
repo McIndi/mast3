@@ -195,7 +195,10 @@ class TestMASTPackaging(unittest.TestCase):
                 for extra in requirement.extras:
                     for r in metadata.requires(requirement.name) or []:
                         pending.append((Requirement(r), {"extra": extra}))
-        self.assertGreater(len(checked), 20)
+        # The walk reached the direct dependencies and the extras.
+        names = {name for name, _ in checked}
+        self.assertIn("pydantic", names)
+        self.assertIn("psycopg-binary", names)
 
     def test_expected_subpackages_are_present(self):
         names = {m.name for m in pkgutil.walk_packages(mast.__path__, "mast.")

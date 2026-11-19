@@ -26,7 +26,7 @@ import tempfile
 import unittest
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 
 import mast.datapower.developer as developer
 from mast.cli import captured
