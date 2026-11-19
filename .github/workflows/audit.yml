@@ -1,0 +1,58 @@
+name: audit
+
+# Checks every package in uv.lock for known vulnerabilities with
+# pip-audit, and makes the report and a software bill of materials
+# (SBOM, CycloneDX) of those packages. A known vulnerability fails the
+# check, and so stops a release. It runs each week too, because a
+# package that did not change can get a known vulnerability.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  # release.yml calls this workflow and attaches the report and the SBOM
+  # to the release.
+  workflow_call:
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.15"
+      - name: List the packages of uv.lock for every platform
+        run: |
+          uv export --locked --no-hashes --no-emit-project --no-dev -q -o requirements-markers.txt
+          # A marker only says on which platform a package is installed.
+          # Without the markers, the packages of every installer are checked
+          # here, also those of Windows.
+          sed -E 's/ *;.*$//' requirements-markers.txt | grep '==' > requirements.txt
+          wc -l < requirements.txt
+      - name: Check for known vulnerabilities
+        run: |
+          audit() {
+            uv tool run pip-audit==2.10.1 --no-deps --disable-pip \
+              --progress-spinner off -r requirements.txt "$@"
+          }
+          set +e
+          audit -f json -o pip-audit.json
+          status=$?
+          audit -f cyclonedx-json -o sbom.cdx.json
+          if [ "$status" -eq 0 ]; then
+            echo "No known vulnerabilities in the $(wc -l < requirements.txt) packages of uv.lock." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            audit -f markdown --desc on | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit
+          path: |
+            pip-audit.json
+            sbom.cdx.json
+          if-no-files-found: error
