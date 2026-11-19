@@ -13,10 +13,17 @@
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
+import sys
+
 from mast.logging import make_logger
-from .gui import main
+from .gui import main, CertificateNotFound
 
 logger = make_logger("mast.datapower.web")
 logger.info("Attempting to start web gui.")
-main()
+try:
+    main()
+except CertificateNotFound as e:
+    logger.error(str(e))
+    print("mast-web: {}".format(e), file=sys.stderr)
+    sys.exit(1)
 logger.info("web gui stopped")

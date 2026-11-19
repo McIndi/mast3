@@ -1,10 +1,9 @@
   <!DOCTYPE html>
 <html>
     <head>
+        <meta name="csrf-token" content="{{ csrf_token() }}" />
         <link rel="stylesheet" href="/static/css/jquery-ui.min.css" />
-        <style>
-            {{plugins['css']}}
-        </style>
+        <link rel="stylesheet" href="/plugins.css" />
         <link rel="stylesheet" href="/static/css/mast.css" />
         <script src='/static/js/chart.umd.js' ></script>
         <script src="/static/js/jquery.min.js"></script>
@@ -42,10 +41,6 @@
                     {{ plugins['html'] }}
             </div>
         </div>
-        <script>
-            $( document ).ready(function(){
-                  {{ plugins['js'] }}
-            })
-        </script>
+        <script src="/plugins.js"></script>
     </body>
 </html>

@@ -155,6 +155,8 @@ class WebFormTestCase(unittest.TestCase):
         self.app = flask.Flask(
             __name__,
             template_folder=os.path.join(home, "var", "www", "templates"))
+        # The web GUI gives the templates this function (mast.datapower.web)
+        self.app.jinja_env.globals["csrf_token"] = lambda: "test-token"
         os.makedirs(os.path.join(home, "var", "www", "static", "tmp"),
                     exist_ok=True)
         patches = [
@@ -502,12 +504,17 @@ class CancelRouteTestCase(unittest.TestCase):
     def test_the_browser_says_which_events_it_has(self):
         from mast.datapower.web import gui
         client = gui.app.test_client()
+        # The page gives the CSRF token, which the browser sends back
+        page = client.get("/").get_data(as_text=True)
+        token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
+        headers = {gui.CSRF_HEADER: token}
         with mock.patch.object(
                 gui.plugin_functions, "cancel_job",
                 return_value={"events": []}) as cancel_job:
-            answer = client.post("/jobs/abc/cancel", data={"after": "7"})
+            answer = client.post("/jobs/abc/cancel", data={"after": "7"},
+                                 headers=headers)
             self.assertEqual(200, answer.status_code)
             cancel_job.assert_called_once_with("abc", 7)
             self.assertEqual(
-                404, client.post("/jobs/abc/cancel",
-                                 data={"after": "x"}).status_code)
+                404, client.post("/jobs/abc/cancel", data={"after": "x"},
+                                 headers=headers).status_code)
