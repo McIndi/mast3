@@ -9,8 +9,15 @@ on:
   workflow_call:
 
 jobs:
+  # The unit tests run on every Python that MAST supports (requires-python
+  # in pyproject.toml). The other jobs use the Python of the installer.
   unit:
+    name: unit (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14", "3.15"]
     # The job queue tests run against SQLite, and against this
     # PostgreSQL because MAST_TEST_JOBS_DB_URL is set.
     services:
@@ -33,11 +40,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          python-version: "3.15"
+          python-version: ${{ matrix.python }}
       - name: Check that uv.lock matches pyproject.toml
         run: uv lock --check
       - name: Install MAST and its dependencies from uv.lock
         run: uv sync --locked
+      - name: Show the Python version of the tests
+        run: uv run --locked python -VV
       - name: Run the unit and regression tests
         run: uv run --locked pytest mast/testsuite/unit mast/testsuite/regression tools
 
