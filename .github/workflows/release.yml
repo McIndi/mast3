@@ -78,6 +78,14 @@ jobs:
           "$RUNNER_TEMP"/mast/python/*/bin/mast-version | grep -F "Version $MAST_VERSION"
           "$RUNNER_TEMP"/mast/python/*/bin/pip3 --version
 
+      # The launchers, exit statuses, cancelled jobs and workers that
+      # stop. The Windows launchers are batch files, see manual-tests.md.
+      - name: Test the installed product (Linux and macOS)
+        if: runner.os != 'Windows'
+        env:
+          MAST_TEST_HOME: ${{ runner.temp }}/mast
+        run: uv run --locked pytest mast/testsuite/integration/test_installed.py -v
+
       # A jump server has no internet access. Run the installer in a
       # container with no network, in an image with the oldest glibc that
       # the installer supports (linux-glibc in pyproject.toml: 2.28, as

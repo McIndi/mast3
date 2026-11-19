@@ -47,18 +47,11 @@ from mast.testsuite.integration.container import (
     USERNAME,
     WEB_PORT,
 )
+from mast.testsuite.integration.homes import TEST_HOME, copy_home
 from mast.testsuite.integration.test_datapower_container import (
     ContainerTestCase,
     GOOD_PASSWORD,
 )
-
-TEST_HOME = os.environ.get("MAST_TEST_HOME")
-
-# Not copied from MAST_TEST_HOME: the runtime files of that home, and the
-# interpreter, which is linked.
-_NOT_COPIED = {
-    os.path.join("etc", "local"), "var", "tmp", "python", ".mast-setup",
-}
 
 ALIAS = "dp1"
 ENVIRONMENT = "lab"
@@ -73,7 +66,7 @@ class CLITestCase(ContainerTestCase):
         super().setUpClass()
         cls.mast_home = os.path.join(cls.workdir, "mast_home")
         if TEST_HOME:
-            cls._copy_test_home(os.path.abspath(TEST_HOME), cls.mast_home)
+            copy_home(os.path.abspath(TEST_HOME), cls.mast_home)
         else:
             shutil.copytree(
                 os.path.join(os.environ["MAST_HOME"], "etc"),
@@ -90,19 +83,6 @@ class CLITestCase(ContainerTestCase):
         cls._write(local, "appliances.conf", (
             "[{}]\nsoma_port: {}\nweb_port: {}\nssh_port: {}\n".format(
                 ALIAS, ports[SOMA_PORT], ports[WEB_PORT], ports[SSH_PORT])))
-
-    @staticmethod
-    def _copy_test_home(source, destination):
-        """Copy a MAST home without its runtime files. Symlinks (the
-        links of a development home into the checkout) stay symlinks."""
-        def ignore(directory, names):
-            relative = os.path.relpath(directory, source)
-            return [n for n in names
-                    if os.path.normpath(os.path.join(relative, n)) in _NOT_COPIED]
-        shutil.copytree(source, destination, symlinks=True, ignore=ignore)
-        os.symlink(os.path.join(source, "python"),
-                   os.path.join(destination, "python"),
-                   target_is_directory=True)
 
     def launcher(self, name):
         """The path of a launcher of the private home."""

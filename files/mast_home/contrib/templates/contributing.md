@@ -70,5 +70,12 @@ From a checkout, with [uv](https://docs.astral.sh/uv/):
 The integration tests start an IBM DataPower container and are skipped unless
 you accept its license. See "Running the tests" in the README.
 
+The tests of the installed product run a MAST home through its launchers,
+without DataPower: the exit statuses, cancelled jobs and workers that stop.
+Point `MAST_TEST_HOME` at an unzipped installer or at `.dev/mast_home`:
+
+    :::bash
+    MAST_TEST_HOME=.dev/mast_home uv run pytest mast/testsuite/integration/test_installed.py
+
 An installed MAST can run its own unit tests with `test-mast --unit`
 (`test-mast.bat --unit` on Windows).
