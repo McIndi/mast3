@@ -24,7 +24,7 @@ import tempfile
 import unittest
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 import openpyxl
 
 import mast.datapower.crypto as crypto

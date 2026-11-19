@@ -23,7 +23,7 @@ import io
 import unittest
 from xml.etree import ElementTree as etree
 
-import mock
+from unittest import mock
 
 import mast.datapower.accounts as accounts
 from mast.cli import captured

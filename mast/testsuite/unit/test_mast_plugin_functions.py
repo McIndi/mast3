@@ -27,7 +27,7 @@ import unittest
 from typing import Literal
 
 import flask
-import mock
+from unittest import mock
 
 import mast.plugin_utils.plugin_functions as pf
 from mast import jobs
