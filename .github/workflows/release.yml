@@ -2,7 +2,9 @@ name: release
 
 # Builds the MAST installers when a version tag is pushed, and attaches them
 # to a published GitHub release. The installers are only built if the unit and
-# integration tests pass for the tagged commit.
+# integration tests pass for the tagged commit, and if no package of uv.lock
+# has a known vulnerability. The release also gets the report of that check
+# and a software bill of materials (SBOM) of the packages.
 
 on:
   push:
@@ -18,8 +20,11 @@ jobs:
   tests:
     uses: ./.github/workflows/tests.yml
 
+  audit:
+    uses: ./.github/workflows/audit.yml
+
   build:
-    needs: tests
+    needs: [tests, audit]
     strategy:
       fail-fast: false
       matrix:
@@ -155,13 +160,20 @@ jobs:
           path: dist
           pattern: installer-*
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: audit
+          path: audit
       - name: Publish a release with the installers
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          version="${GITHUB_REF_NAME#v}"
+          cp audit/pip-audit.json "dist/MAST-${version}_pip-audit.json"
+          cp audit/sbom.cdx.json "dist/MAST-${version}_sbom.cdx.json"
           ls -l dist
-          (cd dist && sha256sum *.zip > SHA256SUMS)
+          (cd dist && sha256sum *.zip *.json > SHA256SUMS)
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
