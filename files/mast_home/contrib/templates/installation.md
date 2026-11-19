@@ -69,6 +69,16 @@ service. A worker stops when it gets SIGTERM, after its running jobs end.
 server. If the web server (`mastd` or `mast-web`) stops before such a job starts, the
 job is cancelled.
 
+# The secret key of the web GUI
+
+The web GUI signs its session cookie with the key in
+`$MAST_HOME/etc/local/server.key`. MAST makes this file with a random key the first
+time the web GUI starts, and you do not have to set anything up. To change the key,
+stop the web GUI and delete the file. If several web servers must share one key, set
+`secret_key` in the `[server]` section of `$MAST_HOME/etc/local/server.conf` to the
+same long random value on each. `$MAST_HOME/etc/default/server.conf` explains both
+settings.
+
 # Installing mastd
 
 The process of installing mastd as a service will vary depending on your target

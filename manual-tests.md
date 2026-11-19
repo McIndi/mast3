@@ -134,6 +134,15 @@ in `etc\local\jobs.conf`.
     # does the job. Start mast-worker, submit a form, and see that the
     # worker does it (mast-jobs show).
 
+# The secret key of the web GUI
+
+    # A fresh install has no etc\local\server.key. Start mast-web: the
+    # file is made (on Linux, mode 600). Restart mast-web: the file and
+    # its key stay the same.
+    # Put secret_key = INSECURE_SECRET_KEY_CHANGE_ME in the [server]
+    # section of etc\local\server.conf and start mast-web: var\log\gui.log
+    # warns that the key is ignored, and server.key is still used.
+
 # Run the installer with no internet access (Linux, podman)
 
 A jump server has no internet access, and the installer must work there.

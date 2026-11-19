@@ -35,9 +35,6 @@ scheduled and long-running work does not need a person to type them.
     of it).
     * Tests that run the installed product: the launchers, the exit
     statuses, cancelled jobs and workers that stop.
-    * A secret key for the web GUI that is made when MAST first runs,
-    as the key of the job queue is.
-    * Support for Python 3.13, 3.14 and 3.15, tested on each release.
     * A review of the dependencies.
     * A check of the dependencies for known vulnerabilities
     (`pip-audit`) on every pull request. Each GitHub release gets the
@@ -97,9 +94,6 @@ is decided.
 * The web GUI has no users or permissions yet (see step 4). Everybody
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
-* The default secret key of the web GUI is not secret. Until step 1,
-set your own `secret_key` in the `[server]` section of
-`etc/local/server.conf`.
 * `git-deploy` needs the `git` program on the `PATH`.
 
 # History
