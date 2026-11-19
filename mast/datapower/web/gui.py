@@ -29,8 +29,10 @@ import cherrypy
 from cheroot.ssl.builtin import BuiltinSSLAdapter
 from markupsafe import Markup
 from cheroot.wsgi import WSGIServer
+import hmac
 import logging
 import random
+import secrets
 import string
 import flask
 import json
@@ -57,6 +59,9 @@ host = config["server"]["host"]
 max_file_upload_size = int(config["server"]["max_file_upload_size"])
 threaded = bool(config["server"]["threaded"])
 secure = bool(config["server"]["secure"])
+# How long a browser keeps to HTTPS for this server after it saw the
+# web GUI over TLS (HSTS). 0 tells browsers to forget it.
+hsts_max_age = int(config["server"].get("hsts_max_age") or 31536000)
 cert, key = None, None
 if secure:
     key = config["server"]["key"]
@@ -108,6 +113,11 @@ def secret_key(server_config):
 
 
 app.secret_key = secret_key(config["server"])
+# The session cookie holds the CSRF token. Over TLS it is only sent over
+# TLS (Secure), and the requests that other sites make in the background
+# do not carry it (SameSite=Lax).
+app.config["SESSION_COOKIE_SECURE"] = secure
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 wzl = logging.getLogger("werkzeug")
 app.root_path = os.environ["MAST_HOME"]
 log_file = os.path.join(os.environ["MAST_HOME"], log_file)
@@ -268,7 +278,7 @@ def index():
     """
     global PLUGINS
     random.seed()
-    flask.session["csrf"] = random.randint(100000, 999999)
+    csrf_token()
     ephemeral_session = random.randint(10000, 99999)
     resp = flask.make_response(
         flask.render_template(
@@ -279,8 +289,36 @@ def index():
         "9x4h/mmek/j.ahba.ckhafn",
         ''.join(random.choice(
             string.ascii_lowercase + string.ascii_uppercase + string.digits)
-            for _ in range(64)))
+            for _ in range(64)),
+        secure=secure, samesite="Lax")
     return resp
+
+
+@app.route('/plugins.js')
+def plugins_js():
+    """
+    _function_: `mast.datapower.web.plugins_js()`
+
+    The JavaScript of all the web plugins, which runs when the page is
+    ready. It is a file, not a script in the page, so that the Content
+    Security Policy can forbid inline scripts.
+
+    Exposed at: `/plugins.js` via GET
+    """
+    body = "$(function(){{\n{}\n}});\n".format(app.PLUGINS["js"])
+    return flask.Response(body, mimetype="text/javascript")
+
+
+@app.route('/plugins.css')
+def plugins_css():
+    """
+    _function_: `mast.datapower.web.plugins_css()`
+
+    The style sheets of all the web plugins, as one file.
+
+    Exposed at: `/plugins.css` via GET
+    """
+    return flask.Response(str(app.PLUGINS["css"]), mimetype="text/css")
 
 
 @app.route('/upload', methods=["POST"])
@@ -475,6 +513,97 @@ def log_access():
     logger.debug("data: {}, headers: {}".format(
         r.data,
         str(r.headers).replace("\n", "; ")))
+
+# The methods that can change something. A request with one of them must
+# carry the CSRF token of the session, in the header CSRF_HEADER (the
+# requests of jQuery, see mast.js) or in the form field CSRF_FIELD (the
+# forms that the browser submits: uploads and downloads).
+_UNSAFE_METHODS = frozenset(("POST", "PUT", "DELETE", "PATCH"))
+CSRF_HEADER = "X-CSRF-Token"
+CSRF_FIELD = "csrf_token"
+
+# Scripts, style sheets, images and frames only from the web GUI itself,
+# and no inline script or style. The upload form posts into an iframe of
+# the page, so the page may frame itself, but no other site may frame it.
+CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+))
+
+
+def csrf_token():
+    """
+    _function_: `mast.datapower.web.csrf_token()`
+
+    Return the CSRF token of the session, and make one if the session
+    has none. The token stays the same for the session, so that every
+    tab of the web GUI can use it. Templates call it as
+    `{{ csrf_token() }}`.
+    """
+    token = flask.session.get("csrf")
+    if not isinstance(token, str) or len(token) < 32:
+        token = secrets.token_urlsafe(32)
+        flask.session["csrf"] = token
+    return token
+
+
+@app.context_processor
+def _template_functions():
+    return {"csrf_token": csrf_token}
+
+
+@app.before_request
+def check_csrf_token():
+    """
+    _function_: `mast.datapower.web.check_csrf_token()`
+
+    Refuse a request that can change something (POST, PUT, DELETE,
+    PATCH) unless it carries the CSRF token of the session. Another
+    site can make the browser send such a request, with the cookies of
+    the web GUI, but it cannot read the token.
+
+    Logs to: `gui.log`
+    """
+    request = flask.request
+    if request.method not in _UNSAFE_METHODS:
+        return None
+    expected = flask.session.get("csrf")
+    sent = request.headers.get(CSRF_HEADER) or request.form.get(CSRF_FIELD)
+    if isinstance(expected, str) and isinstance(sent, str) \
+            and hmac.compare_digest(sent.encode(), expected.encode()):
+        return None
+    make_logger("gui").warning(
+        "Refused {} {} from {}: no valid CSRF token".format(
+            request.method, request.path, request.remote_addr))
+    return flask.Response(
+        "This request has no valid CSRF token. Reload the web GUI and "
+        "try again.\n", status=403, mimetype="text/plain")
+
+
+@app.after_request
+def security_headers(response):
+    """
+    _function_: `mast.datapower.web.security_headers(response)`
+
+    Add the headers with which the browser defends the web GUI: the
+    Content Security Policy, no guessing of content types, no referrer
+    to other sites, and HSTS when the web GUI uses TLS (`secure`).
+    """
+    headers = response.headers
+    headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    headers.setdefault("X-Content-Type-Options", "nosniff")
+    headers.setdefault("Referrer-Policy", "same-origin")
+    if secure:
+        headers.setdefault(
+            "Strict-Transport-Security", "max-age={}".format(hsts_max_age))
+    return response
+
 
 with app.app_context():
     flask.current_app.PLUGINS = initialize_plugins()

@@ -14,11 +14,32 @@ The `secret_key` that MAST shipped before
 (`INSECURE_SECRET_KEY_CHANGE_ME`) is ignored, with a warning in
 `gui.log`; remove it from `etc/local/server.conf` if you copied it
 there. A `secret_key` of your own is still used.
+* The web GUI refuses a request that can change something (POST, PUT,
+DELETE, PATCH) without the CSRF token of the session, with status 403.
+The web GUI sends the token itself. A script that posts to the web GUI
+must first load the page, and send the token of the
+`<meta name="csrf-token">` tag back in the `X-CSRF-Token` header or
+the `csrf_token` field. A page of the web GUI that was open during the
+upgrade must be reloaded.
+* When the web GUI uses TLS, it sends HSTS: browsers then use only
+HTTPS for that server for a year. Set `hsts_max_age` in the `[server]`
+section of `etc/local/server.conf` to change that.
+* A web plugin from outside this repository must not put inline
+scripts, `<style>` elements, `style` attributes or `on...` attributes
+in its HTML: the Content Security Policy blocks them. Its `js()` and
+`css()` are now served as files (`/plugins.js`, `/plugins.css`)
+instead of in the page.
 
 ## Features
 
 * MAST supports Python 3.13, 3.14 and 3.15, and the unit tests run on
 each of them. The installer still has its own Python 3.15.
+* The web GUI defends itself in the browser: a CSRF token for every
+request that can change something, a strict Content Security Policy
+(scripts and style sheets only from the web GUI, no inline code, no
+framing by other sites), HSTS over TLS, and `nosniff` and
+`same-origin` referrer headers. The cookies of the web GUI are
+`SameSite=Lax`, and `Secure` over TLS.
 
 # MAST Version 3.15.2
 

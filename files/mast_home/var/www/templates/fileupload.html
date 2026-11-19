@@ -7,6 +7,7 @@
           action="/upload"
           target="_{{ plugin }}_iframe_{{ name }}"
           enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <input type="file" name="_file_in" />
         <input type="submit" class="hidden" />
     </form>

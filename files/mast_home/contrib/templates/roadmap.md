@@ -52,10 +52,6 @@ scheduled and long-running work does not need a person to type them.
     (`pip-audit`) on every pull request. Each GitHub release gets the
     report of that check and a software bill of materials (SBOM) of
     the installer, next to the installers.
-    * A web GUI that defends itself in the browser: a CSRF token that
-    each form which starts a job must send back, a strict Content
-    Security Policy (no inline scripts, nothing loaded from other
-    sites), and HSTS when the web GUI uses TLS.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
@@ -112,12 +108,6 @@ is decided.
 * The web GUI has no users or permissions yet (see step 4). Everybody
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
-* The web GUI does not check a CSRF token, and sends no Content
-Security Policy and no HSTS header (see step 1). A web page in another
-tab of the same browser can send requests to the web GUI, for example
-to upload a file. It cannot start a job on an appliance unless it
-knows the appliance credentials. Until step 1, open the web GUI in a
-browser profile that you do not use for other sites.
 * A running job can take up to 20 seconds (`lease_seconds / 3`) to
 notice that it was cancelled, unless it reports progress (see step 1).
 A job that waits is cancelled at once.
