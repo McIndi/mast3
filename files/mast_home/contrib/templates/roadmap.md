@@ -39,6 +39,10 @@ scheduled and long-running work does not need a person to type them.
     as the key of the job queue is.
     * Support for Python 3.13, 3.14 and 3.15, tested on each release.
     * A review of the dependencies.
+    * A check of the dependencies for known vulnerabilities
+    (`pip-audit`) on every pull request. Each GitHub release gets the
+    report of that check and a software bill of materials (SBOM) of
+    the installer, next to the installers.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
