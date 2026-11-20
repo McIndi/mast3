@@ -1828,9 +1828,15 @@ class TestCommandLineProcess(SqliteCase):
             (0, NO_USERS + "\n"))
 
 
-def _compete(url, worker_id, start, claimed, overlaps):
-    """Run in another process: claim jobs until there are none."""
+def _compete(url, worker_id, start, claimed, overlaps, ready=None,
+             hold_seconds=0.0):
+    """Run in another process: claim jobs until there are none. Put
+    `worker_id` in `ready` once the process can claim, then wait for
+    `start`. Keep each job `hold_seconds` before finishing it, so that
+    the other workers claim while it runs."""
     db.configure(url)
+    if ready is not None:
+        ready.put(worker_id)
     start.wait()
     while True:
         job_id = jobs.claim(worker_id)
@@ -1850,6 +1856,7 @@ def _compete(url, worker_id, start, claimed, overlaps):
                     JobTarget.appliance.in_(mine)))
         if running != 1:
             overlaps.put((worker_id, job_id, running))
+        time.sleep(hold_seconds)
         jobs.finish(job_id, worker_id, jobs.SUCCEEDED)
 
 
@@ -1858,15 +1865,20 @@ class TestWorkersTogether(SqliteCase):
         appliances = ["dp1", "dp2", "dp3"]
         submitted = [submit(appliances[n % 3]) for n in range(45)]
         context = multiprocessing.get_context("spawn")
-        start, claimed, overlaps = (
-            context.Event(), context.Queue(), context.Queue())
+        start, claimed, overlaps, ready = (
+            context.Event(), context.Queue(), context.Queue(), context.Queue())
         workers = [
             context.Process(
                 target=_compete,
-                args=(self.url, "w{}".format(n), start, claimed, overlaps))
+                args=(self.url, "w{}".format(n), start, claimed, overlaps,
+                      ready, 0.01))
             for n in range(6)]
         for worker in workers:
             worker.start()
+        # A spawned process takes a while to import MAST. Start them
+        # together, or the first one can take every job alone.
+        for _ in workers:
+            ready.get(timeout=120)
         start.set()
         got = [claimed.get(timeout=120) for _ in submitted]
         for worker in workers:
