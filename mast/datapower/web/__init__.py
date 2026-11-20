@@ -39,7 +39,12 @@ class Plugin(threading.Thread):
 
     This class is a `mastd_plugin` which is a subclass of `threading.Thread`
     It will be started by mastd and continue to run until mastd is stopped.
+
+    `mastd` stops it last, so that the web GUI shows the jobs that `mastd`
+    waits for while it stops.
     """
+    stop_last = True
+
     def __init__(self):
         """
         _method_: `mast.datapower.web.Plugin.__init__(self)`
@@ -49,6 +54,14 @@ class Plugin(threading.Thread):
         """
         super(Plugin, self).__init__()
         self.daemon = True
+
+    def stop(self):
+        """
+        _method_: `mast.datapower.web.Plugin.stop(self)`
+
+        Stop the web server. `run` then returns.
+        """
+        stop_server()
 
     def run(self):
         """

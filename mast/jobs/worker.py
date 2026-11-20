@@ -256,6 +256,16 @@ class Plugin(threading.Thread):
         if self.worker is not None:
             self.worker.stop()
 
+    def abort(self):
+        """
+        _method_: `mast.jobs.worker.Plugin.abort(self)`
+
+        Stop the worker now. Its running jobs become lost.
+        """
+        self._stopped.set()
+        if self.worker is not None:
+            self.worker.abort()
+
     def run(self):
         """
         _method_: `mast.jobs.worker.Plugin.run(self)`

@@ -79,13 +79,21 @@ The worker and the web GUI can also run alone, as `mast-worker` and
 ## Linux
 
 `mastd start` starts `mastd` in the background and writes its process
-id to `var/run/mastd.pid`. `mastd stop` stops it.
+id to `var/run/mastd.pid`. `mastd status` says whether it runs (exit
+status 0 if it runs, 3 if it does not, 1 if it does not but its pid
+file remains). `mastd restart` stops it and starts it again.
 
-`mastd` stops at once, and so does its worker. A job that the worker
-of `mastd` runs is cut off, and the queue declares it `lost` when its
-lease ends. `mast-worker` stops gracefully: on SIGTERM it takes no new
-job, and it stops when its running jobs end. So on a server, run the
-worker as a service of its own, and turn off the worker of `mastd` in
+`mastd stop` sends `mastd` SIGTERM and waits until it has stopped.
+`mastd` stops gracefully: it takes no new job and starts no new
+scheduled task, and it stops when the running ones end. The web GUI
+stops last, so it shows the jobs that `mastd` waits for. To stop it at
+once, press Ctrl-C while `mastd stop` waits, or send `mastd` a second
+SIGTERM: its running jobs are cut off and become `lost`, and its
+running tasks are not waited for.
+
+`mast-worker` stops the same way. On a server, you can run the worker
+as a service of its own, so that you can stop and start the web GUI
+without waiting for the jobs. Then turn off the worker of `mastd` in
 `etc/local/jobs.conf`:
 
     :::ini
@@ -126,6 +134,8 @@ user `mast`, from `/opt/mast`:
     PIDFile=/opt/mast/var/run/mastd.pid
     ExecStart=/opt/mast/mastd start
     ExecStop=/opt/mast/mastd stop
+    # mastd stops when its running jobs and scheduled tasks end
+    TimeoutStopSec=1h
     Restart=on-failure
 
     [Install]
@@ -149,19 +159,26 @@ scheduler.
 
 ## The scheduler
 
-The scheduler reads `etc/crontab` every minute. Each line is a cron
-expression and a command, for example a backup at 02:00 every day:
+The scheduler reads `etc/crontab` at the start of every minute. Each
+line is a cron expression and a command, for example a backup at 02:00
+every day:
 
     :::text
     0 2 * * * ./mast-backups normal-backup -a prod -c <credentials> -n -o tmp/nightly
 
 * The times are in UTC, not in the time zone of the server.
 * The command runs in `$MAST_HOME`, with the shell.
-* The tasks run one after another. A long task delays the next one.
-* A task that fails is logged in the log `mast.cron`. What a task
-prints is not logged yet (see the known issues in the
-[Road Map](./roadmap.html)): to keep it, redirect it to a file in the
-command.
+* Each task runs in its own process, at the same time as the other
+tasks that are due. A task is not started again while it still runs
+from an earlier minute; that is logged.
+* The exit status and the output of each task are logged in the log
+`mast.cron`.
+* If the scheduler checks late, because the server was busy or
+suspended or its clock jumped, it starts the tasks of the minutes that
+it missed, once each, up to an hour back. If the clock goes back, a
+minute that was already checked is not checked again.
+* Empty lines and lines that start with `#` are ignored. A line that is
+not a valid task is logged, and the other lines still run.
 * A change to `etc/crontab` takes effect at the next minute. You do not
 have to restart `mastd`.
 

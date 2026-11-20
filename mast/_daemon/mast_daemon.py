@@ -26,13 +26,21 @@ attempt to start them. After one minute and each minute after that,
 each thread will be checked. If it is alive, it will be left alone, but
 if it is dead, it will be restarted. This process will continue until
 `mastd` is stopped.
+
+When `mastd` is stopped, it takes no more jobs and starts no more
+scheduled tasks, and it exits when the running ones end. On Linux,
+stopping it a second time (a second SIGTERM, or Ctrl-C while
+`mastd stop` waits) makes it exit now; its running jobs then become
+lost.
 """
 import os
 import sys
 import platform
+import threading
 from importlib import metadata
 
 from mast import home
+from mast._daemon.plugins import PluginHost
 
 try:
     import win32serviceutil
@@ -42,7 +50,6 @@ try:
     import socket
 except ImportError:
     from .daemon import Daemon
-    from time import sleep
 
 # The Windows service manager starts pythonservice.exe without MAST_HOME.
 # It is under MAST_HOME/python/<version>/Lib/site-packages/win32.
@@ -109,7 +116,6 @@ if "Windows" in platform.system():
             logger.debug("mastd running in {}".format(os.getcwd()))
             servicemanager.LogInfoMsg("In __init__ args: {}".format(str(args)))
             win32serviceutil.ServiceFramework.__init__(self, args)
-            self.stop_event = win32event.CreateEvent(None, 0, 0, None)
             socket.setdefaulttimeout(60)
             self.timeout = 60000
             self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
@@ -119,11 +125,12 @@ if "Windows" in platform.system():
             """
             _method_: `mast.daemon.MASTd.SvcStop(self)`
 
-            Stop the service.
+            Stop the service. `run` then stops the plugins and waits
+            for the running jobs and scheduled tasks to end.
             """
             self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-            win32event.SetEvent(self.stop_event)
             self.stop_requested = True
+            win32event.SetEvent(self.hWaitStop)
 
         def SvcDoRun(self):
             """
@@ -142,67 +149,38 @@ if "Windows" in platform.system():
             servicemanager.LogInfoMsg("Running run")
             self.run()
 
+        def _stopping(self):
+            # Tell Windows that the service is still stopping
+            self.ReportServiceStatus(
+                win32service.SERVICE_STOP_PENDING, waitHint=30000)
+
         @logged("mast.daemon")
         def run(self):
             """
             _method_: `mast.daemon.MASTd.run(self)`
 
-            This function does the brunt of the work by looping through
-            the plugins and starting them. After that it enters an
-            infinite loop checking the status of each plugin. If the
-            plugin is found dead it will attempt to restart the plugin.
+            Start the plugins, and each minute start again the ones
+            that ended. When the service is stopped, stop the plugins
+            and wait for them, see `mast._daemon.plugins`.
             """
             logger = make_logger("mast.daemon")
-            servicemanager.LogInfoMsg("Inside run")
-            global PLUGINS
             servicemanager.LogInfoMsg("Plugins: {}".format(PLUGINS))
+            host = PluginHost(PLUGINS, logger)
             try:
-                threads = {}
-                servicemanager.LogInfoMsg("Entering main loop")
                 while not self.stop_requested:
-                    for key, value in list(PLUGINS.items()):
-                        if key in list(threads.keys()):
-                            if threads[key].is_alive():
-                                continue
-                            else:
-                                logger.debug("Plugin {} found, but dead, attempting to restart".format(key))
-                                try:
-                                    threads[key] = value()
-                                    threads[key].start()
-                                    logger.debug(
-                                        "Plugin {} started".format(key))
-                                    continue
-                                except Exception:
-                                    logger.exception(
-                                        "An unhandled exception "
-                                        "occurred during execution.")
-                                    continue
-                        else:
-                            logger.info(
-                                "Plugin "
-                                "{} not found. Attempting to start.".format(
-                                    key))
-                            try:
-                                threads[key] = value()
-                                threads[key].start()
-                                continue
-                            except Exception:
-                                logger.exception(
-                                    "An unhandled exception occurred "
-                                    "during execution.")
-                                continue
-                            continue
+                    host.start_dead()
                     rc = win32event.WaitForSingleObject(
                         self.hWaitStop, self.timeout)
-                    # Check to see if self.hWaitStop happened
                     if rc == win32event.WAIT_OBJECT_0:
-                        # Stop signal encountered
-                        servicemanager.LogInfoMsg(
-                            "SomeShortNameVersion - STOPPED!")
                         break
+                logger.info(
+                    "mastd is stopping. It waits for the running jobs and "
+                    "scheduled tasks to end.")
+                host.stop(heartbeat=self._stopping)
+                logger.info("mastd stopped")
             except Exception:
                 logger.exception(
-                    "An uhhandled exception occurred during execution")
+                    "An unhandled exception occurred during execution")
                 raise
 
 else:
@@ -219,6 +197,8 @@ else:
         attempt to start them. After all the plugins are started,
         mastd will check every minute each of the plugins, restarting
         them if they are not alive.
+
+        On SIGTERM it stops gracefully, see `request_stop`.
         """
         def get_plugins(self):
             """
@@ -245,65 +225,70 @@ else:
                 "Collected plugins {}".format(
                     str(list(self.named_objects.keys()))))
 
+        waiting_message = (
+            "Waiting for mastd (pid %d) to stop. It stops when its running "
+            "jobs and scheduled tasks end. Press Ctrl-C to stop it now: "
+            "its running jobs then become lost.")
+        stop_now_message = "Stopping mastd now."
+
+        def __init__(self, *args, **kwargs):
+            super(MASTd, self).__init__(*args, **kwargs)
+            self._stopping = threading.Event()
+            self._abort = threading.Event()
+
+        def request_stop(self):
+            """
+            _method_: `mast.daemon.MASTd.request_stop(self)`
+
+            Called on SIGTERM and SIGINT. The first time, `mastd` takes
+            no more jobs and starts no more scheduled tasks, and exits
+            when the running ones end. The second time, it exits now:
+            its running jobs become lost.
+            """
+            if self._stopping.is_set():
+                self._abort.set()
+            else:
+                self._stopping.set()
+
         @logged("mast.daemon")
         def run(self):
             """
             _method_: `mast.daemon.MASTd.run(self)`
 
             This method will be called when mastd has successfully been
-            spawned and forked. This is where most of the logic happens.
-
-            If the plugin's thread is found to be dead, it will be restarted.
+            spawned and forked. It starts the plugins, and each minute
+            starts again the ones that ended. When `mastd` is told to
+            stop, it stops the plugins and waits for them, see
+            `mast._daemon.plugins`.
             """
             logger = make_logger("mast.daemon")
             os.chdir(mast_home)
             try:
                 if not hasattr(self, "named_objects"):
                     self.get_plugins()
-                threads = {}
-
-                while True:
-                    for key, value in list(self.named_objects.items()):
-                        if key in list(threads.keys()):
-                            if threads[key].is_alive():
-                                continue
-                            else:
-                                logger.debug("Plugin {} found, but dead, attempting to restart".format(key))
-                                try:
-                                    threads[key] = value()
-                                    threads[key].start()
-                                    continue
-                                except Exception:
-                                    logger.exception(
-                                        "An unhandled exception occurred "
-                                        "during execution.")
-                                    continue
-                        else:
-                            logger.info(
-                                "Plugin "
-                                "{} not found. Attempting to start.".format(
-                                    key))
-                            try:
-                                threads[key] = value()
-                                threads[key].start()
-                                continue
-                            except Exception:
-                                logger.exception(
-                                    "An unhandled exception occurred "
-                                    "during execution.")
-                                continue
-                            continue
-                    sleep(60)
+                host = PluginHost(self.named_objects, logger)
+                while not self._stopping.is_set():
+                    host.start_dead()
+                    self._stopping.wait(60)
+                logger.info(
+                    "mastd is stopping. It waits for the running jobs and "
+                    "scheduled tasks to end. Stop it again to stop it now.")
+                if host.stop(abort=self._abort):
+                    logger.info("mastd stopped")
+                else:
+                    logger.warning("mastd stopped without waiting for "
+                                   "all of its plugins")
             except Exception:
                 logger.exception(
-                    "An uhhandled exception occurred during execution")
+                    "An unhandled exception occurred during execution")
                 raise
 
-        @logged("mast.daemon")
         def status(self):
             """
             _method_: `mast.daemon.MASTd.status(self)`
 
-            Not implemented yet.
+            Print whether `mastd` runs. Return 0 if it runs, 1 if it
+            does not run but its pid file remains, 3 if it does not
+            run.
             """
-            raise NotImplementedError
+            return super(MASTd, self).status()

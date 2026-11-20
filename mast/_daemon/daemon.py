@@ -19,6 +19,10 @@ Changes:        23rd Jan 2009 (David Mytton <david@boxedice.com>)
                   (before SystemExit was part of the Exception base)
                 13th Aug 2010 (David Mytton <david@boxedice.com>
                 - Fixed unhandled exception if PID file is empty
+                2026 (McIndi Solutions)
+                - stop() sends SIGTERM once and waits for the process
+                - request_stop() is called on SIGTERM and SIGINT
+                - status(), and start() removes a stale pidfile
 '''
 
 # Core modules
@@ -29,6 +33,24 @@ import time
 import signal
 
 
+def alive(pid):
+    """Return True if the process pid runs."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # It runs, as another user
+        return True
+    return True
+
+
+def wait_gone(pid, poll_seconds=0.2):
+    """Return when the process pid has ended."""
+    while alive(pid):
+        time.sleep(poll_seconds)
+
+
 class Daemon(object):
     """
     A generic daemon class.
@@ -37,7 +59,7 @@ class Daemon(object):
     """
     def __init__(self, pidfile, stdin=os.devnull,
                  stdout=os.devnull, stderr=os.devnull,
-                 home_dir='.', umask=0o22, verbose=1, use_gevent=False):
+                 home_dir='.', umask=0o22, verbose=1):
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
@@ -46,7 +68,6 @@ class Daemon(object):
         self.verbose = verbose
         self.umask = umask
         self.daemon_alive = True
-        self.use_gevent = use_gevent
 
     def daemonize(self):
         """
@@ -94,18 +115,8 @@ class Daemon(object):
             os.dup2(so.fileno(), sys.stdout.fileno())
             os.dup2(se.fileno(), sys.stderr.fileno())
 
-        def sigtermhandler(signum, frame):
-            self.daemon_alive = False
-            sys.exit()
-
-        if self.use_gevent:
-            import gevent
-            gevent.reinit()
-            gevent.signal(signal.SIGTERM, sigtermhandler, signal.SIGTERM, None)
-            gevent.signal(signal.SIGINT, sigtermhandler, signal.SIGINT, None)
-        else:
-            signal.signal(signal.SIGTERM, sigtermhandler)
-            signal.signal(signal.SIGINT, sigtermhandler)
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, self._on_signal)
 
         if self.verbose >= 1:
             print("Started")
@@ -114,10 +125,25 @@ class Daemon(object):
         atexit.register(
             self.delpid)  # Make sure pid file is removed if we quit
         pid = str(os.getpid())
-        open(self.pidfile, 'w+').write("%s\n" % pid)
+        with open(self.pidfile, 'w+') as pf:
+            pf.write("%s\n" % pid)
+
+    def _on_signal(self, signum, frame):
+        self.request_stop()
+
+    def request_stop(self):
+        """
+        Called in the daemon on SIGTERM and SIGINT. Override it to stop
+        gracefully: return from run(). This one exits at once.
+        """
+        self.daemon_alive = False
+        sys.exit()
 
     def delpid(self):
-        os.remove(self.pidfile)
+        try:
+            os.remove(self.pidfile)
+        except FileNotFoundError:
+            pass
 
     def start(self, *args, **kwargs):
         """
@@ -125,66 +151,64 @@ class Daemon(object):
         """
 
         if self.verbose >= 1:
-            print("Starting...")
+            print("Starting...", flush=True)
 
         # Check for a pidfile to see if the daemon already runs
-        try:
-            pf = open(self.pidfile, 'r')
-            pid = int(pf.read().strip())
-            pf.close()
-        except IOError:
-            pid = None
-        except SystemExit:
-            pid = None
-
-        if pid:
+        pid = self.get_pid()
+        if pid and alive(pid):
             message = "pidfile %s already exists. Is it already running?\n"
             sys.stderr.write(message % self.pidfile)
             sys.exit(1)
+        if pid:
+            sys.stderr.write(
+                "Removing the pidfile %s of the process %d, which is not "
+                "running\n" % (self.pidfile, pid))
+            self.delpid()
 
         # Start the daemon
         self.daemonize()
         self.run(*args, **kwargs)
 
-    def stop(self):
+    # Printed by stop() while it waits; %d is the pid
+    waiting_message = "Waiting for the process %d to stop."
+    # Printed by stop() when Ctrl-C is pressed while it waits
+    stop_now_message = "Stopping it now."
+
+    def stop(self, poll_seconds=0.2):
         """
-        Stop the daemon
+        Stop the daemon: send it SIGTERM once and wait until it has
+        ended. On Ctrl-C, send SIGTERM again (which stops the daemon
+        now, if it handles a second signal) and wait again.
         """
 
         if self.verbose >= 1:
-            print("Stopping...")
+            print("Stopping...", flush=True)
 
         # Get the pid from the pidfile
         pid = self.get_pid()
 
-        if not pid:
+        if not pid or not alive(pid):
             message = "pidfile %s does not exist. Not running?\n"
             sys.stderr.write(message % self.pidfile)
-
-            # Just to be sure. A ValueError might occur if the PID file is
-            # empty but does actually exist
-            if os.path.exists(self.pidfile):
-                os.remove(self.pidfile)
-
+            self.delpid()
             return  # Not an error in a restart
 
-        # Try killing the daemon process
         try:
-            i = 0
-            while 1:
+            os.kill(pid, signal.SIGTERM)
+            print(self.waiting_message % pid, flush=True)
+            try:
+                wait_gone(pid, poll_seconds)
+            except KeyboardInterrupt:
+                print(self.stop_now_message, flush=True)
                 os.kill(pid, signal.SIGTERM)
-                time.sleep(0.1)
-                i = i + 1
-                if i % 10 == 0:
-                    os.kill(pid, signal.SIGHUP)
-        except OSError as err:
-            err = str(err)
-            if err.find("No such process") > 0:
-                if os.path.exists(self.pidfile):
-                    os.remove(self.pidfile)
-            else:
-                print(str(err))
-                sys.exit(1)
+                wait_gone(pid, poll_seconds)
+        except ProcessLookupError:
+            pass
+        except PermissionError as err:
+            print(str(err))
+            sys.exit(1)
+        # The daemon removes it, unless it was killed
+        self.delpid()
 
         if self.verbose >= 1:
             print("Stopped")
@@ -198,26 +222,30 @@ class Daemon(object):
 
     def get_pid(self):
         try:
-            pf = open(self.pidfile, 'r')
-            pid = int(pf.read().strip())
-            pf.close()
-        except IOError:
-            pid = None
-        except SystemExit:
-            pid = None
-        return pid
+            with open(self.pidfile, 'r') as pf:
+                return int(pf.read().strip())
+        except (IOError, ValueError):
+            return None
+
+    def status(self):
+        """
+        Print whether the daemon runs, and return the exit status of
+        an init script: 0 if it runs, 1 if it does not run but its
+        pidfile remains, 3 if it does not run.
+        """
+        pid = self.get_pid()
+        if pid is None:
+            print("Not running")
+            return 3
+        if alive(pid):
+            print("Running (pid %d)" % pid)
+            return 0
+        print("Not running, but the pidfile %s remains (pid %d)" % (
+            self.pidfile, pid))
+        return 1
 
     def is_running(self):
-        pid = self.get_pid()
-
-        if pid is None:
-            print('Process is stopped')
-        elif os.path.exists('/proc/%d' % pid):
-            print('Process (pid %d) is running...' % pid)
-        else:
-            print('Process (pid %d) is killed' % pid)
-
-        return pid and os.path.exists('/proc/%d' % pid)
+        return self.status() == 0
 
     def run(self):
         """
