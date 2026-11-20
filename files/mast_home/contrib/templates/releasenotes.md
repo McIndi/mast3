@@ -30,6 +30,9 @@ in its HTML: the Content Security Policy blocks them. Its `js()` and
 `css()` are now served as files (`/plugins.js`, `/plugins.css`)
 instead of in the page.
 
+* MAST no longer installs `commandr`, `ecdsa`, `mock` and `wheel`,
+which it does not use. A script or plugin of your own that imports one
+of them must install it.
 * `contrib/gen-cert.py` no longer replaces a key and certificate that
 are there, unless you give `--force`. Its subject has only the fields
 that you give; the common name is the name of the computer by default.
@@ -49,12 +52,28 @@ could. It no longer prints warnings about deprecated functions, and
 its exit status is 1 or 2 when it fails.
 * MAST supports Python 3.13, 3.14 and 3.15, and the unit tests run on
 each of them. The installer still has its own Python 3.15.
+* Each release has the report of a check of its dependencies for known
+vulnerabilities (`pip-audit`) and a software bill of materials
+(CycloneDX), next to the installers. A known vulnerability stops the
+release.
+* Tests of the installed product: its launchers, the exit statuses,
+cancelled jobs and workers that stop. They run on each pull request and
+each release, on Linux and macOS.
 * The web GUI defends itself in the browser: a CSRF token for every
 request that can change something, a strict Content Security Policy
 (scripts and style sheets only from the web GUI, no inline code, no
 framing by other sites), HSTS over TLS, and `nosniff` and
 `same-origin` referrer headers. The cookies of the web GUI are
 `SameSite=Lax`, and `Secure` over TLS.
+
+## Bug Fixes
+
+* The launchers of Linux and macOS did not pass a signal on to MAST.
+`kill`, systemd and `docker stop` could not stop `mast-worker` or
+`mastd`, and the jobs of a worker were lost when it was killed later.
+The launchers now become the Python process (`exec`).
+* The launchers of Linux and macOS did not start in a folder whose name
+has a space.
 
 # MAST Version 3.15.2
 

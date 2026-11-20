@@ -33,8 +33,6 @@ scheduled and long-running work does not need a person to type them.
 1. **A solid release**
     * Documentation for operators and contributors (this guide is part
     of it).
-    * Tests that run the installed product: the launchers, the exit
-    statuses, cancelled jobs and workers that stop.
     * A cancel that a running job notices within about a second.
     Today a job learns of a cancel from its heartbeat (every
     `lease_seconds / 3`, 20 seconds by default) or when it reports
@@ -43,10 +41,6 @@ scheduled and long-running work does not need a person to type them.
     the same program at once. A request to an appliance that has
     started still ends first: a half-done upload or import is worse
     than one more step.
-    * A check of the dependencies for known vulnerabilities
-    (`pip-audit`) on every pull request. Each GitHub release gets the
-    report of that check and a software bill of materials (SBOM) of
-    the installer, next to the installers.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
