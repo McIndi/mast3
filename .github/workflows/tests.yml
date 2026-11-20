@@ -80,6 +80,54 @@ jobs:
           unzip -q dist/*.zip -d "$RUNNER_TEMP/mast"
           MAST_TEST_HOME="$RUNNER_TEMP/mast" uv run --locked pytest mast/testsuite/integration/test_installed.py -v
 
+  # mastd as a Windows service, from the installer that users get: it is
+  # installed with mastd.bat, runs a job and a scheduled task, and lets
+  # its running job end when it is stopped. The runner is an
+  # administrator, so the tests can install a service.
+  windows-service:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.15"
+      - uses: actions/cache@v4
+        with:
+          path: build-cache
+          key: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: python-build-standalone-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install the test dependencies from uv.lock
+        run: uv sync --locked
+      - name: Build the installer
+        run: uv run --locked python mast-setup --log-level 30
+      - name: Unzip the installer
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist\*.zip
+          Expand-Archive -Path $zip.FullName -DestinationPath "$env:RUNNER_TEMP\mast"
+      - name: Test the Windows service
+        shell: pwsh
+        env:
+          MAST_TEST_WINDOWS_SERVICE: "true"
+        run: |
+          $env:MAST_TEST_HOME = "$env:RUNNER_TEMP\mast"
+          uv run --locked pytest mast/testsuite/integration/test_windows_service.py -v -s
+      - name: Show the events of the service
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddHours(-1)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -match 'mastd|Python|Service' } |
+            Format-List TimeCreated, ProviderName, Id, Message
+          Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddHours(-1)} -ErrorAction SilentlyContinue |
+            Format-List TimeCreated, Id, Message
+      - name: Keep the logs of MAST
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-service-logs
+          path: ${{ runner.temp }}/mast/var/log
+
   integration:
     runs-on: ubuntu-latest
     env:
