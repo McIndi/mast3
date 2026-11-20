@@ -424,14 +424,10 @@ class TestMastd(InstalledTestCase):
             os.remove(self.pidfile)
 
     def start_mastd(self):
-        # mastd stays in the background. On macOS it keeps the standard
-        # output of its parent, so that is a file, not a pipe.
-        with tempfile.TemporaryFile("w+") as out:
-            proc = subprocess.run(
-                self.command("mastd", "start"), cwd=self._tmp, env=self.env,
-                stdout=out, stderr=subprocess.STDOUT, timeout=TIMEOUT)
-            out.seek(0)
-            self.assertEqual(proc.returncode, 0, out.read())
+        # The output is a pipe: mastd must not keep it open in the
+        # background, or this waits until the timeout.
+        proc = self.run_mast("mastd", "start", timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         return self.wait_until(self.mastd_pid, "the pid file of mastd")
 
     def wait_for_worker(self, pid):
