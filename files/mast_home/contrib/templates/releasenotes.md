@@ -64,6 +64,11 @@ new setting in the `[worker]` section of `jobs.conf`, one second by
 default), apart from its heartbeat. Ctrl-C stops a job that runs in
 the same program at once. A request to an appliance that has started
 is still completed first.
+* An Operator's Guide: the MAST home, the configuration, running MAST
+as a service (with systemd units), the job queue, the security of the
+web GUI, credentials, logs, backups, upgrades and troubleshooting. The
+Contributor's Guide now explains how MAST is put together, how to add a
+command, the conventions, the tests, the documentation and releases.
 * Tests of the installed product: its launchers, the exit statuses,
 cancelled jobs and workers that stop. They run on each pull request and
 each release, on Linux and macOS.

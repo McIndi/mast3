@@ -335,6 +335,7 @@ class Main(Params):
 
 def main(params: Main):
     out_dir = params.out_dir
+    os.makedirs(out_dir, exist_ok=True)
     global tpl
     template_dir = os.path.join(os.environ["MAST_HOME"],
                                 "contrib",
@@ -355,7 +356,8 @@ def main(params: Main):
                 md,
                 extensions=[
                     TocExtension(title="Table of Contents"),
-                    CodeHiliteExtension(guess_lang=False)])
+                    CodeHiliteExtension(guess_lang=False),
+                    "tables"])
             html = tpl.replace("<%content%>", html)
 
             print(("Output: {}".format(html_file)))
@@ -374,7 +376,8 @@ def main(params: Main):
         api_md,
         extensions=[
             TocExtension(title="Table of Contents"),
-            CodeHiliteExtension(guess_lang=False)])
+            CodeHiliteExtension(guess_lang=False),
+            "tables"])
     api_html = tpl.replace("<%content%>", api_html)
 
     filename = os.path.join(out_dir, "APIReference.html")
@@ -393,7 +396,8 @@ def main(params: Main):
         cli_md,
         extensions=[
             TocExtension(title="Table of Contents"),
-            CodeHiliteExtension(guess_lang=False)])
+            CodeHiliteExtension(guess_lang=False),
+            "tables"])
     cli_html = tpl.replace("<%content%>", cli_html)
 
     filename = os.path.join(out_dir, "CLIReference.md")

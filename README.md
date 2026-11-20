@@ -234,6 +234,8 @@ McIndi offers commercial support, commercial licensing, and DataPower engineerin
 
 ## Links
 
+- [Operator's Guide](files/mast_home/contrib/templates/operations.md): running MAST for a team
+- [Contributor's Guide](files/mast_home/contrib/templates/contributing.md): how MAST is put together, and how to change it
 - [Issue tracker](https://github.com/McIndi/mast3/issues)
 - [Pull requests](https://github.com/McIndi/mast3/pulls)
 - [MAST on mcindi.com](https://www.mcindi.com/software/mast/)
