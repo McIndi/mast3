@@ -33,14 +33,6 @@ scheduled and long-running work does not need a person to type them.
 1. **A solid release**
     * Documentation for operators and contributors (this guide is part
     of it).
-    * A cancel that a running job notices within about a second.
-    Today a job learns of a cancel from its heartbeat (every
-    `lease_seconds / 3`, 20 seconds by default) or when it reports
-    progress. A cheap check for a cancel will come every second or so,
-    apart from the heartbeat, and Ctrl-C will tell a job that runs in
-    the same program at once. A request to an appliance that has
-    started still ends first: a half-done upload or import is worse
-    than one more step.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
@@ -63,7 +55,7 @@ scheduled and long-running work does not need a person to type them.
     parallel, and you see the progress and the results of each
     appliance as they come in. Cancelling the inventory cancels the
     jobs of its appliances: those that wait at once, those that run
-    within about a second (see step 1).
+    within about a second.
     * Ready for public TLS certificates of at most 100 days from March
     15, 2027, and for post-quantum readiness work.
 4. **A shared service** (needs step 2)
@@ -97,9 +89,6 @@ is decided.
 * The web GUI has no users or permissions yet (see step 4). Everybody
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
-* A running job can take up to 20 seconds (`lease_seconds / 3`) to
-notice that it was cancelled, unless it reports progress (see step 1).
-A job that waits is cancelled at once.
 * `git-deploy` needs the `git` program on the `PATH`.
 
 # History

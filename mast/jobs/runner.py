@@ -32,9 +32,12 @@ appliance. A command that is silent for a long time runs to its end.
 A job is also stopped before each request that it sends to an
 appliance (`mast.cli.checkpoint`). A command that does one action on
 several appliances reports nothing between them, and it must not go
-on to the next appliance. A request to cancel the job is seen there
-when the next heartbeat has brought it, which is within a third of
-the lease.
+on to the next appliance. That check does not ask the database: the
+thread of the heartbeat also looks for a request to cancel the job
+every `cancel_poll_seconds` (`jobs.conf`, one second by default), so a
+cancel is seen there within about that time. A program that runs the
+job itself can also tell it at once (`cancel` of `run_job`), as the
+first Ctrl-C does.
 
 A job that the worker lost is stopped in the same places. The worker
 loses a job when its heartbeats do not reach the queue for longer
@@ -86,14 +89,22 @@ class _Lease(object):
     """What a worker knows about its hold on a job. `started_at` is
     the time (`time.monotonic()`) at which the worker asked for the
     job: the lease in the database began after it."""
-    def __init__(self, seconds, started_at=None):
+    def __init__(self, seconds, started_at=None, cancel=None):
         if started_at is None:
             started_at = time.monotonic()
         self.seconds = seconds
         self._lost = threading.Event()
         self._good_until = started_at + seconds
-        # Set by the heartbeat when somebody asked to cancel the job
-        self.cancel_requested = False
+        # Set when somebody asked to cancel the job: by the thread of the
+        # heartbeat, or at once by the program that runs the job
+        self._cancel = cancel if cancel is not None else threading.Event()
+
+    @property
+    def cancel_requested(self):
+        return self._cancel.is_set()
+
+    def request_cancel(self):
+        self._cancel.set()
 
     def renewed(self, asked_at):
         """A heartbeat that was sent at `asked_at` was accepted."""
@@ -124,10 +135,30 @@ _LOST = (
     "It was not completed, and it is not known how much of it was done.")
 
 
-def _beat(job_id, worker_id, lease, stop):
+def _beat(job_id, worker_id, lease, stop, poll_seconds):
+    """Keep the lease of the job: a heartbeat every third of the lease.
+    Between the heartbeats, look every `poll_seconds` whether somebody
+    asked to cancel the job, which only reads one value."""
     logger = make_logger("mast.jobs")
-    while not stop.wait(lease.seconds / 3.0):
+    every = lease.seconds / 3.0
+    next_beat = time.monotonic() + every
+    while True:
+        now = time.monotonic()
+        if stop.wait(max(0.0, min(poll_seconds, next_beat - now))):
+            return
         asked_at = time.monotonic()
+        if asked_at < next_beat:
+            if lease.cancel_requested:
+                continue
+            try:
+                if queue.cancel_requested(job_id):
+                    lease.request_cancel()
+            except Exception:
+                # The heartbeat finds out if the database is away
+                logger.debug("Could not ask whether the job {} was "
+                             "cancelled".format(job_id), exc_info=True)
+            continue
+        next_beat = asked_at + every
         try:
             beat = queue.heartbeat(job_id, worker_id, lease.seconds)
         except Exception:
@@ -144,7 +175,7 @@ def _beat(job_id, worker_id, lease, stop):
             return
         lease.renewed(asked_at)
         if beat.cancel_requested:
-            lease.cancel_requested = True
+            lease.request_cancel()
 
 
 def _execute(job_id, worker_id, lease, echo=None):
@@ -230,10 +261,11 @@ def _call(job_id, worker_id, store, guard, redact):
 
 
 def run_job(job_id, worker_id, lease_seconds=None, echo=None,
-            claimed_at=None):
+            claimed_at=None, cancel=None, cancel_poll_seconds=None):
     """
     _function_: `mast.jobs.runner.run_job(job_id, worker_id,
-    lease_seconds=None, echo=None, claimed_at=None)`
+    lease_seconds=None, echo=None, claimed_at=None, cancel=None,
+    cancel_poll_seconds=None)`
 
     Run a job that `worker_id` claimed, and store its progress and its
     result. Heartbeats are sent from another thread while the command
@@ -254,14 +286,24 @@ def run_job(job_id, worker_id, lease_seconds=None, echo=None,
     appliances to another job. Without it, the lease is counted from
     now, which is later than the queue counts it: the job could then
     send a request after it was lost. Always give it.
+
+    `cancel`, if given, is a `threading.Event`. Setting it cancels the
+    job at its next step at once, without the database: the program
+    that runs the job does that when the user presses Ctrl-C. A request
+    to cancel that is stored in the queue is seen within
+    `cancel_poll_seconds` (default: `cancel_poll_seconds` in
+    `jobs.conf`).
     """
     logger = make_logger("mast.jobs")
     if lease_seconds is None:
         lease_seconds = config.lease_seconds()
-    lease = _Lease(lease_seconds, started_at=claimed_at)
+    if cancel_poll_seconds is None:
+        cancel_poll_seconds = config.cancel_poll_seconds()
+    lease = _Lease(lease_seconds, started_at=claimed_at, cancel=cancel)
     stop = threading.Event()
     beat = threading.Thread(
-        target=_beat, args=(job_id, worker_id, lease, stop),
+        target=_beat,
+        args=(job_id, worker_id, lease, stop, cancel_poll_seconds),
         name="mast-jobs-heartbeat", daemon=True)
     beat.start()
     logger.info("The worker {} starts the job {}".format(worker_id, job_id))

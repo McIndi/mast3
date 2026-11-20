@@ -36,13 +36,14 @@ import os
 from mast.config import MAST_HOME, get_config
 
 __all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
-           "mastd_worker", "key_file"]
+           "cancel_poll_seconds", "mastd_worker", "key_file"]
 
 _DEFAULTS = {
     ("database", "url"): "sqlite:///var/jobs/jobs.db",
     ("worker", "lease_seconds"): "60",
     ("worker", "concurrency"): "1",
     ("worker", "poll_seconds"): "2",
+    ("worker", "cancel_poll_seconds"): "1",
     ("worker", "mastd"): "true",
     ("secrets", "key_file"): "etc/local/jobs.key",
 }
@@ -100,6 +101,21 @@ def poll_seconds():
     again when there was no job to take.
     """
     return float(_get("worker", "poll_seconds"))
+
+
+def cancel_poll_seconds():
+    """
+    _function_: `mast.jobs.config.cancel_poll_seconds()`
+
+    Return the number of seconds between two looks of a running job at
+    the queue, for a request to cancel it. A value of 0 or less is
+    taken as the default, 1.
+    """
+    try:
+        value = float(_get("worker", "cancel_poll_seconds"))
+    except ValueError:
+        value = 0
+    return value if value > 0 else 1.0
 
 
 def mastd_worker():
