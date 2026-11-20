@@ -105,11 +105,12 @@ Because distributions vary greatly in how services are started (this is usually
 called an init system and includes software such as SysVinit or systemd), we have
 provided as much as we can to still be completely cross-platform. In the mast
 installation directory, there is a script called mastd, which will start a
-daemon. mastd accepts the following sub-commands: start, stop, restart and
-status. When started it will create a "pid" file: "./var/run/mastd.pid" this
-will contain the process id of the daemon.
+daemon. mastd accepts the sub-commands start, stop and restart. When started it
+will create a "pid" file: "./var/run/mastd.pid" this will contain the process id
+of the daemon.
 
-Please consult your operating system's documentation on how to load this as a proper service.
+The [Operator's Guide](./operations.html) has systemd units for `mastd` and for
+`mast-worker`, and explains why the worker should run as a service of its own.
 
 # Conclusion
 

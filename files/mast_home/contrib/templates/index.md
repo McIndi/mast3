@@ -14,6 +14,10 @@ If you are a new user, you can head over to the [Installation Guide](./installat
 or the [Getting Started Guide](./getting-started.html) for instructions on getting
 set-up with MAST for IBM DataPower Version {0}.
 
+If you run MAST for a team, the [Operator's Guide](./operations.html) explains
+the MAST home, the configuration, running MAST as a service, the job queue, the
+security of the web GUI, logs, backups, upgrades and troubleshooting.
+
 You may also be interested in our [Road Map](./roadmap.html) for future versions
 which also contains the list of known issues.
 
@@ -50,9 +54,9 @@ operations of your DataPower appliances, please contact us at
 If you would like to offer help in the form of bug reports or pull requests,
 work is done on the
 [GitHub repository](https://github.com/McIndi/mast3).
-See the [Contributing Guide](./contributing.html), and the "Development" section
-of the README in the repository, for how to build MAST, make a development home
-and run the tests.
+See the [Contributor's Guide](./contributing.html) for how we work, how MAST is
+put together, how to add a command, and how to test, document and release a
+change.
 
 # Links
 
@@ -61,10 +65,11 @@ For your convenience, all links in the document above are all listed here:
 * [release notes](./releasenotes.html)
 * [Installation Guide](./installation.html)
 * [Getting Started Guide](./getting-started.html)
+* [Operator's Guide](./operations.html)
 * [The CLI Reference](./CLIReference.html)
 * [The API Reference](./APIReference.html)
 * [GitHub repository](https://github.com/McIndi/mast3)
-* [Contributing Guide](./contributing.html)
+* [Contributor's Guide](./contributing.html)
 * [git-deploy Guide](./git-deploy.html)
 * [support@mcindi.com](mailto://support@mcindi.com)
 * [Road Map](./roadmap.html)

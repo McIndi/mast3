@@ -1,0 +1,368 @@
+[Back to index](./index.html)
+<h1>MAST for IBM DataPower Version {0}</h1>
+<h2>Operator's Guide</h2>
+
+[TOC]
+
+# Introduction
+
+This guide is for the people who run MAST for a team: install it as a
+service, keep it secure, back it up and upgrade it. To install MAST,
+see the [Installation Guide](./installation.html). To learn the
+commands, see the [Getting Started Guide](./getting-started.html).
+
+# The MAST home
+
+The folder where you unzipped MAST is `$MAST_HOME`. Everything MAST
+needs is in it, and everything MAST writes goes into it.
+
+| Folder | What it holds | Yours or MAST's |
+|---|---|---|
+| `mast-*`, `mastd`, `test-mast` (`.bat` on Windows) | The launchers. | MAST's |
+| `python/<version>` | The Python of MAST, with every library. | MAST's |
+| `etc/default` | The default configuration. Do not change it. An upgrade replaces it. | MAST's |
+| `etc/local` | Your configuration, and the keys that MAST makes (`jobs.key`, `server.key`). | Yours |
+| `etc/crypto` | The certificate and private key of the web GUI. | Yours |
+| `etc/crontab` | The scheduled tasks of `mastd`, if you made the file. | Yours |
+| `var/jobs` | The job queue, when it is the default SQLite database. | Yours |
+| `var/log` | The logs. | Yours |
+| `var/run` | The process id of `mastd`. | MAST's |
+| `var/www` | The web GUI. | MAST's |
+| `tmp` | Downloads, uploads and backups that commands write. | Yours |
+| `contrib` | Scripts that come with MAST, and the sources of this guide. | MAST's |
+| `doc` | This documentation. | MAST's |
+
+The launchers set `MAST_HOME`, change to it and start the Python of
+MAST, so a launcher works from any directory. MAST runs with its home
+as the current directory, and a relative path in the configuration is
+relative to the home.
+
+# Configuration
+
+Each configuration file has a copy in `etc/default` that explains every
+setting. To change a setting, put it in the file of the same name in
+`etc/local`, in the same section. You only need the settings that you
+change:
+
+    :::ini
+    # etc/local/server.conf
+    [server]
+    host = 0.0.0.0
+    port = 8443
+
+MAST reads the files again each time a program starts. Restart `mastd`,
+`mast-web` and `mast-worker` after a change.
+
+| File | What it configures |
+|---|---|
+| `hosts.conf` | Aliases for your appliances. |
+| `environments.conf` | Groups of appliances that a command can act on at once. |
+| `appliances.conf` | The ports, the SOMA spec file and other settings of each appliance, with defaults in `[global]`. |
+| `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
+| `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS. |
+| `logging.conf` | The level and the size of the logs. |
+| `ssh.conf` | `mast-ssh`: the timeout, and whether new host keys are accepted. |
+| `service-config.conf` | `git-deploy`, see the [git-deploy Guide](./git-deploy.html). |
+| `xor.conf` | The key of `mast-system xor`. |
+
+# Running MAST as a service
+
+`mastd` hosts three parts of MAST:
+
+* the web GUI,
+* a worker, which runs the jobs of the queue,
+* the scheduler, which runs the lines of `etc/crontab`.
+
+The worker and the web GUI can also run alone, as `mast-worker` and
+`mast-web`.
+
+## Linux
+
+`mastd start` starts `mastd` in the background and writes its process
+id to `var/run/mastd.pid`. `mastd stop` stops it.
+
+`mastd` stops at once, and so does its worker. A job that the worker
+of `mastd` runs is cut off, and the queue declares it `lost` when its
+lease ends. `mast-worker` stops gracefully: on SIGTERM it takes no new
+job, and it stops when its running jobs end. So on a server, run the
+worker as a service of its own, and turn off the worker of `mastd` in
+`etc/local/jobs.conf`:
+
+    :::ini
+    [worker]
+    mastd = false
+
+With systemd, the two services can look like this. They run as the
+user `mast`, from `/opt/mast`:
+
+    :::ini
+    # /etc/systemd/system/mast-worker.service
+    [Unit]
+    Description=MAST worker
+    Wants=network-online.target
+    After=network-online.target
+
+    [Service]
+    User=mast
+    ExecStart=/opt/mast/mast-worker
+    # A worker stops when its running jobs end. Give it as long as your
+    # longest job (a firmware upgrade, a large backup).
+    TimeoutStopSec=1h
+    Restart=on-failure
+
+    [Install]
+    WantedBy=multi-user.target
+
+    :::ini
+    # /etc/systemd/system/mastd.service
+    [Unit]
+    Description=MAST web GUI and scheduler
+    Wants=network-online.target
+    After=network-online.target
+
+    [Service]
+    User=mast
+    Type=forking
+    PIDFile=/opt/mast/var/run/mastd.pid
+    ExecStart=/opt/mast/mastd start
+    ExecStop=/opt/mast/mastd stop
+    Restart=on-failure
+
+    [Install]
+    WantedBy=multi-user.target
+
+Then run `systemctl daemon-reload` and
+`systemctl enable --now mast-worker mastd`. For more jobs at the same
+time, raise `concurrency` in the `[worker]` section of `jobs.conf`, or
+run more workers.
+
+Each launcher replaces itself with the Python process, so systemd,
+`kill` and `docker stop` reach MAST directly.
+
+## Windows
+
+`mastd.bat install` installs `mastd` as a Windows service, and
+`mastd.bat start` starts it. `mastd.bat install /?` lists the options,
+for example the account that runs the service and whether it starts
+with Windows. The service hosts the web GUI, a worker and the
+scheduler.
+
+## The scheduler
+
+The scheduler reads `etc/crontab` every minute. Each line is a cron
+expression and a command, for example a backup at 02:00 every day:
+
+    :::text
+    0 2 * * * ./mast-backups normal-backup -a prod -c <credentials> -n -o tmp/nightly
+
+* The times are in UTC, not in the time zone of the server.
+* The command runs in `$MAST_HOME`, with the shell.
+* The tasks run one after another. A long task delays the next one.
+* A task that fails is logged in the log `mast.cron`. What a task
+prints is not logged yet (see the known issues in the
+[Road Map](./roadmap.html)): to keep it, redirect it to a file in the
+command.
+* A change to `etc/crontab` takes effect at the next minute. You do not
+have to restart `mastd`.
+
+Credentials in `etc/crontab` are in clear text, or in the form of
+`mast-system xor`, which is not encryption (see "Credentials" below).
+Make the file readable only by the user that runs `mastd`.
+
+# The job queue
+
+Each command of the DataPower plugins, and each form of the web GUI, is
+a job. `mast-jobs` shows them:
+
+| Command | What it shows or does |
+|---|---|
+| `mast-jobs list` | The newest jobs. `-s failed` shows only failed jobs, `-n 50` shows more. |
+| `mast-jobs show -j <id>` | One job: its parameters, its progress and its result. `-H` adds the requests and responses. |
+| `mast-jobs follow -j <id>` | A job until it ends. |
+| `mast-jobs cancel -j <id>` | Cancel a job. |
+| `mast-jobs workers` | The workers that are alive. |
+
+The first characters of an id are enough, as long as they are unique.
+
+## SQLite or PostgreSQL
+
+By default the queue is a SQLite database in `var/jobs`. That is right
+for one MAST server. Use PostgreSQL when several MAST installations on
+several hosts share one queue, for example web servers and workers on
+different hosts:
+
+    :::ini
+    # etc/local/jobs.conf
+    [database]
+    url = postgresql+psycopg://mast:secret@db.example.com/mast
+
+Every installation that uses the same database must have the same
+`etc/local/jobs.key`: it encrypts the credentials of the jobs that
+wait. Copy the file from the first installation to the others.
+
+MAST makes and updates the tables of the queue itself. After an
+upgrade, the first program that uses the queue updates them.
+
+## Leases and lost jobs
+
+A worker keeps each job that it runs with a heartbeat, every third of
+`lease_seconds` (60 seconds by default). If the heartbeats stop for
+longer than the lease (the worker was killed, or it cannot reach the
+database), the queue declares the job `lost` and gives its appliances
+to the next job. Nobody knows how much of a lost job was done: look at
+the appliances before you run it again.
+
+## Cancel
+
+A job that waits is cancelled at once. A job that runs stops at its
+next step, before its next request to an appliance: at once after
+Ctrl-C in the program that runs it, and within about a second
+(`cancel_poll_seconds`) after `mast-jobs cancel` or the Cancel link of
+the web GUI. A request that has started is completed first. What the
+job did before it stopped is not undone.
+
+## Old jobs
+
+MAST does not delete old jobs. Their parameters (without the
+credentials, which are removed when a job ends), progress and results
+stay in the database. Watch its size: the file `var/jobs/jobs.db`, or
+the database in PostgreSQL.
+
+# The web GUI
+
+The web GUI listens on `127.0.0.1:5000` by default, so only the MAST
+server can reach it. Set `host` and `port` in the `[server]` section
+of `etc/local/server.conf` to change that.
+
+The web GUI has no users or permissions yet. Everybody who can open it
+can run any command with credentials that they know, and can see and
+cancel every job, with its results. The results can show the
+configuration of your appliances. Let only the people who may do that
+reach the web GUI: keep it on `127.0.0.1`, or limit the port with a
+firewall.
+
+## TLS
+
+The web GUI uses TLS by default (`secure = true`), with the
+certificate `etc/crypto/cert/mast.crt` and the private key
+`etc/crypto/private/mast.key`. A fresh install has neither. The web GUI
+does not start until it has them, and it says so. Either set `cert` and
+`key` in `etc/local/server.conf` to the files of a certificate from
+your certificate authority, or make a self-signed certificate:
+
+    :::bash
+    ./mast contrib/gen-cert.py
+
+`./mast contrib/gen-cert.py -h` shows its options, for example
+`--altName` for the names by which people reach the server.
+
+Over TLS, the web GUI tells browsers to use only HTTPS for it for a
+year (HSTS). If you later turn TLS off, set `hsts_max_age = 0` first
+and open the web GUI once over HTTPS, or browsers keep asking for HTTPS.
+
+## What the browser does
+
+The web GUI signs its session cookie with the key in
+`etc/local/server.key`, which MAST makes the first time. Each request
+that changes something must carry the token of the session, so another
+web site cannot submit a form of the web GUI. The web GUI only runs
+scripts and style sheets that it serves itself, and other sites cannot
+put it in a frame. A script that posts to the web GUI must first load
+the page and send the token back, see the release notes.
+
+# Credentials
+
+MAST does not store appliance credentials. Each command gets them on
+its command line, or in the form of the web GUI.
+
+* The credentials of a job that waits in the queue are encrypted with
+`etc/local/jobs.key`, and they are removed when the job ends.
+* MAST removes the passwords that it recognizes from its logs, and the
+values of secret parameters from the progress and the results of a
+job. Treat the logs as sensitive all the same.
+* `mast-system xor` turns credentials into a form that is not plain
+text, for scripts and for `etc/crontab`. It is not encryption: anybody
+who has MAST can turn it back. Protect such a file as you would protect
+the password.
+
+On a shared server, the command line of a process can be seen by other
+users. Prefer the web GUI, or the form of `mast-system xor` in a file
+that only you can read.
+
+# Logs
+
+Each MAST program writes its logs into a folder of its own:
+
+    :::text
+    var/log/<user>/<date and time>-<process id>/<logger>-<date and time>.log
+
+The level and the size of the logs are in `etc/local/logging.conf`
+(`level`, `max_bytes`, `backup_count`). A log file is rolled over when
+it reaches `max_bytes`. MAST does not delete old log folders. Delete
+them on a schedule, for example the folders older than 30 days:
+
+    :::bash
+    find /opt/mast/var/log -mindepth 2 -maxdepth 2 -type d -mtime +30 -exec rm -rf {{}} +
+
+The web server also writes `var/log/flask.log`.
+
+# Backups
+
+Back up what is yours in the table of the MAST home:
+
+* `etc/local`, with `jobs.key` and `server.key`,
+* `etc/crypto`,
+* `etc/crontab`, if you have one,
+* `var/jobs` (SQLite), or the PostgreSQL database with `jobs.key`,
+* `tmp`, if commands write backups of your appliances there.
+
+Without `jobs.key`, the jobs that wait in the queue cannot be run.
+
+# Upgrades
+
+Install the new version next to the old one, and move your files to it:
+
+1. Unzip the new version into a new folder, for example
+`/opt/mast-new`.
+2. Stop `mastd`, `mast-web` and the workers. A worker that stops
+gracefully finishes its running jobs first.
+3. Copy `etc/local`, `etc/crypto`, `etc/crontab`, `var/jobs` and what
+you keep in `tmp` from the old home to the new one.
+4. Rename the folders, so that the new home has the old path, or change
+the paths of your services.
+5. Start the services again. The first program that uses the job queue
+updates its tables.
+
+Read the release notes first: "Changes that need your attention" lists
+what can change for your scripts. Keep the old folder until you know
+that the new version works.
+
+# Troubleshooting
+
+**`MAST_HOME is not set and neither ... is in a MAST home`**: a program
+of MAST was started outside its home without a launcher. Use the
+launchers in `$MAST_HOME`, or set `MAST_HOME`.
+
+**`mast-web: The web GUI uses TLS (secure = true in server.conf), but
+...`**: the web GUI has no certificate. See "TLS" above.
+
+**`This request has no valid CSRF token. Reload the web GUI and try
+again.`**: a page of the web GUI was open while the web server
+restarted, or a script posts without the token. Reload the page.
+
+**`No worker is running. The job waits until one starts`**: a job that
+was submitted with `--detach` waits for a worker. Start `mast-worker`
+or `mastd`, or cancel the job with `mast-jobs cancel`.
+
+**A job is `lost`**: its worker stopped or could not reach the database
+for longer than the lease. Look at the appliances, then run the command
+again. `mast-jobs show -j <id> -H` shows how far it got.
+
+**The exit status of a command**: 0 if it succeeded, 1 if it failed on
+some or all appliances, 2 for a bad option, 130 after Ctrl-C. See the
+README for every status.
+
+**More detail**: set `level = 10` in the `[logging]` section of
+`etc/local/logging.conf`, run the command again, and look at its log
+folder in `var/log/<user>`. Lower the level again afterwards: level 10
+logs much more.

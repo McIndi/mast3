@@ -31,8 +31,8 @@ scheduled and long-running work does not need a person to type them.
 # Next Steps
 
 1. **A solid release**
-    * Documentation for operators and contributors (this guide is part
-    of it).
+    * The release of what "Next Release" in the
+    [release notes](./releasenotes.html) lists.
 2. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
@@ -90,6 +90,16 @@ is decided.
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
 * `git-deploy` needs the `git` program on the `PATH`.
+* `mastd stop` stops the worker of `mastd` at once, so the jobs that it
+runs are lost. Run `mast-worker` as a service of its own, which stops
+when its jobs end (see the [Operator's Guide](./operations.html)).
+* `mastd status` is not implemented on Linux.
+* The scheduler of `mastd` does not log what a task prints: it logs an
+error instead, after the task ran. It checks `etc/crontab` 60 seconds
+after its last check, so the checks drift, and a task can be skipped
+in the minute that a check jumps over.
+* MAST does not delete old jobs from the job queue, or old log folders
+from `var/log`.
 
 # History
 
