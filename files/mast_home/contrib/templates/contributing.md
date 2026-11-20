@@ -263,6 +263,7 @@ software bill of materials.
 
 To release, a maintainer sets `version` in `pyproject.toml` (the
 version of MAST follows the Python that the installer bundles, set in
-`[tool.mast-setup]`), moves "Next Release" in the release notes to the
+`[tool.mast-setup]`, with a fourth number for a later release with the
+same Python, such as 3.15.2.1), moves "Next Release" in the release notes to the
 new version, merges that, and pushes the tag `v<version>` on `main`.
 The release workflow refuses a tag that does not match the version.

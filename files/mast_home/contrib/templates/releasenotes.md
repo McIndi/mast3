@@ -6,6 +6,16 @@
 
 # Next Release
 
+Nothing yet.
+
+# MAST Version 3.15.2.1
+
+This release hardens the web GUI (CSRF, a strict Content Security
+Policy, HSTS), makes `mastd` stop without losing jobs, makes the
+scheduler reliable, and adds an Operator's Guide. The installer still
+has its own Python 3.15.2. Please read "Changes that need your
+attention" before you upgrade.
+
 ## Changes that need your attention
 
 * The web GUI signs its session cookie with a random key that MAST

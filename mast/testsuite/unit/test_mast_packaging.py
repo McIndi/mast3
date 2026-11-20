@@ -100,8 +100,11 @@ class TestMASTPackaging(unittest.TestCase):
         self.assertEqual(mast.__version__, metadata.version("mast"))
 
     def test_version_looks_like_a_version(self):
+        # The version of the Python that the installer bundles (3.15.2),
+        # and a fourth number for a later release with that Python
+        # (3.15.2.1).
         parts = mast.__version__.split(".")
-        self.assertEqual(len(parts), 3, mast.__version__)
+        self.assertIn(len(parts), (3, 4), mast.__version__)
         for part in parts:
             self.assertTrue(part.isdigit(), mast.__version__)
 
