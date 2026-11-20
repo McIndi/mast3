@@ -26,13 +26,15 @@ scheduled jobs. If scheduled jobs are present, they are checked to see
 if they are due. If the scheduled job is due, then it is executed.
 
 The file in `$MAST_HOME/etc/crontab` is expected to be a newline-seperated
-list of [cron expressions](https://en.wikipedia.org/wiki/Cron#Format)
-and will be evaluated every minute without the need to reload mastd.
+list of [cron expressions](https://en.wikipedia.org/wiki/Cron#Format),
+each followed by a command. The times are in UTC. The file is read at
+the start of each minute, without the need to reload mastd. See
+`mast.cron.Plugin` for how the tasks are run.
 """
 
 import os
 import time
-from mast.logging import make_logger, logged
+from mast.logging import make_logger
 import datetime
 import calendar
 import threading
@@ -336,101 +338,231 @@ def parse_atom(parse, minmax):
             return set(noskips[::increment])
 
 
+def _minute_tuple(minute):
+    """The UTC (year, month, day, hour, minute) of a minute since 1970."""
+    return time.gmtime(minute * 60)[:5]
+
+
 class Plugin(threading.Thread):
     """
     _class_: `mast.cron.Plugin(threading.Thread)`
 
     This class is a mastd plugin, which is a subclass of
-    `threading.Thread`. This plugin will read `$MAST_HOME/etc/crontab`
-    each minute and parse each line as a cron-style task. If the task
-    is due, it will be executed.
-    """
-    def __init__(self, crontab=os.path.join(mast_home, "etc", "crontab")):
-        """
-        _method_: `mast.cron.Plugin.__init__(self, crontab=os.path.join(mast_home, "etc", "crontab"))`
+    `threading.Thread`. At the start of each minute (UTC), it reads
+    `$MAST_HOME/etc/crontab` and starts the tasks that are due.
 
-        Plugin is a subclass of thread which reads crontab once
-        every minute to see if any tasks defined in crontab are due.
-        If a task is due it will be executed, if not it will be logged
-        that it is not due.
+    * Each task runs in its own thread, so a long task does not delay
+    the others.
+    * A task is not started again while it still runs from an earlier
+    minute. That is logged.
+    * If the scheduler checks late (the server was busy or suspended,
+    or its clock jumped), it starts the tasks of the minutes that it
+    missed, once each, up to `CATCH_UP_MINUTES` minutes back. If the
+    clock goes back, the minutes that were already checked are not
+    checked again.
+    * The exit status and the output of each task are logged in the
+    log `mast.cron`.
+    * Empty lines and lines that start with `#` are ignored. A line that
+    is not a valid task is logged when the file changes.
+    """
+    # How many missed minutes to catch up. Beyond that, the missed
+    # minutes are skipped, and that is logged.
+    CATCH_UP_MINUTES = 60
+
+    def __init__(self, crontab=os.path.join(mast_home, "etc", "crontab"),
+                 clock=time.time):
+        """
+        _method_: `mast.cron.Plugin.__init__(self, crontab=os.path.join(mast_home, "etc", "crontab"), clock=time.time)`
+
+        Parameters:
+
+        * `crontab`: The file of tasks.
+        * `clock`: A function that returns the time, as `time.time`
+        does. For the tests.
 
         To stop this thread call the stop() method of your instance."""
         super(Plugin, self).__init__()
         self.daemon = True
         self.crontab = crontab
-        self._stop = False
+        self.clock = clock
+        self.logger = make_logger("mast.cron")
+        self._stopping = threading.Event()
+        self._aborted = threading.Event()
+        self._lock = threading.Lock()
+        # The command of each running task -> its thread
+        self._running = {}
+        self._last_minute = None
+        self._last_text = None
+        self._tasks = []
 
-    @logged("mast.cron")
     def stop(self):
         """
         _method_: `mast.cron.Plugin.stop(self)`
 
-        Ends this Scheduler Thread
+        Start no more tasks. The thread ends when the running tasks
+        end.
         """
-        self._stop = True
+        self._stopping.set()
 
-    @logged("mast.cron")
+    def abort(self):
+        """
+        _method_: `mast.cron.Plugin.abort(self)`
+
+        End the thread now. The running tasks are not waited for.
+        """
+        self._aborted.set()
+        self._stopping.set()
+
+    def running(self):
+        """
+        _method_: `mast.cron.Plugin.running(self)`
+
+        Return the commands of the tasks that run now.
+        """
+        with self._lock:
+            return [command for command, thread in self._running.items()
+                    if thread.is_alive()]
+
+    def read_crontab(self):
+        """
+        _method_: `mast.cron.Plugin.read_crontab(self)`
+
+        Return the tasks of the crontab, a list of `CronExpression`. The
+        file is parsed again only when it changed, and the lines that are
+        not valid tasks are logged then.
+        """
+        try:
+            with open(self.crontab, "r") as fin:
+                text = fin.read()
+        except FileNotFoundError:
+            if self._last_text is not None or self._last_minute is None:
+                self.logger.info(
+                    "There is no crontab. To schedule tasks, create the "
+                    "file {}".format(self.crontab))
+            self._last_text, self._tasks = None, []
+            return []
+        if text == self._last_text:
+            return self._tasks
+        tasks = []
+        for number, line in enumerate(text.splitlines(), start=1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                task = CronExpression(line)
+                if not task.comment.strip():
+                    raise ValueError("there is no command")
+            except Exception as e:
+                self.logger.error(
+                    "Line {} of {} is not a valid task, and it is "
+                    "ignored: {!r} ({})".format(number, self.crontab, line, e))
+                continue
+            tasks.append(task)
+        self.logger.info("Read {} task(s) from {}".format(
+            len(tasks), self.crontab))
+        self._last_text, self._tasks = text, tasks
+        return tasks
+
+    def check(self, minute):
+        """
+        _method_: `mast.cron.Plugin.check(self, minute)`
+
+        Start the tasks that are due in `minute` (minutes since 1970,
+        UTC) and in the minutes that were missed since the last check.
+        Return the commands that were started.
+        """
+        last = self._last_minute
+        if last is None:
+            minutes = [minute]
+        elif minute <= last:
+            # Already checked, or the clock went back
+            return []
+        elif minute - last > self.CATCH_UP_MINUTES:
+            self.logger.warning(
+                "The scheduler did not check for {} minutes. The tasks of "
+                "those minutes were not started.".format(minute - last - 1))
+            minutes = [minute]
+        else:
+            minutes = list(range(last + 1, minute + 1))
+        if len(minutes) > 1:
+            self.logger.warning(
+                "The scheduler checks {} minute(s) late. It starts the "
+                "tasks of those minutes now.".format(len(minutes) - 1))
+        tasks = self.read_crontab()
+        self._last_minute = minute
+        started = []
+        for task in tasks:
+            try:
+                due = any(task.check_trigger(_minute_tuple(m))
+                          for m in minutes)
+            except Exception:
+                self.logger.exception(
+                    "Could not check whether the task {!r} is due".format(
+                        task.comment.strip()))
+                continue
+            if due and self._start(task.comment.strip()):
+                started.append(task.comment.strip())
+        return started
+
+    def _start(self, command):
+        with self._lock:
+            thread = self._running.get(command)
+            if thread is not None and thread.is_alive():
+                self.logger.warning(
+                    "Task '{}' is due, but it still runs from an earlier "
+                    "minute. It is not started again.".format(command))
+                return False
+            thread = threading.Thread(
+                target=self._run_task, args=(command,),
+                name="mast-cron-task", daemon=True)
+            self._running[command] = thread
+        thread.start()
+        return True
+
+    def _run_task(self, command):
+        self.logger.info("Task '{}' started".format(command))
+        kwargs = {}
+        if "Windows" in platform.system():
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            kwargs["startupinfo"] = startupinfo
+        try:
+            result = subprocess.run(
+                command, shell=True, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                encoding="utf-8", errors="replace", **kwargs)
+        except Exception:
+            self.logger.exception(
+                "Task '{}' could not be started".format(command))
+            return
+        output = result.stdout.strip()
+        output = "Output:\n{}".format(output) if output else "No output."
+        if result.returncode == 0:
+            self.logger.info("Task '{}' succeeded. {}".format(
+                command, output))
+        else:
+            self.logger.error(
+                "Task '{}' failed with the exit status {}. {}".format(
+                    command, result.returncode, output))
+
     def run(self):
         """
         _method_: `mast.cron.Plugin.run(self)`
 
-        Overloaded run method. This thread will check crontab
-        every minute for tasks which are due to run. If a task
-        is found to be due, execute it, otherwise log a message
-        and continue
+        Check for due tasks at the start of each minute until `stop` is
+        called, then wait for the running tasks to end (unless `abort` is
+        called).
         """
-        logger = make_logger("mast.cron")
-        while not self._stop:
-            logger.info("Checking for tasks which are sceduled to run.")
-            if os.path.exists(self.crontab):
-                with open(self.crontab, "r") as fin:
-                    for line in fin.readlines():
-                        logger.info(
-                            "Found task "
-                            "'{}'...checking if task is due...".format(
-                                line.strip()))
-                        job = CronExpression(line.strip())
-                        try:
-                            if job.check_trigger(time.gmtime(time.time())[:5]):
-                                if "Windows" in platform.system():
-                                    si = subprocess.STARTUPINFO()
-                                    si.dwFlags |= \
-                                        subprocess.STARTF_USESHOWWINDOW
-                                    out = subprocess.check_output(
-                                        job.comment.strip(),
-                                        shell=True,
-                                        stdin=subprocess.PIPE,
-                                        stderr=subprocess.PIPE,
-                                        startupinfo=si)
-                                else:
-                                    out = subprocess.check_output(
-                                        job.comment.strip(),
-                                        shell=True,
-                                        stderr=subprocess.STDOUT)
-                                if out:
-                                    logger.info("Task '{}' completed. Output: '{}'".format(
-                                        line,
-                                        out.replace(
-                                            "\n", "").replace(
-                                                "\r", "")))
-                            else:
-                                logger.info(
-                                    "Task '{}' not scheduled to run.".format(
-                                        job.comment))
-                        except Exception:
-                            logger.exception(
-                                "Sorry an unhandled exception occurred. "
-                                "Attempting to continue...")
-                            pass
-            else:
-                logger.info(
-                    "Crontab file does not exist, to enable this"
-                    "plugin please create the file {}".format(self.crontab))
-            # Check every minute, otherwise you hit an interesting bug.
-            # every time it checks for pending jobs if it's within
-            # the minute, The scheduler doesn't take into account if
-            # the job already ran in the current minute. Rather than
-            # tackle this bug and make this more complicated than it
-            # has to be, I figured just supporting every minute was
-            # good enough.
-            time.sleep(60)
+        while not self._stopping.is_set():
+            try:
+                self.check(int(self.clock() // 60))
+            except Exception:
+                self.logger.exception(
+                    "Could not check for tasks. Trying again next minute.")
+            # Wake just after the start of the next minute
+            delay = 60.0 - self.clock() % 60 + 0.05
+            self._stopping.wait(min(max(delay, 0.05), 60.05))
+        while self.running() and not self._aborted.is_set():
+            self.logger.info("Waiting for these tasks to end: {}".format(
+                ", ".join(self.running())))
+            self._aborted.wait(10)

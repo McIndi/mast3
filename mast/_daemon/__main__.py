@@ -49,25 +49,25 @@ else:
             "mastd.pid")
         mastd = MASTd(pid_file)
 
+        usage = "USAGE: mastd { start | stop | restart | status }"
         if len(sys.argv) != 2:
-            print("USAGE: python -m mastd.daemon { start | stop | restart | status }")
+            print(usage)
             sys.exit(1)
 
-        if "start" in sys.argv[1]:
+        command = sys.argv[1]
+        if command == "start":
             mastd.start()
-        elif "stop" in sys.argv[1]:
+        elif command == "stop":
             mastd.stop()
-        elif "restart" in sys.argv[1]:
+        elif command == "restart":
             mastd.restart()
-        elif "status" in sys.argv[1]:
-            print(mastd.status())
+        elif command == "status":
+            sys.exit(mastd.status())
         else:
-            print("USAGE: python -m mast.daemon { start | stop | restart | status }")
+            print(usage)
             sys.exit(1)
 
         sys.exit(0)
 
 if __name__ == "__main__":
-    print("Calling main")
     main()
-    print("main returned")

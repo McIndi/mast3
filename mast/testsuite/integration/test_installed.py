@@ -393,5 +393,143 @@ class TestWorkers(InstalledTestCase):
         self.assertEqual(self.status(job_id), "succeeded")
 
 
+class TestMastd(InstalledTestCase):
+    """`mastd` with its worker and its scheduler. The home has no
+    certificate, so its web GUI does not start; that is logged."""
+
+    def setUp(self):
+        super(TestMastd, self).setUp()
+        self.pidfile = os.path.join(self.home, "var", "run", "mastd.pid")
+        self.crontab = os.path.join(self.home, "etc", "crontab")
+        self.addCleanup(self.kill_mastd)
+
+    def tearDown(self):
+        if os.path.exists(self.crontab):
+            os.remove(self.crontab)
+
+    def mastd_pid(self):
+        try:
+            with open(self.pidfile) as fin:
+                return int(fin.read().strip())
+        except (OSError, ValueError):
+            return None
+
+    def kill_mastd(self):
+        pid = self.mastd_pid()
+        if pid:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.remove(self.pidfile)
+
+    def start_mastd(self):
+        # mastd stays in the background. On macOS it keeps the standard
+        # output of its parent, so that is a file, not a pipe.
+        with tempfile.TemporaryFile("w+") as out:
+            proc = subprocess.run(
+                self.command("mastd", "start"), cwd=self._tmp, env=self.env,
+                stdout=out, stderr=subprocess.STDOUT, timeout=TIMEOUT)
+            out.seek(0)
+            self.assertEqual(proc.returncode, 0, out.read())
+        return self.wait_until(self.mastd_pid, "the pid file of mastd")
+
+    def wait_for_worker(self, pid):
+        self.wait_until(
+            lambda: re.search(r"\s{}\s".format(pid),
+                              self.run_mast("mast-jobs", "workers").stdout),
+            "the worker of mastd")
+
+    def gone(self, pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+
+    def detach(self):
+        proc = self.run_mast(*self.list_domains("--detach"))
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        return proc.stdout.split()[0]
+
+    def test_status_start_and_stop(self):
+        self.assertEqual(self.run_mast("mastd", "status").returncode, 3)
+        pid = self.start_mastd()
+        status = self.run_mast("mastd", "status")
+        self.assertEqual(status.returncode, 0, status.stdout)
+        self.assertIn(str(pid), status.stdout)
+        stop = self.run_mast("mastd", "stop")
+        self.assertEqual(stop.returncode, 0, stop.stdout)
+        self.assertTrue(self.gone(pid))
+        self.assertFalse(os.path.exists(self.pidfile))
+        self.assertEqual(self.run_mast("mastd", "status").returncode, 3)
+
+    def test_restart(self):
+        pid = self.start_mastd()
+        restart = self.run_mast("mastd", "restart")
+        self.assertEqual(restart.returncode, 0, restart.stdout)
+        new = self.wait_until(
+            lambda: self.mastd_pid() not in (None, pid) and self.mastd_pid(),
+            "the new mastd")
+        self.assertTrue(self.gone(pid))
+        self.assertFalse(self.gone(new))
+
+    def test_stop_lets_the_running_job_end(self):
+        self.slow(2)
+        pid = self.start_mastd()
+        self.wait_for_worker(pid)
+        before = self.newest_job()
+        self.reset_requests()
+        self.detach()
+        job_id = self.wait_running(before)
+        stop = self.run_mast("mastd", "stop")
+        self.assertEqual(stop.returncode, 0, stop.stdout)
+        self.assertIn("Waiting for mastd", stop.stdout)
+        self.assertTrue(self.gone(pid))
+        self.assertEqual(self.status(job_id), "succeeded")
+        self.assertEqual(self.requests(), [1, 1, 1])
+
+    def test_ctrl_c_while_stop_waits_stops_it_now(self):
+        self.slow(SLOW)
+        pid = self.start_mastd()
+        self.wait_for_worker(pid)
+        before = self.newest_job()
+        self.detach()
+        job_id = self.wait_running(before)
+        stop = self.start("mastd", "stop")
+        self.wait_until(
+            lambda: "Waiting for mastd" in stop.stdout.readline(),
+            "mastd stop to wait")
+        stop.send_signal(signal.SIGINT)
+        out = self.communicate(stop, SLOW * 2)
+        self.assertEqual(stop.returncode, 0, out)
+        self.assertTrue(self.gone(pid))
+        self.assertEqual(self.status(job_id), "lost")
+
+    def test_the_scheduler_runs_a_task_and_logs_its_output(self):
+        marker = os.path.join(self.home, "tmp", "scheduled")
+        with open(self.crontab, "w") as fout:
+            # Due every minute, so it runs when mastd starts. It runs
+            # in the home.
+            fout.write("* * * * * echo scheduled-$((40 + 2)) && "
+                       "touch tmp/scheduled\n")
+        self.start_mastd()
+        self.wait_until(lambda: os.path.exists(marker), "the task")
+        log_dir = os.path.join(self.home, "var", "log")
+
+        def logged():
+            for root, _, files in os.walk(log_dir):
+                for name in files:
+                    if name.startswith("mast.cron"):
+                        with open(os.path.join(root, name)) as fin:
+                            text = fin.read()
+                        if "scheduled-42" in text:
+                            return text
+        text = self.wait_until(logged, "the output of the task in the log")
+        self.assertIn("succeeded", text)
+        stop = self.run_mast("mastd", "stop")
+        self.assertEqual(stop.returncode, 0, stop.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

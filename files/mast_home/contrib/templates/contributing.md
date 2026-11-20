@@ -79,7 +79,9 @@ as progress, and the `Result` that it returns is stored and shown.
 
 The plugins are found through entry points in `pyproject.toml`:
 `mast_web_plugin` for the tabs of the web GUI and `mastd_plugin` for
-the threads of `mastd`. A worker finds the code of a job by importing
+the threads of `mastd`. A `mastd_plugin` that has running work should
+have `stop()` and `abort()`, so that `mastd` can wait for that work
+when it stops (see `mast._daemon.plugins`). A worker finds the code of a job by importing
 `mast.datapower.<plugin>` and taking its `cli`. A command that is
 queued must therefore be in one of those modules.
 

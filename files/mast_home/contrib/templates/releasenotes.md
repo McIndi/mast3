@@ -36,6 +36,15 @@ of them must install it.
 * `contrib/gen-cert.py` no longer replaces a key and certificate that
 are there, unless you give `--force`. Its subject has only the fields
 that you give; the common name is the name of the computer by default.
+* `mastd stop` waits until `mastd` has stopped, and `mastd` waits for
+its running jobs and scheduled tasks to end (see "Bug Fixes"). A script
+or service that stops `mastd` can take as long as the longest job. With
+systemd, set `TimeoutStopSec` (see the Operator's Guide). To stop
+`mastd` at once, press Ctrl-C while `mastd stop` waits, or send it a
+second SIGTERM.
+* The scheduler runs each task of `etc/crontab` in its own process,
+at the same time as the other tasks that are due, instead of one after
+another.
 
 ## Features
 
@@ -87,6 +96,27 @@ framing by other sites), HSTS over TLS, and `nosniff` and
 The launchers now become the Python process (`exec`).
 * The launchers of Linux and macOS did not start in a folder whose name
 has a space.
+* `mastd stop` cut off the jobs that the worker of `mastd` ran, and
+they became `lost`. Now `mastd` takes no more jobs and starts no more
+scheduled tasks, stops when the running ones end, and stops its web
+GUI last. The Windows service does the same.
+* `mastd status` failed on Linux and macOS. It now says whether `mastd`
+runs, with the exit status of an init script: 0 if it runs, 1 if it
+does not but its pid file remains, 3 if it does not.
+* `mastd restart` did not restart `mastd`: it ran `mastd start`, which
+refused because `mastd` ran. `mastd start` now removes the pid file of
+a `mastd` that no longer runs, instead of refusing to start.
+* The scheduler of `mastd` did not log what a task printed: it logged
+an error instead, after the task ran. It now logs the exit status and
+the output of each task in `mast.cron`.
+* The scheduler checked `etc/crontab` 60 seconds after its last check,
+so its checks drifted, and the tasks of a minute that a check jumped
+over did not run. It now checks at the start of each minute, and after
+a delay it also runs the tasks of the minutes that it missed (up to an
+hour back), once each. A task is not started again while it still runs.
+* An empty line, or a line that starts with `#`, in `etc/crontab`
+stopped the scheduler for a minute. Such lines are now ignored, and a
+line that is not a valid task is logged once and skipped.
 
 # MAST Version 3.15.2
 
