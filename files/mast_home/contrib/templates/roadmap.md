@@ -30,10 +30,7 @@ scheduled and long-running work does not need a person to type them.
 
 # Next Steps
 
-1. **A solid release**
-    * The release of what "Next Release" in the
-    [release notes](./releasenotes.html) lists.
-2. **The core and DataPower apart, on PyPI**
+1. **The core and DataPower apart, on PyPI**
     * Two packages: `mcindi-mast` (the command line, the job queue,
     the workers, the scheduler, the web GUI and the plugin system) and
     `mcindi-mast-datapower` (appliances, environments, the DataPower
@@ -45,7 +42,7 @@ scheduled and long-running work does not need a person to type them.
     configuration (`etc/local`) or your data (`var`).
     * Each release is published on PyPI and on GitHub, next to the
     self-contained installers.
-3. **Crypto inventory** (needs step 2)
+2. **Crypto inventory** (needs step 1)
     * A map of the cryptography across your DataPower domains, not
     only the certificates: every certificate and key (expiry, issuer,
     key type, key size), the credentials that group them, and the TLS
@@ -58,14 +55,14 @@ scheduled and long-running work does not need a person to type them.
     within about a second.
     * Ready for public TLS certificates of at most 100 days from March
     15, 2027, and for post-quantum readiness work.
-4. **A shared service** (needs step 2)
+3. **A shared service** (needs step 1)
     * Users and permissions: who may run which commands on which
     appliances, and who may see and cancel which jobs.
     * Appliance credentials stored by MAST, separate from the
     identities of its users.
     * A page for the job queue (jobs, their progress and results,
     cancel, workers), the first page of a redesigned web GUI.
-5. **Work that runs without a person** (needs step 4)
+4. **Work that runs without a person** (needs step 3)
     * An MCP server, so that an assistant can use MAST. It starts
     local and read-only. Appliance credentials stay in MAST and are
     never given to the assistant.
@@ -86,7 +83,7 @@ is decided.
 * Commands whose result is a download or a table of their own
 (`fetch-logs`, `check-connectivity` and others), and the steps of
 `git-deploy`, do not report a failure in their exit status yet.
-* The web GUI has no users or permissions yet (see step 4). Everybody
+* The web GUI has no users or permissions yet (see step 3). Everybody
 who can open it can see and cancel every job. Run it only where the
 people who can reach it may do that.
 * `git-deploy` needs the `git` program on the `PATH`.
@@ -124,6 +121,13 @@ from `var/log`.
     from it.
     * An installer built from locked versions with `./mast-setup`,
     with Python 3.15.2 and no need for internet access.
+* Version 3.15.2.1 - Complete
+    * A web GUI that defends itself: CSRF tokens, a strict Content
+    Security Policy, HSTS, and a session key made on the first start.
+    * `mastd` stops without losing jobs, and a reliable scheduler.
+    * Python 3.13 and newer, a check of the dependencies for known
+    vulnerabilities, and a software bill of materials with each release.
+    * Tests of the installed product, and an Operator's Guide.
 
 # Conclusion
 
