@@ -52,8 +52,15 @@ jobs:
 
   # Builds the installer and a development home with ./mast-setup, as
   # the release does, so that a broken build fails on the pull request.
+  # The installed product is also tested on macOS, whose launchers and
+  # daemon differ in small ways.
   mast-setup:
-    runs-on: ubuntu-latest
+    name: mast-setup (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
       MAST_SETUP_TEST_BUILD: "true"
     steps:

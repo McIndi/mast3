@@ -127,6 +127,9 @@ hour back), once each. A task is not started again while it still runs.
 * An empty line, or a line that starts with `#`, in `etc/crontab`
 stopped the scheduler for a minute. Such lines are now ignored, and a
 line that is not a valid task is logged once and skipped.
+* On macOS, `mastd` kept the output of the program that started it, so
+`mastd start` never ended when its output was a pipe (for example
+`ssh server mastd start`, or `mastd restart | tee`).
 
 # MAST Version 3.15.2
 

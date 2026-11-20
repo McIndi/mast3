@@ -23,6 +23,7 @@ Changes:        23rd Jan 2009 (David Mytton <david@boxedice.com>)
                 - stop() sends SIGTERM once and waits for the process
                 - request_stop() is called on SIGTERM and SIGINT
                 - status(), and start() removes a stale pidfile
+                - The standard file descriptors are redirected on macOS too
 '''
 
 # Core modules
@@ -101,19 +102,20 @@ class Daemon(object):
                 "fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
             sys.exit(1)
 
-        if sys.platform != 'darwin':  # This block breaks on OS X
-            # Redirect standard file descriptors
-            sys.stdout.flush()
-            sys.stderr.flush()
-            si = open(self.stdin, 'r')
-            so = open(self.stdout, 'a+')
-            if self.stderr:
-                se = open(self.stderr, 'a+')
-            else:
-                se = so
-            os.dup2(si.fileno(), sys.stdin.fileno())
-            os.dup2(so.fileno(), sys.stdout.fileno())
-            os.dup2(se.fileno(), sys.stderr.fileno())
+        # Redirect standard file descriptors, on macOS too: a daemon that
+        # keeps the output of its parent keeps a pipe open, so that
+        # `mastd start | cat` or `ssh host mastd start` never ends.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        si = open(self.stdin, 'r')
+        so = open(self.stdout, 'a+')
+        if self.stderr:
+            se = open(self.stderr, 'a+')
+        else:
+            se = so
+        os.dup2(si.fileno(), sys.stdin.fileno())
+        os.dup2(so.fileno(), sys.stdout.fileno())
+        os.dup2(se.fileno(), sys.stderr.fileno())
 
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signum, self._on_signal)
