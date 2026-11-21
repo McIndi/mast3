@@ -1,0 +1,151 @@
+##### outbound DataPower 10.6.0.11 (soma 45417)
+--- user agent and XML manager
+<dp:result>OK
+  stored:
+<dp:result>OK
+<dp:result>OK
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+##### end outbound 10.6.0.11

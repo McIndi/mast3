@@ -2,8 +2,10 @@
 
 An assessment of everything in this repository that touches DataPower
 crypto (certificates, keys, credentials, TLS profiles, password aliases,
-secure backup), plus the crypto MAST uses for itself. Compiled by reading
-the code; nothing here was run against an appliance.
+secure backup), plus the crypto MAST uses for itself. Sections 1 to 5
+were compiled by reading the code; nothing there was run against an
+appliance. Section 6 is different: it records tests of post-quantum
+cryptography (PQC) on DataPower containers.
 
 This document is not the crypto inventory feature, and it does not list
 the crypto objects on an appliance. Several MAST scripts do that. This
@@ -349,3 +351,140 @@ script that does not work.
    plaintext key passwords to disk under `tmp/` or the output directory.
 6. `export-certs` and both contrib audits name the temp file after the
    object. Two runs against the same domain at once would collide.
+
+## 6. Post-quantum readiness of the DataPower firmware (tested)
+
+Tested on 2026-11-21 with the `icr.io/cpopen/datapower/datapower-limited`
+images and podman. The scripts and the raw results are in
+`docs/pqc-research/`. Its README says how to run them again.
+
+### 6.1 What IBM documents
+
+- The `kem-alg` command (CLI) is the `KEMAlgs` property (SOMA) of
+  `SSLServerProfile` and `SSLClientProfile`. It selects the key
+  exchange groups of TLS 1.3, including ML-KEM (FIPS 203).
+- The IBM documentation says that ML-KEM key exchange was a technology
+  preview in 10.6.2, and is fully supported from 10.6.4.
+- Documented values: `MLKEM512`, `MLKEM768`, `MLKEM1024`,
+  `X25519MLKEM768`, `SecP256r1MLKEM768`, `SecP384r1MLKEM1024` and
+  `classical`.
+- Several preview names of 10.6.2 were renamed or removed in 10.6.4
+  (for example `mlkem768` became `MLKEM768`).
+- The documentation says that an empty list means classical groups
+  only. The tests show that this is not true from 10.6.4 on (6.3).
+
+### 6.2 How the tests were done
+
+- **Inbound** (DataPower is the TLS server):
+  1. Make an `SSLServerProfile` with `set-config`.
+  2. Point `web-mgmt` at it.
+  3. Connect with Python 3.15.2 (OpenSSL 3.5.9), offering one group
+     at a time with `ssl.SSLContext.set_groups()`.
+  4. Record the group that was negotiated (`SSLSocket.group()`).
+- **Outbound** (DataPower is the TLS client):
+  1. Make an `SSLClientProfile`.
+  2. Make an `HTTPUserAgent` whose SSL policy maps `https://*` to it,
+     and an `XMLManager` that uses that user agent.
+  3. Run `FetchFile` against a Python 3.15 server on the host. The
+     server offers `X25519MLKEM768` only, `X25519` only, or the
+     OpenSSL default.
+  4. The server logs the group of each connection.
+- **Each `KEMAlgs` value was tested twice:** with TLS 1.2 and 1.3 on,
+  and with TLS 1.3 only.
+
+### 6.3 Results
+
+Inbound:
+
+| Firmware | Default (no `KEMAlgs`) negotiates `X25519MLKEM768` | `KEMAlgs` accepted | Values accepted | `KEMAlgs` and TLS 1.2 on |
+|---|---|---|---|---|
+| 10.5.0.23 | no | no (SOAP fault) | none | not applicable |
+| 10.6.0.11 | yes, and it cannot be changed | no (SOAP fault) | none | not applicable |
+| 10.6.2.0, 10.6.3.0 | no, classical only | yes | `X25519MLKEM768`, `SecP256r1MLKEM768`, `classical` and the preview names. Not `SecP384r1MLKEM1024` or `MLKEM768` | the profile goes down |
+| 10.6.4.0, 10.6.5.0, 10.6.6.0 | yes | yes | `X25519MLKEM768`, `SecP256r1MLKEM768`, `SecP384r1MLKEM1024`, `MLKEM768`, `classical`. Preview names refused | the profile goes down |
+| 11.0.0.0, 11.0.0.1 | yes | yes | as 10.6.4 | the profile goes down |
+| 11.0.0.2, 11.0.0.3 | yes | yes | as 10.6.4 | allowed. TLS 1.2 uses the classical groups |
+
+Outbound: the same rules apply.
+
+- **The default:** it offers `X25519MLKEM768` first on 10.6.0.11 and
+  on 10.6.4.0 and later. On 10.5.0.23, 10.6.2.0 and 10.6.3.0 it is
+  classical only, and it cannot connect to a server that accepts only
+  PQC.
+- **`KEMAlgs` with TLS 1.2 on:** the `SSLClientProfile` goes down on
+  10.6.2.0 to 11.0.0.1, and every connection that uses it fails.
+
+Both directions:
+
+- **Without `classical`, the profile accepts only PQC.** A list
+  without `classical` refuses every classical peer on TLS 1.3, and
+  every peer on TLS 1.2.
+- **With `classical`, PQC is preferred.** A list with `classical`
+  negotiates the hybrid with a peer that offers it, and a classical
+  group with a peer that does not.
+
+### 6.4 Behaviour that the inventory and any automation must know
+
+1. **An empty `KEMAlgs` does not mean "classical only".** It means
+   the firmware default, and on 10.6.0.11 and on 10.6.4.0 and later
+   that default includes `X25519MLKEM768`. Readiness depends on the
+   firmware level, `KEMAlgs` and the protocols together. Only a
+   handshake proves it.
+2. **A change can return OK and still break a service.** On 10.6.2.0
+   to 11.0.0.1, a `set-config` that sets `KEMAlgs` on a profile that
+   also allows TLS 1.2 behaves like this:
+   - The response is `OK`, and the error is only in a `log-event` of
+     that response: "KEM algorithm selection is only allowed in
+     TLSv1.3".
+   - The profile is then `down` in `ObjectStatus`, with that text in
+     `ErrorCode`.
+   - The service that uses the profile stays `up`, but it resets
+     every connection. In the test that was `web-mgmt`, so the web
+     GUI was lost.
+
+   Read back `ObjectStatus` after every change.
+3. **The preview names do not interoperate.** On 10.6.2.0 and
+   10.6.3.0, the preview names (`mlkem768`, `x448_mlkem768`,
+   `p384_mlkem1024`, ...) are accepted, but a standard client
+   (OpenSSL 3.5) cannot negotiate them.
+4. **`classical` reads back in two ways.** 11.0.0.3 stores it as the
+   list of classical groups (`brainpoolP512` ... `p256`). 10.6.x
+   stores the word `classical`.
+5. **The SOMA spec files do not prove support.** `etc/v10.6.0.11-C.xml`
+   lists `KEMAlgs` and `EllipticCurves`, but 10.6.0.11 refuses both.
+   Use the firmware version and the response of the device.
+6. **Invalid values fail differently by firmware.** A value that the
+   firmware does not know gets a SOAP fault ("Internal Error (from
+   client)"), and the configuration does not change.
+7. **Making the test objects** needs a few details:
+   - An `SSLServerProfile` or `SSLClientProfile` needs at least one
+     `Ciphers` entry (error "required property ciphers is missing").
+   - An `HTTPUserAgent` `SSLPolicies` entry is accepted only with an
+     `SSLProxyProfile` element in it, even an empty one.
+
+### 6.5 ML-DSA certificates (tested on 11.0.0.3 only)
+
+- **Objects:** an ML-DSA-65 key and self-signed certificate (made with
+  OpenSSL 4.0.3) load as `CryptoKey`, `CryptoCertificate` and
+  `CryptoIdentCred`, and are `up`.
+- **Certificate details:** `do-view-certificate-details` returns
+  `SignatureAlgorithm`, `SubjectPublicKeyAlgorithm` (`ML-DSA-65`) and
+  `SubjectPublicKeyBitLength`. Method A of 2.2 therefore gives the key
+  algorithm and size, at least on 11.0.0.3.
+- **TLS:** an `SSLServerProfile` with that identification credential
+  is `up`, but every handshake fails with "no suitable signature
+  algorithm". `SigAlgs` accepts `ed25519` and `rsa_pss_rsae_sha256`,
+  and refuses every ML-DSA name that was tried.
+- **Signatures in XSLT:** the 11.0.0 documentation describes
+  post-quantum signatures as the extension functions `dp:sign-pqc` and
+  `dp:verify-pqc` (ML-DSA-44/65/87 and SLH-DSA).
+
+So post-quantum readiness on DataPower is, today, a matter of key
+exchange. Post-quantum certificates cannot yet be used for TLS.
+
+### 6.6 Not tested
+
+- The `sr` and `R` builds (for example 10.6.0.11sr1, 11.0.0.3sr1).
+- ML-DSA on 10.6.x.
+- Real gateways (MPGW, API Gateway) instead of `web-mgmt` and
+  `FetchFile`. They use the same profiles, but this was not checked.
