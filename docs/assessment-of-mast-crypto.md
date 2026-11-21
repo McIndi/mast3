@@ -19,26 +19,29 @@ again from the start, and this knowledge is the input to that design.
 Paths are relative to the repository root. `contrib/` means
 `files/mast_home/contrib/`, which is installed to `$MAST_HOME/contrib`.
 
+Line numbers refer to `main` at commit `faa01c3` (2026-11-21). The
+code can move after that date.
+
 ## 1. Summary
 
 | # | Script / command | Location | Touches appliance? | What it does |
 |---|---|---|---|---|
-| 1 | `mast-crypto cert-audit` | `mast/datapower/crypto/__init__.py:43` | read-only | Spreadsheet of every enabled `CryptoCertificate`: subject, SANs, issuer, validity, expiry |
-| 2 | `mast-crypto cert-file-audit` | `mast/datapower/crypto/__init__.py:287` | read-only | Lists every file in `cert:`, `pubcert:`, `sharedcert:` |
-| 3 | `mast-crypto export-certs` | `mast/datapower/crypto/__init__.py:414` | writes + deletes a temp file | Downloads every enabled certificate as PEM |
+| 1 | `mast-crypto cert-audit` | `mast/datapower/crypto/__init__.py:73` | read-only | Spreadsheet of every enabled `CryptoCertificate`: subject, SANs, issuer, validity, expiry |
+| 2 | `mast-crypto cert-file-audit` | `mast/datapower/crypto/__init__.py:260` | read-only | Lists every file in `cert:`, `pubcert:`, `sharedcert:` |
+| 3 | `mast-crypto export-certs` | `mast/datapower/crypto/__init__.py:351` | writes + deletes a temp file | Downloads every enabled certificate as PEM |
 | 4 | `contrib/thorough-cert-audit.py` | contrib | writes + deletes temp files | Joins cert files → certs → keys → credentials → crypto profiles into one sheet |
 | 5 | `contrib/cert-recurse.py` | contrib | writes + deletes temp files | For certs expiring within N days, walks up to every object that depends on them |
 | 6 | `contrib/CryptoProfile.py` | contrib | **modifies config** | Disables SSLv3 / TLS 1.0 / TLS 1.1 on every `CryptoProfile` |
 | 7 | `contrib/find_passwords.py` | contrib | offline | Finds plaintext `<Password>` values in exported config XML |
 | 8 | `contrib/gen-cert.py` | contrib | offline | Self-signed cert + key for MAST's own web GUI |
 | 9 | `contrib/extract-service.py` | contrib | read-only | Service extract; crypto parts: `crypto-details.csv`, `referenced_cert_files.txt` |
-| 10 | `mast-backups secure-backup` | `mast/datapower/backups/backups.py:342` | **writes, may quiesce** | Encrypted whole-appliance backup, downloaded and checksum-verified |
-| 11 | `mast-backups restore-secure-backup` | `mast/datapower/backups/backups.py:551` | **destructive** | `SecureRestore` (or validate-only) |
-| 12 | `mast-deployment add-password-map-alias` | `mast/datapower/deployment/deployment.py:1095` | **modifies config** | `AddPasswordMap` + save |
-| 13 | `mast-deployment del-password-map-alias` | `mast/datapower/deployment/deployment.py:1205` | **modifies config** | `DeletePasswordMap` + save |
+| 10 | `mast-backups secure-backup` | `mast/datapower/backups/backups.py:279` | **writes, may quiesce** | Encrypted whole-appliance backup, downloaded and checksum-verified |
+| 11 | `mast-backups restore-secure-backup` | `mast/datapower/backups/backups.py:420` | **destructive** | `SecureRestore` (or validate-only) |
+| 12 | `mast-deployment add-password-map-alias` | `mast/datapower/deployment/deployment.py:845` | **modifies config** | `AddPasswordMap` + save |
+| 13 | `mast-deployment del-password-map-alias` | `mast/datapower/deployment/deployment.py:854` | **modifies config** | `DeletePasswordMap` + save |
 | 14 | `mast-deployment git-deploy` | `mast/datapower/deployment/git_deploy.py` | **modifies config** | Uploads cert files and password aliases from a repo layout |
-| 15 | `mast-deployment deploy` | `mast/datapower/deployment/deployment.py:446` | **modifies config** | Optional secure backup step before deploying |
-| 16 | `mast-system xor` | `mast/datapower/system/system.py:214` | offline | Obfuscates `user:password` strings |
+| 15 | `mast-deployment deploy` | `mast/datapower/deployment/deployment.py:575` | **modifies config** | Optional secure backup step before deploying |
+| 16 | `mast-system xor` | `mast/datapower/system/system.py:265` | offline | Obfuscates `user:password` strings |
 
 Generic tools that are routinely pointed at crypto objects but contain no
 crypto logic of their own: `contrib/getconfig.py` (used by #4, has
@@ -74,7 +77,7 @@ certs = [c for c in certs if c.find("mAdminState").text == "enabled"]
 ### 2.2 Reading certificate contents — two methods
 
 **Method A: `do-view-certificate-details`** (`DataPower.get_certificate_details`,
-`DataPower.py:1913`). Used by `cert-audit` and `extract-service.py`.
+`DataPower.py:1924`). Used by `cert-audit` and `extract-service.py`.
 
 ```xml
 <man:request domain="DOMAIN">
@@ -202,7 +205,7 @@ This is the technique to keep for "what breaks when this cert expires".
 
 ### 2.7 Uploading crypto files (git-deploy)
 
-Repo directory → appliance target (`git_deploy.py:559`, `:800`):
+Repo directory → appliance target (`git_deploy.py:555`, `:796`):
 
 | Repo dir | Uploaded to | Domain used for the upload |
 |---|---|---|
@@ -226,7 +229,7 @@ User documentation is in `contrib/templates/git-deploy.md`.
 4. Poll until `<destination>/backupmanifest.xml` exists. That file is the
    completion signal.
 5. `copy_directory` to `<out_dir>/<hostname>/SecureBackup/<timestamp>`.
-6. `verify_local_backup` (`DataPower.py:3749`): compare each file's
+6. `verify_local_backup` (`DataPower.py:3760`): compare each file's
    checksum in `backupmanifest.xml` with a local SHA-1 or SHA-512.
 7. `RemoveDir` on the appliance only if verification passed.
 8. Optional `UnquiesceDP`.
@@ -243,7 +246,7 @@ name is missing.
 
 `etc/v*.xml` holds one SOMA request template per firmware level (37
 files, 4.0 through 11.0.0.3). `DataPower._add_dynamic_methods`
-(`DataPower.py:1521`) turns every `do-action` child into a method, and
+(`DataPower.py:1532`) turns every `do-action` child into a method, and
 `do_action` rejects any keyword that is not a valid child. These files
 are therefore the reference for what each crypto action accepts.
 
@@ -294,15 +297,15 @@ Stated by the maintainer, not derived from the code.
 - **Crypto configuration belongs in version control.** Deploy the
   `CryptoKey`, `CryptoCertificate`, credential and profile objects with
   `git-deploy` or with `mast-developer export` / `import`
-  (`mast/datapower/developer/developer.py:193`, `:312`).
+  (`mast/datapower/developer/developer.py:151`, `:235`).
 - **Private keys and secrets are handled separately.** DataPower helps
   here: an export contains the configuration of a `CryptoKey` (its
   `Filename`, its password alias) but never the key file itself. The
   object config and the key material therefore travel by different
   routes without extra effort.
 - **Key files are uploaded with `set-file`.** It is available on the
-  CLI as `mast-deployment set-file` (`deployment.py:67`) and
-  `mast-system set-file` (`system.py:2770`), and in the web GUI.
+  CLI as `mast-deployment set-file` (`deployment.py:84`) and
+  `mast-system set-file` (`system.py:1206`), and in the web GUI.
 
 Two places where the tooling will let you break this rule:
 
@@ -318,13 +321,13 @@ Two places where the tooling will let you break this rule:
 
 | Item | Location | Notes |
 |---|---|---|
-| TLS to appliances | `DataPower.py:1464`, `:4013`; `WSClientLib.py:370` | `--no-check-hostname` turns off hostname checking **and** all certificate verification (`ssl.CERT_NONE`) |
-| Web GUI TLS | `mast/datapower/web/gui.py`, `etc/default/server.conf:105-108` | `secure = true`, key `etc/crypto/private/mast.key`, cert `etc/crypto/cert/mast.crt`. Both directories ship empty |
+| TLS to appliances | `DataPower.py:1475`, `:4024`; `WSClientLib.py:370` | `--no-check-hostname` turns off hostname checking **and** all certificate verification (`ssl.CERT_NONE`) |
+| Web GUI TLS | `mast/datapower/web/gui.py`, `etc/default/server.conf:123-125` | `secure = true`, key `etc/crypto/private/mast.key`, cert `etc/crypto/cert/mast.crt`. Both directories ship empty |
 | GUI cert generation | `contrib/gen-cert.py` | RSA 4096, SHA-512, 365 days, serial 0, writes to the two paths above |
 | Flask session key | `etc/default/server.conf` | Ships as `INSECURE_SECRET_KEY_CHANGE_ME` |
 | Credential obfuscation | `mast/xor/__init__.py`, `etc/default/xor.conf` | XOR with a repeating key, then base64. Default key is `_`. This is obfuscation, not encryption |
 | File hashes | `mast/hashes/__init__.py` | hashlib wrappers; used to verify secure backups |
-| Crypto plugin registration | `pyproject.toml:49`, `files/invocation_scripts/{linux,darwin,windows}/mast-crypto*` | `mast-crypto` runs `mast -m mast.datapower.crypto` |
+| Crypto plugin registration | `pyproject.toml:90`, `files/invocation_scripts/{linux,darwin,windows}/mast-crypto*` | `mast-crypto` runs `mast -m mast.datapower.crypto` |
 
 ## 5. Defects and hazards found while reading
 
@@ -333,7 +336,7 @@ to correct these scripts one at a time. The list is here so that the new
 design does not repeat the defects, and so that nobody relies on a
 script that does not work.
 
-1. `cert-audit` (`crypto/__init__.py:164`): the handler for a cert with
+1. `cert-audit` (`crypto/__init__.py:140`): the handler for a cert with
    no `Filename` uses `name` before it is assigned. It raises `NameError`
    on the first cert, or records the previous cert's name later.
 2. `thorough-cert-audit.py`: calls `wb.get_active_sheet()`, which
