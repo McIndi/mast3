@@ -1,0 +1,151 @@
+##### outbound DataPower 10.5.0.23 (soma 42307)
+--- user agent and XML manager
+<dp:result>OK
+  stored:
+<dp:result>OK
+<dp:result>OK
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f1" to "temporary:///pqc-f1.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f2" to "temporary:///pqc-f2.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f3" to "temporary:///pqc-f3.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f4" to "temporary:///pqc-f4.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f5" to "temporary:///pqc-f5.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f6" to "temporary:///pqc-f6.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f7" to "temporary:///pqc-f7.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event log-event level="error">(admin:default:*:*): Copying file "https://host.containers.internal:18443/f8" to "temporary:///pqc-f8.xml" failed</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.3], client KEMAlgs [classical]
+<faultstring>Internal Error (from client)
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+##### end outbound 10.5.0.23

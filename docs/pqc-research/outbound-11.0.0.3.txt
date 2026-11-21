@@ -1,0 +1,169 @@
+##### outbound DataPower 11.0.0.3 (soma 36267)
+--- user agent and XML manager
+<dp:result>OK
+  stored:
+<dp:result>OK
+<dp:result>OK
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147)
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+=== server groups [default], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored:
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KE
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=X25519MLKEM768
+=== server groups [default], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>brainpoolP512</KEMAlgs><KEMAlgs>brainpoolP384</KEMAlgs><KEMAlgs>brainpoolP256</KEMAlgs><KEMAlgs>ffdhe8192</KEMAlgs><KEMAlgs>ffdhe6144</KEMAlgs><KEMAlgs
+
+  status: <OpState>up
+  fetch: <dp:result>
+  server: OK TLSv1.3 group=x25519
+##### end outbound 11.0.0.3

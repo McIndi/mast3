@@ -1,0 +1,222 @@
+##### DataPower 10.6.0.11
+pqc-106011 soma=36465 web=35287
+--- firmware
+<Version>IDG.10.6.0.11</Version>
+<Build>391084</Build>
+<Version>IDG.10.6.0.11</Version>
+--- built-in web-mgmt TLS (startup profile may have failed)
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+--- make profile with no KEMAlgs and attach to web-mgmt
+OK
+stored:
+OK
+########## protocols: <TLSv1d2>on</TLSv1d2><TLSv1d3>on</TLSv1d3>
+=== KEMAlgs: []
+OK
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [X25519MLKEM768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [X25519MLKEM768 classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [X25519MLKEM768 SecP256r1MLKEM768 SecP384r1MLKEM1024 classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [MLKEM768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [mlkem768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [x448_mlkem768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [p384_mlkem1024]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+########## protocols: <TLSv1d2>off</TLSv1d2><TLSv1d3>on</TLSv1d3>
+=== KEMAlgs: []
+OK
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768 classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768 SecP256r1MLKEM768 SecP384r1MLKEM1024 classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [MLKEM768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [classical]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [mlkem768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [x448_mlkem768]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [p384_mlkem1024]
+stored:
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+##### end 10.6.0.11
