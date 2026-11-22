@@ -255,8 +255,31 @@ Without TLS (`secure = false`), the host must be `127.0.0.1` or `::1`:
 `mast-web` and `mastd` refuse to serve the web GUI without TLS on an
 address that other hosts can reach, and say why.
 
-The new web UI is at `/`, and the classic GUI at `/classic/`. Both
-need the same login.
+The web UI is at `/`, and the classic GUI at `/classic/`. Both need
+the same login. The web UI has these pages, each for a role and up:
+
+* **Jobs** (viewer): every job, newest first, with filters (status,
+mine, command, appliance), and the workers. A job shows its
+parameters (secrets as `********`), its progress as it runs, its
+result as a table that can be sorted and filtered, its child jobs,
+and its downloads. An operator can cancel their own jobs, an admin
+any job.
+* **Commands** (operator): every command, with a form made from its
+options. The target bar at the top holds the appliances and the
+credentials for the next command. The browser keeps only the names
+of the appliances (in the tab, until it is closed); a password stays
+in the page and is sent only when you run a command. Running a
+command opens its job.
+* **Admin → Users** (admin): add a user with a temporary password,
+change a role, disable, enable, set a new temporary password, and
+delete. An admin cannot change their own role, disable or delete
+themselves there; `mast-users` can.
+
+The web UI has a JSON API under `/api/v1` that its pages use. It needs
+the same login and the CSRF token, so it is not yet meant for scripts.
+
+What only the classic GUI has for now: the `ssh` tab, and the status
+tab with its charts. The `ssh` tab gets a page of its own later.
 
 ## Users and roles
 
@@ -276,7 +299,7 @@ A password has at least 12 characters and is not the user name.
 |---|---|
 | `viewer` | See the jobs, with their progress and results. |
 | `operator` | Also run commands, and cancel their own jobs. |
-| `admin` | Also cancel any job. Later releases add the management of users, appliances and credentials in the web UI. |
+| `admin` | Also cancel any job, and manage the users in the web UI (Admin → Users). Later releases add appliances and credentials. |
 
 The other commands:
 

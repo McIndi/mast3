@@ -46,6 +46,12 @@ EXPECTED_WEB_PLUGINS = {
     "system": "mast.datapower.system:WebPlugin",
 }
 
+EXPECTED_WEB_PAGES = {
+    "jobs": "mast.web.pages.jobs:page",
+    "commands": "mast.web.pages.commands:page",
+    "admin": "mast.web.pages.admin:page",
+}
+
 EXPECTED_DAEMON_PLUGINS = {
     "mastd_web_plugin": "mast.web:Plugin",
     "mastd_cron_plugin": "mast.cron:Plugin",
@@ -128,12 +134,21 @@ class TestMASTPackaging(unittest.TestCase):
         found = {name: ep.value for name, ep in _entry_points("mastd_plugin").items()}
         self.assertEqual(found, EXPECTED_DAEMON_PLUGINS)
 
+    def test_web_page_entry_points(self):
+        found = {name: ep.value for name, ep in _entry_points("mast_web_page").items()}
+        self.assertEqual(found, EXPECTED_WEB_PAGES)
+
     def test_every_entry_point_loads(self):
-        for group in ("mast_web_plugin", "mastd_plugin"):
+        for group in ("mast_web_plugin", "mast_web_page", "mastd_plugin"):
             for name, ep in _entry_points(group).items():
                 with self.subTest(group=group, name=name):
                     # load() raises on a bad import or a missing attribute.
-                    self.assertTrue(callable(ep.load()))
+                    loaded = ep.load()
+                    if group == "mast_web_page":
+                        from mast.web.page import Page
+                        self.assertIsInstance(loaded, Page)
+                    else:
+                        self.assertTrue(callable(loaded))
 
     def test_every_launcher_has_a_console_script(self):
         # Each launcher in the installer (`./mast -m <module>`) has a

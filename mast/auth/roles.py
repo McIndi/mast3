@@ -30,7 +30,8 @@ The rules are the table `MATRIX`. `mast.jobs.auth.authorize` uses it
 for every action of the job queue.
 """
 
-__all__ = ["ROLES", "ACTIONS", "MATRIX", "allowed", "UnknownAction"]
+__all__ = ["ROLES", "ACTIONS", "MATRIX", "allowed", "at_least",
+           "UnknownAction"]
 
 VIEWER = "viewer"
 OPERATOR = "operator"
@@ -89,3 +90,16 @@ def allowed(role, action):
     except KeyError:
         raise UnknownAction(action)
     return role in roles
+
+
+def at_least(role, minimum):
+    """
+    _function_: `mast.auth.roles.at_least(role, minimum)`
+
+    Return True if `role` is `minimum` or a role after it in `ROLES`
+    (an admin is at least an operator). An unknown role is never at
+    least anything.
+    """
+    if role not in ROLES or minimum not in ROLES:
+        return False
+    return ROLES.index(role) >= ROLES.index(minimum)

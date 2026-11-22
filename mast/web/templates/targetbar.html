@@ -1,0 +1,27 @@
+{# The target bar: the appliances and the credentials for the next command.
+   Only appliance names go to sessionStorage; a password stays in the memory
+   of the page (see static/js/targets.js). #}
+<section id="target-bar" class="border-bottom bg-body-secondary px-3 py-2" aria-label="Targets">
+    <form class="row g-2 align-items-center" data-target-form autocomplete="off">
+        <div class="col-12 col-lg-5">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text">Appliances</span>
+                <input class="form-control" data-target-input placeholder="hostname, alias or environment" aria-label="Add an appliance">
+                <button class="btn btn-outline-secondary" type="submit">Add</button>
+            </div>
+            <div class="mt-1 d-flex flex-wrap gap-1" data-target-list></div>
+        </div>
+        <div class="col-6 col-lg-2">
+            <input class="form-control form-control-sm" data-target-username placeholder="User name" aria-label="User name" autocomplete="off">
+        </div>
+        <div class="col-6 col-lg-2">
+            <input class="form-control form-control-sm" data-target-password type="password" placeholder="Password" aria-label="Password" autocomplete="new-password">
+        </div>
+        <div class="col-12 col-lg-3">
+            <div class="form-check form-check-inline small">
+                <input class="form-check-input" type="checkbox" id="target-no-check" data-target-no-check>
+                <label class="form-check-label" for="target-no-check">No TLS check (turns off all verification)</label>
+            </div>
+        </div>
+    </form>
+</section>

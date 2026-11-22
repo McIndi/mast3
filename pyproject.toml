@@ -96,6 +96,12 @@ ssh = "mast.datapower.ssh:WebPlugin"
 status = "mast.datapower.status:WebPlugin"
 system = "mast.datapower.system:WebPlugin"
 
+# The pages of the web UI, see mast/web/page.py
+[project.entry-points.mast_web_page]
+jobs = "mast.web.pages.jobs:page"
+commands = "mast.web.pages.commands:page"
+admin = "mast.web.pages.admin:page"
+
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
@@ -125,7 +131,7 @@ include = ["mast", "mast.*"]
 include-package-data = false
 
 [tool.setuptools.package-data]
-"mast.web" = ["templates/*", "static/css/*"]
+"mast.web" = ["templates/*", "static/css/*", "static/js/*", "static/vendor/*/*"]
 "mast.datapower.accounts" = ["docroot/*"]
 "mast.datapower.backups" = ["docroot/*"]
 "mast.datapower.crypto" = ["docroot/*"]

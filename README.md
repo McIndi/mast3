@@ -104,7 +104,7 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 ## The web GUI
 
-`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
+`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin → Users manages the users. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
 
 ## The job queue
 

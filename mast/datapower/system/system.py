@@ -1547,6 +1547,12 @@ class XMLResults(Result):
             for hostname, label, timestamp, response in self.sections)
 
     def html(self):
+        return self.table().html()
+
+    def data(self):
+        return self.table().data()
+
+    def table(self):
         config = self.kind == "config"
         if config:
             header = ["Appliance", "ObjectClass", "ObjectName", "Key", "Value"]
@@ -1565,7 +1571,7 @@ class XMLResults(Result):
                 rows.append(first)
                 for name, value in _leaves(item):
                     rows.append([""] * len(first) + [name, value])
-        return Table(header, rows).html()
+        return Table(header, rows)
 
 
 def _deliver(result, out_file, env):

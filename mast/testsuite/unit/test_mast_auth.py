@@ -476,12 +476,17 @@ class TestMigrations(SqliteCase):
                     "'queued', true, 'local', :at, false)"),
                     {"id": "{:032x}".format(n),
                      "at": "2026-11-01 00:00:00"})
+            connection.execute(text(
+                "INSERT INTO job_results (job_id, text, html, history) "
+                "VALUES (:id, 'the text', '<p>html</p>', '')"),
+                {"id": "{:032x}".format(2)})
         db.configure(self.url)
         # The new MAST upgrades it when it opens it
         self.assertEqual(len(jobs.list_jobs()), 3)
         self.assertEqual(db.revision(), db.HEAD)
         self.assertIn("users", self.tables(engine))
         users.add("alice", GOOD, "admin")
+        self.assertIsNone(jobs.result("{:032x}".format(2)).data)
         # The old job of "local" can be cancelled from the command line
         self.assertEqual(jobs.cancel("{:032x}".format(0)).status,
                          jobs.CANCELLED)
@@ -492,6 +497,8 @@ class TestMigrations(SqliteCase):
         with engine.connect() as connection:
             self.assertEqual(connection.execute(
                 text("SELECT count(*) FROM jobs")).scalar(), 3)
+            self.assertEqual(connection.execute(
+                text("SELECT text FROM job_results")).scalar(), "the text")
 
     def setUp(self):
         super().setUp()

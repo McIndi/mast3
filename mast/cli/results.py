@@ -145,6 +145,12 @@ class Result(object):
 
     * `text()`: The result for a terminal.
     * `html()`: The result for the web GUI.
+    * `data()`: The result as JSON types, for the web UI to sort and
+    filter, or None (the default) if it has no such form. A table is
+    `{"kind": "table", "columns": [...], "rows": [[...], ...]}`, with
+    a string in each cell. A result of several parts is
+    `{"kind": "items", "items": [...]}`, where each item is a table or
+    `{"kind": "text", "text": "..."}`.
     * `history`: The requests and responses that produced the result,
     for the web GUI's history download. May be empty.
     * `outcomes()`: A list with True or False for each thing that the
@@ -171,6 +177,9 @@ class Result(object):
 
     def html(self):
         return "<pre>{}</pre>".format(html.escape(self.text()))
+
+    def data(self):
+        return None
 
     def emit(self):
         text = self.text()
@@ -226,6 +235,10 @@ class Table(Result):
             if number == 0:
                 lines.append("  ".join("-" * width for width in widths))
         return "\n".join(lines)
+
+    def data(self):
+        return {"kind": "table", "columns": list(self.header),
+                "rows": [list(row) for row in self.rows]}
 
     def html(self):
         # The same markup as the results_table.html template.

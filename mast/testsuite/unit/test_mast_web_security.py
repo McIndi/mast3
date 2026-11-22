@@ -81,12 +81,12 @@ class TestLogin(WebCase):
         answer = self.login("admin")
         self.assertEqual(answer.status_code, 302)
         self.assertEqual(answer.location, "/")
-        page = self.client.get("/").get_data(as_text=True)
+        page = self.client.get("/jobs").get_data(as_text=True)
         self.assertIn("admin", page)
         self.assertEqual(self.client.get(C + "/").status_code, 200)
         answer = self.post("/logout")
         self.assertEqual(answer.location, "/login")
-        self.assertEqual(self.client.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/jobs").status_code, 302)
 
     def test_a_wrong_password_gets_one_generic_message(self):
         for name, password in (("admin", "not the password"),
@@ -96,7 +96,7 @@ class TestLogin(WebCase):
                 self.assertEqual(answer.status_code, 401)
                 self.assertIn(users.LoginFailed.MESSAGE.replace("'", "&#39;"),
                               answer.get_data(as_text=True))
-        self.assertEqual(self.client.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/jobs").status_code, 302)
 
     def test_the_login_goes_to_the_page_asked_for(self):
         self.client.get("/login")
@@ -124,7 +124,7 @@ class TestLogin(WebCase):
         answer = self.client.post("/login", data={
             "username": "admin", "password": PASSWORD})
         self.assertEqual(answer.status_code, 400)
-        self.assertEqual(self.client.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/jobs").status_code, 302)
 
     def test_the_login_makes_a_new_session(self):
         # Session fixation: what was in the session before the login is
@@ -153,7 +153,7 @@ class TestLogin(WebCase):
             "current": PASSWORD, "new": "a brand new password",
             "confirm": "a brand new password"})
         self.assertEqual(answer.location, "/")
-        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(self.client.get("/jobs").status_code, 200)
         self.assertFalse(users.get("viewer").must_change)
 
     def test_change_password_errors(self):
@@ -178,8 +178,8 @@ class TestLogin(WebCase):
         self.post("/account/password", data={
             "current": PASSWORD, "new": "a brand new password",
             "confirm": "a brand new password"})
-        self.assertEqual(self.client.get("/").status_code, 200)
-        self.assertEqual(other.get("/").status_code, 302)
+        self.assertEqual(self.client.get("/jobs").status_code, 200)
+        self.assertEqual(other.get("/jobs").status_code, 302)
 
     def test_no_users(self):
         for user in users.list_users():
@@ -222,9 +222,9 @@ class TestSessionEnds(WebCase):
     def test_a_copied_cookie_works_until_the_logout(self):
         self.login("operator")
         thief = self.copy_cookie()
-        self.assertEqual(thief.get("/").status_code, 200)
+        self.assertEqual(thief.get("/jobs").status_code, 200)
         self.post("/logout")
-        self.assertEqual(thief.get("/").status_code, 302)
+        self.assertEqual(thief.get("/jobs").status_code, 302)
         self.assertEqual(thief.get(C + "/").status_code, 302)
 
     def test_a_new_epoch_ends_the_session(self):
@@ -238,9 +238,9 @@ class TestSessionEnds(WebCase):
             with self.subTest(change=name):
                 client = self.app.test_client()
                 self.login("operator", client=client)
-                self.assertEqual(client.get("/").status_code, 200)
+                self.assertEqual(client.get("/jobs").status_code, 200)
                 change()
-                self.assertEqual(client.get("/").status_code, 302)
+                self.assertEqual(client.get("/jobs").status_code, 302)
                 self.assertEqual(client.get(C + "/").status_code, 302)
                 if name == "disable":
                     users.enable("operator")
@@ -252,14 +252,14 @@ class TestSessionEnds(WebCase):
         self.assertEqual(idle, 30 * 60)
         with mock.patch.object(web_auth.time, "time",
                                return_value=now + idle - 5):
-            self.assertEqual(self.client.get("/").status_code, 200)
+            self.assertEqual(self.client.get("/jobs").status_code, 200)
         # That request was a use: the idle time starts again
         with mock.patch.object(web_auth.time, "time",
                                return_value=now + 2 * idle - 10):
-            self.assertEqual(self.client.get("/").status_code, 200)
+            self.assertEqual(self.client.get("/jobs").status_code, 200)
         with mock.patch.object(web_auth.time, "time",
                                return_value=now + 3 * idle):
-            self.assertEqual(self.client.get("/").status_code, 302)
+            self.assertEqual(self.client.get("/jobs").status_code, 302)
 
     def test_absolute_expiry(self):
         self.login("viewer")
@@ -271,10 +271,10 @@ class TestSessionEnds(WebCase):
         while at + step < start + longest:
             at += step
             with mock.patch.object(web_auth.time, "time", return_value=at):
-                self.assertEqual(self.client.get("/").status_code, 200)
+                self.assertEqual(self.client.get("/jobs").status_code, 200)
         with mock.patch.object(web_auth.time, "time",
                                return_value=start + longest + 1):
-            self.assertEqual(self.client.get("/").status_code, 302)
+            self.assertEqual(self.client.get("/jobs").status_code, 302)
 
     def test_the_limits_come_from_server_conf(self):
         conf = server_conf()
@@ -526,7 +526,7 @@ class TestNewAppCsrf(WebCase):
         self.login("admin")
         answer = self.client.post("/logout")
         self.assertEqual(answer.status_code, 400)
-        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(self.client.get("/jobs").status_code, 200)
         answer = self.client.post("/logout", headers={
             security.CSRF_HEADER: "x" * 43})
         self.assertEqual(answer.status_code, 400)
@@ -559,6 +559,8 @@ class TestClassicMount(ClassicCase):
 
 
 PAGES = ("/", "/login", "/account/password", "/static/css/mast-web.css",
+         "/jobs", "/jobs/" + "0" * 32, "/commands", "/admin/users",
+         "/api/v1/me", "/api/v1/jobs", "/static/js/forms.js",
          C + "/", C + "/plugins.js", C + "/static/js/mast.js")
 
 
@@ -584,7 +586,8 @@ class TestContentSecurityPolicy(ClassicCase):
                               client.get(path).headers)
 
     def test_the_pages_have_no_inline_script_or_style(self):
-        for path in ("/", "/account/password", C + "/"):
+        for path in ("/jobs", "/jobs/" + "0" * 32, "/commands",
+                     "/admin/users", "/account/password", C + "/"):
             with self.subTest(path=path):
                 parser = _InlineCode()
                 parser.feed(self.client.get(path).get_data(as_text=True))

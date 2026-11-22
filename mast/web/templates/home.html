@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card">
-    <h1>MAST</h1>
-    <p>You are logged in as <strong>{{ user.name }}</strong> with the role <strong>{{ user.role }}</strong>.</p>
-    {% if classic_prefix %}
-    <p>The new web UI is on its way. Until then, use the <a href="{{ classic_prefix }}/">classic GUI</a>.</p>
-    {% endif %}
+<section class="card mast-narrow mx-auto">
+    <div class="card-body">
+        <h1 class="h4">MAST</h1>
+        <p>You are logged in as <strong>{{ user.name }}</strong> with the role <strong>{{ user.role }}</strong>.</p>
+    </div>
 </section>
 {% endblock %}

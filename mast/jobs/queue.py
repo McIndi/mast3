@@ -148,14 +148,16 @@ class ResultInfo(BaseModel):
     _class_: `mast.jobs.queue.ResultInfo`
 
     What a finished job returned: `text` for a terminal, `html` for
-    the web GUI, and `history` (the requests and responses, or the
-    traceback of a failed job).
+    the web GUI, `history` (the requests and responses, or the
+    traceback of a failed job), and `data`, the result as JSON types
+    (see `mast.cli.Result.data`), or None.
     """
     model_config = ConfigDict(from_attributes=True)
 
     text: str
     html: str
     history: str
+    data: dict | None = None
 
 
 class Heartbeat(BaseModel):
@@ -386,19 +388,39 @@ def find(prefix, principal=LOCAL):
     raise JobNotFound(prefix)
 
 
-def list_jobs(status=None, limit=50, principal=LOCAL):
+def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
+              command=None, appliance=None, before=None, parent_id=None):
     """
     _function_: `mast.jobs.queue.list_jobs(status=None, limit=50,
-    principal=LOCAL)`
+    principal=LOCAL, submitted_by=None, command=None, appliance=None,
+    before=None, parent_id=None)`
 
     Return the newest jobs first, as a list of `JobInfo`. `status`
-    can be one status or a sequence of them.
+    can be one status or a sequence of them. The other filters:
+
+    * `submitted_by`: The name of the principal that submitted them.
+    * `command`: The id of their command.
+    * `appliance`: An appliance that they talk to.
+    * `before`: Only jobs made before this time (a `datetime`), to
+    page through older jobs.
+    * `parent_id`: Only the child jobs of this job.
     """
     authorize(principal, "read")
     query = select(Job).order_by(Job.created_at.desc(), Job.id).limit(limit)
     if status is not None:
         statuses = [status] if isinstance(status, str) else list(status)
         query = query.where(Job.status.in_(statuses))
+    if submitted_by is not None:
+        query = query.where(Job.submitted_by == submitted_by)
+    if command is not None:
+        query = query.where(Job.command == command)
+    if appliance is not None:
+        query = query.where(Job.id.in_(
+            select(JobTarget.job_id).where(JobTarget.appliance == appliance)))
+    if before is not None:
+        query = query.where(Job.created_at < before)
+    if parent_id is not None:
+        query = query.where(Job.parent_id == parent_id)
     with db.session(write=False) as session:
         return [_info(session, job) for job in session.scalars(query)]
 
@@ -706,10 +728,10 @@ def add_event(job_id, message, kind="say", worker_id=None):
 
 
 def finish(job_id, worker_id, status, text="", html="", history="",
-           error=None):
+           error=None, data=None):
     """
     _function_: `mast.jobs.queue.finish(job_id, worker_id, status,
-    text="", html="", history="", error=None)`
+    text="", html="", history="", error=None, data=None)`
 
     Record the end of a job and its result. The secret parameters of
     the job are removed. Return False, and change nothing, if
@@ -718,7 +740,7 @@ def finish(job_id, worker_id, status, text="", html="", history="",
     Parameters:
 
     * `status`: `succeeded`, `partial`, `failed` or `cancelled`.
-    * `text`, `html`, `history`: See `ResultInfo`.
+    * `text`, `html`, `history`, `data`: See `ResultInfo`.
     * `error`: One line that says why the job failed.
     """
     if status not in FINISHED or status == LOST:
@@ -735,7 +757,8 @@ def finish(job_id, worker_id, status, text="", html="", history="",
         if not finished:
             return False
         session.add(JobResult(
-            job_id=job_id, text=text, html=html, history=history))
+            job_id=job_id, text=text, html=html, history=history,
+            data=data))
         _event(session, job_id, "state", status, now)
     return True
 

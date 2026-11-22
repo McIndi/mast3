@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Jobs · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/jobs.js') }}"></script>{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h1 class="h4 mb-0 me-auto">Jobs</h1>
+    <form class="d-flex flex-wrap gap-2" data-job-filters>
+        <select class="form-select form-select-sm w-auto" name="status" aria-label="Status">
+            <option value="">Any status</option>
+            <option>queued</option><option>running</option><option>succeeded</option>
+            <option>partial</option><option>failed</option><option>cancelled</option><option>lost</option>
+        </select>
+        <input class="form-control form-control-sm w-auto" name="command" placeholder="Command id" aria-label="Command">
+        <input class="form-control form-control-sm w-auto" name="appliance" placeholder="Appliance" aria-label="Appliance">
+        <div class="form-check align-self-center">
+            <input class="form-check-input" type="checkbox" name="mine" id="filter-mine" value="1">
+            <label class="form-check-label" for="filter-mine">Mine</label>
+        </div>
+    </form>
+</div>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+        <thead><tr><th>Job</th><th>Status</th><th>Command</th><th>Appliances</th><th>By</th><th>Submitted</th></tr></thead>
+        <tbody data-job-rows><tr><td colspan="6" class="text-body-secondary">Loading…</td></tr></tbody>
+    </table>
+</div>
+<button class="btn btn-sm btn-outline-secondary d-none" type="button" data-more>Older jobs</button>
+<h2 class="h5 mt-4">Workers</h2>
+<div data-workers class="text-body-secondary small">Loading…</div>
+{% endblock %}

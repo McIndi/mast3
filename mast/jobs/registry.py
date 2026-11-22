@@ -28,7 +28,7 @@ and they are the names that permissions will refer to.
 import importlib
 
 __all__ = ["register", "unregister", "resolve", "command_id",
-           "UnknownCommand"]
+           "namespaces", "cli_for", "UnknownCommand"]
 
 _clis = {}
 
@@ -95,3 +95,44 @@ def resolve(command_id):
         raise UnknownCommand(command_id) from None
     except UnknownCommand:
         raise UnknownCommand(command_id) from None
+
+
+def _discovered():
+    """The names of the packages under `mast.datapower` that have a
+    `cli` with a namespace: the MAST plugins whose commands are jobs."""
+    import pkgutil
+    import mast.datapower
+    found = []
+    for info in pkgutil.iter_modules(mast.datapower.__path__):
+        if not info.ispkg:
+            continue
+        try:
+            cli = _cli(info.name)
+        except UnknownCommand:
+            continue
+        except Exception:
+            # A plugin that cannot be imported has no commands here
+            continue
+        if getattr(cli, "namespace", None) == info.name:
+            found.append(info.name)
+    return found
+
+
+def namespaces():
+    """
+    _function_: `mast.jobs.registry.namespaces()`
+
+    Return the namespaces of every command that can run as a job,
+    sorted: the MAST plugins, and every namespace given to `register`.
+    The web UI lists the commands with this.
+    """
+    return sorted(set(_discovered()) | set(_clis))
+
+
+def cli_for(namespace):
+    """
+    _function_: `mast.jobs.registry.cli_for(namespace)`
+
+    Return the `mast.cli.Cli` of `namespace`. Raises `UnknownCommand`.
+    """
+    return _cli(namespace)

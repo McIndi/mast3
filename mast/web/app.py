@@ -23,6 +23,10 @@ The Flask application of the web UI.
 `mast.web.auth`), and every request that can change something needs
 the CSRF token of the session (see `mast.web.security`).
 
+The pages come from the entry points in the group `mast_web_page`
+(see `mast.web.page`): the core has Jobs, Commands and Admin. The JSON
+API is `mast.web.api`, under `/api/v1`.
+
 The classic GUI (`mast.datapower.web.gui`) is mounted under
 `/classic/`, until the new web UI can do all that it does. It uses the
 same key and the same session cookie, so a user logs in once, and it
@@ -30,9 +34,11 @@ needs the same login.
 """
 import flask
 
+from mast.auth import roles
 from mast.config import get_configs_dict
 from mast.logging import make_logger
-from mast.web import auth, security
+from mast.web import api, auth, security
+from mast.web.page import load_pages
 
 __all__ = ["create_app", "settings", "CLASSIC_PREFIX"]
 
@@ -96,9 +102,14 @@ def configure_session(app, values):
         MAST_MAX_SECONDS=values["max_seconds"])
 
 
-def create_app(server_conf=None, classic=True):
+def _is_api():
+    return flask.request.path.startswith(api.blueprint.url_prefix + "/")
+
+
+def create_app(server_conf=None, classic=True, pages=None):
     """
-    _function_: `mast.web.app.create_app(server_conf=None, classic=True)`
+    _function_: `mast.web.app.create_app(server_conf=None, classic=True,
+    pages=None)`
 
     Make the Flask application of the web UI.
 
@@ -107,6 +118,8 @@ def create_app(server_conf=None, classic=True):
     * `server_conf`: The parsed `server.conf`. The default is the one
     of the MAST home.
     * `classic`: If True, mount the classic GUI under `/classic/`.
+    * `pages`: The `mast.web.page.Page`s. The default is every entry
+    point in `mast_web_page`.
     """
     values = settings(server_conf)
     app = flask.Flask(__name__)
@@ -114,6 +127,11 @@ def create_app(server_conf=None, classic=True):
     app.config["MAST_SECURE"] = values["secure"]
     app.config["MAST_HSTS_MAX_AGE"] = values["hsts_max_age"]
     app.register_blueprint(auth.blueprint)
+    app.register_blueprint(api.blueprint)
+    pages = load_pages() if pages is None else list(pages)
+    for page in pages:
+        app.register_blueprint(page.blueprint)
+    app.config["MAST_PAGES"] = pages
 
     @app.before_request
     def log_access():
@@ -133,9 +151,12 @@ def create_app(server_conf=None, classic=True):
         make_logger("gui").warning(
             "Refused {} {} from {}: no valid CSRF token".format(
                 request.method, request.path, request.remote_addr))
-        return flask.Response(
-            "This request has no valid CSRF token. Reload the page and "
-            "try again.\n", status=400, mimetype="text/plain")
+        message = "This request has no valid CSRF token. Reload the " \
+                  "page and try again."
+        if _is_api():
+            return api.error(400, message)
+        return flask.Response(message + "\n", status=400,
+                              mimetype="text/plain")
 
     @app.after_request
     def security_headers(response):
@@ -145,19 +166,30 @@ def create_app(server_conf=None, classic=True):
 
     @app.context_processor
     def template_functions():
-        return {"csrf_token": security.csrf_token,
-                "classic_prefix": CLASSIC_PREFIX if classic else None}
+        user = flask.g.get("mast_user")
+        return {
+            "csrf_token": security.csrf_token,
+            "classic_prefix": CLASSIC_PREFIX if classic else None,
+            "nav_pages": [page for page in pages if user is not None
+                          and roles.at_least(user.role, page.min_role)],
+            "may_submit": user is not None
+            and roles.allowed(user.role, "submit"),
+        }
 
     @app.route("/")
     def index():
         """
         _function_: `mast.web.app.index()`
 
-        The home page of the web UI.
+        The home page: the first page that the user may see.
 
         Exposed at: `/` via GET
         """
-        return flask.render_template("home.html", user=flask.g.mast_user)
+        user = flask.g.mast_user
+        for page in pages:
+            if roles.at_least(user.role, page.min_role):
+                return flask.redirect(page.path)
+        return flask.render_template("home.html", user=user)
 
     if classic:
         _mount_classic(app, values)

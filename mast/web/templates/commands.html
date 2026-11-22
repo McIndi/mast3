@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Commands · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/commands.js') }}"></script>{% endblock %}
+{% block targetbar %}{% include "targetbar.html" %}{% endblock %}
+{% block content %}
+<div class="row g-3">
+    <div class="col-12 col-md-4 col-xl-3">
+        <input class="form-control form-control-sm mb-2" type="search" placeholder="Find a command" aria-label="Find a command" data-command-search>
+        <select class="form-select form-select-sm mb-2" aria-label="Namespace" data-namespace></select>
+        <div class="list-group list-group-flush small mast-command-list" data-command-list></div>
+    </div>
+    <div class="col-12 col-md-8 col-xl-9">
+        <div class="alert alert-danger d-none" role="alert" data-error></div>
+        <div data-command-form class="text-body-secondary">Choose a command.</div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job_id[:8] }} · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/job.js') }}"></script>{% endblock %}
+{% block content %}
+<div data-job-id="{{ job_id }}">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <a href="/jobs" class="btn btn-sm btn-outline-secondary">All jobs</a>
+        <h1 class="h4 mb-0 me-auto">Job <code>{{ job_id[:8] }}</code> <span class="badge" data-status></span></h1>
+        <button class="btn btn-sm btn-outline-danger d-none" type="button" data-cancel>Cancel</button>
+    </div>
+    <div class="alert alert-danger d-none" role="alert" data-error></div>
+    <dl class="row small mb-3" data-summary></dl>
+    <div class="row g-3">
+        <div class="col-12 col-xl-4">
+            <h2 class="h6">Parameters</h2>
+            <table class="table table-sm small"><tbody data-params></tbody></table>
+            <div data-children-box class="d-none">
+                <h2 class="h6">Child jobs</h2>
+                <ul class="list-group list-group-flush small" data-children></ul>
+            </div>
+            <div data-files-box class="d-none">
+                <h2 class="h6 mt-3">Downloads</h2>
+                <ul class="list-unstyled small" data-files></ul>
+            </div>
+        </div>
+        <div class="col-12 col-xl-8">
+            <h2 class="h6">Progress</h2>
+            <pre class="mast-pre mast-events" data-events></pre>
+            <div data-result-box class="d-none">
+                <div class="d-flex align-items-center gap-2">
+                    <h2 class="h6 mb-0 me-auto">Result</h2>
+                    <a class="small" data-history href="#">History</a>
+                </div>
+                <div data-result class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
