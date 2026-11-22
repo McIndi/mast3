@@ -54,7 +54,7 @@ from mast.testsuite.integration.homes import TEST_HOME, copy_home
 COMMANDS = (
     "mast-accounts", "mast-backups", "mast-crypto", "mast-deployment",
     "mast-developer", "mast-network", "mast-ssh", "mast-system",
-    "mast-jobs", "mast-worker", "test-mast",
+    "mast-jobs", "mast-users", "mast-worker", "test-mast",
 )
 
 CREDENTIALS = "admin:admin"
@@ -235,13 +235,20 @@ class TestLaunchers(InstalledTestCase):
         self.write("server.conf", ["[server]", "secure = false",
                                    "port = {}".format(port)])
         self.addCleanup(os.remove, os.path.join(self.home, "etc", "local", "server.conf"))
+        # Every page needs a login, and the login page needs a user
+        added = self.run_mast(
+            "mast", "-c", "from mast.auth import users; "
+            "users.add('webtest', 'a long test password', 'viewer')")
+        self.assertEqual(added.returncode, 0, added.stdout)
         proc = self.start("mast-web")
 
         def answers():
             try:
                 with urllib.request.urlopen(
                         "http://127.0.0.1:{}/".format(port), timeout=5) as resp:
-                    return resp.status
+                    # / sends the browser to the login page
+                    return resp.status if resp.url.endswith("/login?next=/") \
+                        else resp.url
             except OSError:
                 return None
         self.assertEqual(self.wait_until(answers, "the web GUI"), 200)

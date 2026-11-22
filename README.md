@@ -102,6 +102,10 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
 
+## The web GUI
+
+`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
+
 ## The job queue
 
 Each command of `mast-accounts`, `mast-backups`, `mast-crypto`, `mast-deployment`, `mast-developer`, `mast-network` and `mast-system`, and each form that you submit in the web UI, is recorded as a job in a database, with its progress and its result. `mast-ssh`, the scripts in `contrib` and `mast-system xor` are not jobs. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.

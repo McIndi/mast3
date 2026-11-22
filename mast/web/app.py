@@ -1,0 +1,177 @@
+# -*- coding: utf-8 -*-
+# This file is part of McIndi's Automated Solutions Tool (MAST).
+#
+# MAST is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 3
+# as published by the Free Software Foundation.
+#
+# MAST is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with MAST.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Copyright 2015-2026, McIndi Solutions, All rights reserved.
+"""
+_module_: `mast.web.app`
+
+The Flask application of the web UI.
+
+`create_app()` makes it. Every page needs a login (see
+`mast.web.auth`), and every request that can change something needs
+the CSRF token of the session (see `mast.web.security`).
+
+The classic GUI (`mast.datapower.web.gui`) is mounted under
+`/classic/`, until the new web UI can do all that it does. It uses the
+same key and the same session cookie, so a user logs in once, and it
+needs the same login.
+"""
+import flask
+
+from mast.config import get_configs_dict
+from mast.logging import make_logger
+from mast.web import auth, security
+
+__all__ = ["create_app", "settings", "CLASSIC_PREFIX"]
+
+CLASSIC_PREFIX = "/classic"
+
+
+def _flag(value, default=False):
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def settings(server_conf=None):
+    """
+    _function_: `mast.web.app.settings(server_conf=None)`
+
+    Return the settings of the web UI from `server.conf` as a dict:
+    `secure`, `host`, `port`, `hsts_max_age`, `idle_seconds` and
+    `max_seconds`.
+
+    Parameters:
+
+    * `server_conf`: The parsed `server.conf`, as a dict of stanzas.
+    The default is the merged `etc/default` and `etc/local` file.
+    """
+    conf = server_conf if server_conf is not None \
+        else get_configs_dict()["server.conf"]
+    server = conf.get("server", {})
+    auth_conf = conf.get("auth", {}) if "auth" in conf else {}
+    return {
+        "server": server,
+        "secure": _flag(server.get("secure"), True),
+        "host": server.get("host") or "127.0.0.1",
+        "port": int(server.get("port") or 5000),
+        "hsts_max_age": int(server.get("hsts_max_age") or 31536000),
+        "idle_seconds": int(float(
+            auth_conf.get("idle_minutes") or auth.IDLE_SECONDS / 60) * 60),
+        "max_seconds": int(float(
+            auth_conf.get("max_hours") or auth.MAX_SECONDS / 3600) * 3600),
+    }
+
+
+def configure_session(app, values):
+    """
+    _function_: `mast.web.app.configure_session(app, values)`
+
+    Give `app` the session settings of the web UI: the key, the cookie
+    flags and the session limits. The new web UI and the classic GUI
+    get the same settings, so that they share the session cookie.
+    """
+    app.secret_key = security.secret_key(values["server"])
+    app.config.update(
+        SESSION_COOKIE_NAME="session",
+        SESSION_COOKIE_PATH="/",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=values["secure"],
+        SESSION_COOKIE_SAMESITE="Lax",
+        MAST_IDLE_SECONDS=values["idle_seconds"],
+        MAST_MAX_SECONDS=values["max_seconds"])
+
+
+def create_app(server_conf=None, classic=True):
+    """
+    _function_: `mast.web.app.create_app(server_conf=None, classic=True)`
+
+    Make the Flask application of the web UI.
+
+    Parameters:
+
+    * `server_conf`: The parsed `server.conf`. The default is the one
+    of the MAST home.
+    * `classic`: If True, mount the classic GUI under `/classic/`.
+    """
+    values = settings(server_conf)
+    app = flask.Flask(__name__)
+    configure_session(app, values)
+    app.config["MAST_SECURE"] = values["secure"]
+    app.config["MAST_HSTS_MAX_AGE"] = values["hsts_max_age"]
+    app.register_blueprint(auth.blueprint)
+
+    @app.before_request
+    def log_access():
+        request = flask.request
+        make_logger("mast.web.access").info(
+            "method: {}, url: {}, client: {}".format(
+                request.method, request.path, request.remote_addr))
+
+    app.before_request(auth.require_login(
+        exempt=("auth.login", "auth.login_post")))
+
+    @app.before_request
+    def check_csrf_token():
+        if security.csrf_ok():
+            return None
+        request = flask.request
+        make_logger("gui").warning(
+            "Refused {} {} from {}: no valid CSRF token".format(
+                request.method, request.path, request.remote_addr))
+        return flask.Response(
+            "This request has no valid CSRF token. Reload the page and "
+            "try again.\n", status=400, mimetype="text/plain")
+
+    @app.after_request
+    def security_headers(response):
+        return security.add_security_headers(
+            response, app.config["MAST_SECURE"],
+            app.config["MAST_HSTS_MAX_AGE"])
+
+    @app.context_processor
+    def template_functions():
+        return {"csrf_token": security.csrf_token,
+                "classic_prefix": CLASSIC_PREFIX if classic else None}
+
+    @app.route("/")
+    def index():
+        """
+        _function_: `mast.web.app.index()`
+
+        The home page of the web UI.
+
+        Exposed at: `/` via GET
+        """
+        return flask.render_template("home.html", user=flask.g.mast_user)
+
+    if classic:
+        _mount_classic(app, values)
+    return app
+
+
+def _mount_classic(app, values):
+    """Mount the classic GUI under CLASSIC_PREFIX, with the session
+    settings of `app`."""
+    from werkzeug.middleware.dispatcher import DispatcherMiddleware
+    from mast.datapower.web import gui
+    configure_session(gui.app, values)
+    gui.secure = values["secure"]
+    gui.hsts_max_age = values["hsts_max_age"]
+    app.wsgi_app = DispatcherMiddleware(
+        app.wsgi_app, {CLASSIC_PREFIX: gui.app})
+    app.classic = gui.app

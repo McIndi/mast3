@@ -79,6 +79,17 @@ stop the web GUI and delete the file. If several web servers must share one key,
 same long random value on each. `$MAST_HOME/etc/default/server.conf` explains both
 settings.
 
+# The users of the web GUI
+
+Every page of the web GUI needs a login. Add the first admin in `$MAST_HOME`; it asks
+for the password:
+
+    :::bash
+    ./mast-users add -u NAME -r admin
+
+The users are in the job database, so every MAST server that shares a PostgreSQL
+database has the same users. The Operator's Guide explains the roles.
+
 # Installing mastd
 
 The process of installing mastd as a service will vary depending on your target

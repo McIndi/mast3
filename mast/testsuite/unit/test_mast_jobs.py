@@ -50,6 +50,8 @@ from mast.cli import Cli, Option, Params, Table, Text, checkpoint, say
 from mast.jobs import client, config, db, queue, registry, runner, secrets
 from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Base, Job, JobTarget
+# The users table is in the same database (and in Base.metadata)
+import mast.auth.models  # noqa: F401
 from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
@@ -340,7 +342,8 @@ class TestSubmit(SqliteCase):
         info = jobs.get(job_id)
         self.assertEqual(info.status, jobs.QUEUED)
         self.assertEqual(info.command, "test.work")
-        self.assertEqual(info.submitted_by, "local")
+        self.assertEqual(info.submitted_by, jobs.LOCAL.name)
+        self.assertTrue(info.submitted_by.startswith("os:"))
         self.assertEqual(info.params["seconds"], 1.5)
         self.assertEqual(info.targets, ["dp1"])
         self.assertTrue(info.exclusive)
@@ -1728,7 +1731,7 @@ class TestMastJobs(CliCase):
         jobs.run_next("w1")
         status, out, _ = self.mast_jobs("show", "-j", job_id[:6])
         self.assertEqual(status, 0)
-        for expected in (job_id, "test.work", "succeeded", "by local",
+        for expected in (job_id, "test.work", "succeeded", "by " + jobs.LOCAL.name,
                          "Worker:     w1", "credentials: (secret)",
                          "working on dp1", "[running on w1]",
                          "worked with ********"):

@@ -12,7 +12,7 @@ jQuery.download = function(url, data, method){
         // The CSRF token of the session, see mast.js
         inputs+='<input type="hidden" name="csrf_token" value="'+ MAST_CSRF_TOKEN +'" />';
         //send request
-        jQuery('<form action="'+ url +'" method="'+ (method||'post') +'">'+inputs+'</form>')
+        jQuery('<form action="'+ (typeof mastUrl === "function" ? mastUrl(url) : url) +'" method="'+ (method||'post') +'">'+inputs+'</form>')
         .appendTo('body').submit().remove();
     };
 };

@@ -9,6 +9,24 @@ var Base64={_keyStr:"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
 var MAST_CSRF_TOKEN = $('meta[name="csrf-token"]').attr("content");
 $.ajaxSetup({headers: {"X-CSRF-Token": MAST_CSRF_TOKEN}});
 
+/*
+   Where the classic GUI is mounted: "/classic" under the web UI (see
+   mast.web.app). The scripts ask for paths such as "/jobs/<id>", so
+   every request for a path that starts with one "/" gets this prefix.
+   $.download does the same for its forms.
+*/
+var MAST_ROOT = $('meta[name="mast-root"]').attr("content") || "";
+function mastUrl(url){
+    if (typeof url === "string" && url.charAt(0) === "/" && url.charAt(1) !== "/"
+            && url.indexOf(MAST_ROOT + "/") !== 0){
+        return MAST_ROOT + url;
+    }
+    return url;
+}
+$.ajaxPrefilter(function(options){
+    options.url = mastUrl(options.url);
+});
+
 var xor = {
     "encode": function(string, key){
         return Base64.encode(this._xor(string, key));

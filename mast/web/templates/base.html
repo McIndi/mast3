@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}MAST{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mast-web.css') }}">
+</head>
+<body>
+    <header class="bar">
+        <span class="brand">MAST</span>
+        {% if g.mast_user %}
+        <nav>
+            <a href="/">Home</a>
+            {% if classic_prefix %}<a href="{{ classic_prefix }}/">Classic GUI</a>{% endif %}
+            <a href="/account/password">Password</a>
+            <form method="post" action="/logout" class="inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="link">Log out {{ g.mast_user.name }}</button>
+            </form>
+        </nav>
+        {% endif %}
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

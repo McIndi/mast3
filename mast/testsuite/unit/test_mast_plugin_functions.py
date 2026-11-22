@@ -35,6 +35,7 @@ from mast.cli import Cli, Option, Params, Table, say
 from mast.plugin_utils.params import (
     ApplianceParams, OBJECT_CLASS, OUT_DIR, OUT_FILE, UPLOAD, configured)
 from mast.xor import xorencode
+from mast.testsuite.unit.web_helpers import WebCase
 
 COOKIE = "9x4h/mmek/j.ahba.ckhafn"
 SESSION = "session-key"
@@ -170,7 +171,7 @@ class WebFormTestCase(unittest.TestCase):
             self.addCleanup(patch.stop)
         self.addCleanup(jobs.registry.unregister, "example")
 
-    def submit(self, **form):
+    def submit(self, principal=jobs.LOCAL, **form):
         """Submit a form the way the web GUI does and return the html
         of the answer."""
         form.setdefault("appliances[]", "dp1")
@@ -179,7 +180,8 @@ class WebFormTestCase(unittest.TestCase):
         with self.app.test_request_context(
                 "/example", method="POST", data=form,
                 headers={"Cookie": "{}={}".format(COOKIE, SESSION)}):
-            return pf.call_method("example", flask.request.form)
+            return pf.call_method("example", flask.request.form,
+                                  principal=principal)
 
     def job_id(self, html):
         """Return the id of the job in the box that `submit` returned."""
@@ -337,6 +339,27 @@ class WebFormTestCase(unittest.TestCase):
         rest = self.state(job_id, cancelled["last_event"])["events"]
         shown.extend(rest)
         self.assertEqual(shown, ["step {}".format(n) for n in range(len(shown))])
+
+    def test_the_job_belongs_to_the_user_of_the_session(self):
+        operator = jobs.Principal("otto", "operator")
+        job_id = self.job_id(self.submit(
+            principal=operator, callable="example", Domain="default"))
+        self.assertEqual("otto", jobs.get(job_id).submitted_by)
+        with self.app.test_request_context("/jobs/" + job_id):
+            self.assertEqual(job_id, pf.job_state(
+                job_id, principal=operator)["id"])
+            with self.assertRaises(jobs.Forbidden):
+                pf.cancel_job(job_id, principal=jobs.Principal(
+                    "olga", "operator"))
+        self.finished(job_id)
+
+    def test_a_viewer_cannot_submit(self):
+        before = [job.id for job in jobs.list_jobs()]
+        html = self.submit(principal=jobs.Principal("vera", "viewer"),
+                           callable="example", Domain="default")
+        self.assertNotIn("job_pending", html)
+        self.assertIn("You are not allowed to run this command", html)
+        self.assertEqual(before, [job.id for job in jobs.list_jobs()])
 
     def test_a_command_that_cannot_be_queued_shows_why(self):
         with mock.patch.object(
@@ -496,25 +519,30 @@ class WebFormTestCase(unittest.TestCase):
             self.assertEqual("the result", fin.read())
 
 
-if __name__ == "__main__":
-    unittest.main()
 
-
-class CancelRouteTestCase(unittest.TestCase):
+class CancelRouteTestCase(WebCase):
     def test_the_browser_says_which_events_it_has(self):
         from mast.datapower.web import gui
-        client = gui.app.test_client()
+        from mast.jobs import Principal
+        self.login("operator")
+        client = self.client
         # The page gives the CSRF token, which the browser sends back
-        page = client.get("/").get_data(as_text=True)
+        page = client.get("/classic/").get_data(as_text=True)
         token = re.search(r'name="csrf-token" content="([^"]+)"', page).group(1)
         headers = {gui.CSRF_HEADER: token}
         with mock.patch.object(
                 gui.plugin_functions, "cancel_job",
                 return_value={"events": []}) as cancel_job:
-            answer = client.post("/jobs/abc/cancel", data={"after": "7"},
-                                 headers=headers)
+            answer = client.post("/classic/jobs/abc/cancel",
+                                 data={"after": "7"}, headers=headers)
             self.assertEqual(200, answer.status_code)
-            cancel_job.assert_called_once_with("abc", 7)
+            cancel_job.assert_called_once_with(
+                "abc", 7, principal=Principal("operator", "operator"))
             self.assertEqual(
-                404, client.post("/jobs/abc/cancel", data={"after": "x"},
+                404, client.post("/classic/jobs/abc/cancel",
+                                 data={"after": "x"},
                                  headers=headers).status_code)
+
+
+if __name__ == "__main__":
+    unittest.main()

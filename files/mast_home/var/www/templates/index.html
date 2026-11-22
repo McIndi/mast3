@@ -2,22 +2,23 @@
 <html>
     <head>
         <meta name="csrf-token" content="{{ csrf_token() }}" />
-        <link rel="stylesheet" href="/static/css/jquery-ui.min.css" />
-        <link rel="stylesheet" href="/plugins.css" />
-        <link rel="stylesheet" href="/static/css/mast.css" />
-        <script src='/static/js/chart.umd.js' ></script>
-        <script src="/static/js/jquery.min.js"></script>
-        <script src="/static/js/jquery.download.js"></script>
-        <script src='/static/js/jquery-ui.min.js'></script>
-        <script src='/static/js/jquery-pubsub.js'></script>
-        <script src='/static/js/mast.js'></script>
-        <script src='/static/js/mast-util.js'></script>
+        <meta name="mast-root" content="{{ mast_root }}" />
+        <link rel="stylesheet" href="{{ mast_root }}/static/css/jquery-ui.min.css" />
+        <link rel="stylesheet" href="{{ mast_root }}/plugins.css" />
+        <link rel="stylesheet" href="{{ mast_root }}/static/css/mast.css" />
+        <script src='{{ mast_root }}/static/js/chart.umd.js' ></script>
+        <script src="{{ mast_root }}/static/js/jquery.min.js"></script>
+        <script src="{{ mast_root }}/static/js/jquery.download.js"></script>
+        <script src='{{ mast_root }}/static/js/jquery-ui.min.js'></script>
+        <script src='{{ mast_root }}/static/js/jquery-pubsub.js'></script>
+        <script src='{{ mast_root }}/static/js/mast.js'></script>
+        <script src='{{ mast_root }}/static/js/mast-util.js'></script>
         <title>M.A.S.T. for DP</title>
     </head>
     <body>
         <div id="title">McIndi Automated Solutions Tool for IBM DataPower</div>
         <hr />
-        <img id="hiddenLoadingIMG" src="/static/images/loading.gif" />
+        <img id="hiddenLoadingIMG" src="{{ mast_root }}/static/images/loading.gif" />
 
         <form id="addApplianceForm" class="centered">
             <b>Add an appliance</b><br />
@@ -41,6 +42,6 @@
                     {{ plugins['html'] }}
             </div>
         </div>
-        <script src="/plugins.js"></script>
+        <script src="{{ mast_root }}/plugins.js"></script>
     </body>
 </html>

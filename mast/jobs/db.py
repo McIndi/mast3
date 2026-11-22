@@ -34,14 +34,16 @@ from sqlalchemy.orm import Session
 
 from mast.jobs import config
 
-__all__ = ["configure", "engine", "session", "upgrade", "lock_queue"]
+__all__ = [
+    "configure", "engine", "session", "upgrade", "downgrade", "revision",
+    "lock_queue"]
 
 SUPPORTED = ("sqlite", "postgresql")
 
 # The newest revision in mast/jobs/migrations/versions. Alembic is only
 # imported if the database is at another revision, because every MAST
 # command opens the database and Alembic is slow to import.
-HEAD = "0001"
+HEAD = "0002"
 
 # An arbitrary number. Every process that changes the schema or claims
 # a job takes the PostgreSQL advisory lock with this key.
@@ -181,6 +183,10 @@ def upgrade(target=None):
     with target.connect() as connection:
         if _revision(connection) == HEAD:
             return
+    _migrate(target, "upgrade", "head")
+
+
+def _migrate(target, direction, revision):
     from alembic import command as alembic_command
     from alembic.config import Config
     cfg = Config()
@@ -189,7 +195,50 @@ def upgrade(target=None):
         lock_queue(connection)
         # The migration reads the revision again, inside the lock
         cfg.attributes["connection"] = connection
-        alembic_command.upgrade(cfg, "head")
+        getattr(alembic_command, direction)(cfg, revision)
+
+
+def revision(target=None):
+    """
+    _function_: `mast.jobs.db.revision(target=None)`
+
+    Return the revision of the tables in the database of the engine
+    `target` (the configured database by default), for example
+    `"0002"`, or `None` if it has no tables. It does not upgrade them.
+    """
+    target = target if target is not None else _create_engine(
+        _url or config.database_url())
+    with target.connect() as connection:
+        return _revision(connection)
+
+
+def downgrade(revision, target=None):
+    """
+    _function_: `mast.jobs.db.downgrade(revision, target=None)`
+
+    Take the tables in the database back to `revision`, for example
+    `"0001"` for the tables of MAST 3.15.2. The tables and columns of
+    the newer revisions are dropped, with what they hold. The jobs
+    stay.
+
+    This is the way back to an older MAST. Stop every MAST process of
+    the home first, and start only the older MAST after it: a newer
+    MAST upgrades the tables again when it starts.
+
+    Parameters:
+
+    * `revision`: The revision to go back to.
+    * `target`: An engine. The default is the configured database,
+    which is not upgraded first.
+    """
+    global _engine
+    if target is None:
+        with _lock:
+            if _engine is not None:
+                _engine.dispose()
+                _engine = None
+        target = _create_engine(_url or config.database_url())
+    _migrate(target, "downgrade", revision)
 
 
 @contextlib.contextmanager

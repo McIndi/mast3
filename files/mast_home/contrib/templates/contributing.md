@@ -66,8 +66,10 @@ checkout, so a change to the code is live:
 | DataPower | `mast/datapower/datapower` | `DataPower` talks to one appliance through its XML management interface (SOMA and AMP) and SSH. `Environment` is a group of appliances. The SOMA spec files are in `files/mast_home/etc`. |
 | The commands | `mast/datapower/<plugin>` | `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `ssh`, `status`, `system`. Each has a module-level `cli` and a web plugin. |
 | Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `plugin_functions` (the web forms). |
-| The web GUI | `mast/datapower/web` | A Flask application served by CherryPy. Each web plugin is a tab. |
-| `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web GUI, a worker and the scheduler. |
+| The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), and the CSRF token, the session key and the security headers (`security`). |
+| The classic GUI | `mast/datapower/web` | A Flask application that the web UI mounts under `/classic/`. Each web plugin is a tab. |
+| Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast-users` is `mast/auth/cli.py`. |
+| `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler. |
 | The installer | `tools/mast_setup`, `files/invocation_scripts` | `./mast-setup`: builds the installer and the development home from `uv.lock`, with Python from python-build-standalone. The launchers of each platform. |
 
 A command goes through these steps: the launcher starts

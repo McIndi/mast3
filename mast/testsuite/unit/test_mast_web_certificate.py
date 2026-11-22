@@ -33,7 +33,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from mast.config import MAST_HOME
-from mast.datapower.web import gui
+from mast.web import server
 
 GEN_CERT = os.path.join(MAST_HOME, "contrib", "gen-cert.py")
 
@@ -43,13 +43,14 @@ class TestCheckCertificate(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp(prefix="mast-cert-")
         self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
-        for name, value in (("secure", True), ("MAST_HOME", self.home),
-                            ("cert", "etc/crypto/cert/mast.crt"),
-                            ("key", "etc/crypto/private/mast.key"),
-                            ("cacert", None)):
-            patcher = mock.patch.object(gui, name, value, create=True)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(server, "MAST_HOME", self.home)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.server = {"secure": True, "cert": "etc/crypto/cert/mast.crt",
+                       "key": "etc/crypto/private/mast.key"}
+
+    def check(self, **changes):
+        server.check_certificate(dict(self.server, **changes))
 
     def touch(self, path):
         full = os.path.join(self.home, path)
@@ -58,8 +59,8 @@ class TestCheckCertificate(unittest.TestCase):
         return full
 
     def test_a_fresh_install_gets_a_message_with_both_ways_out(self):
-        with self.assertRaises(gui.CertificateNotFound) as caught:
-            gui.check_certificate()
+        with self.assertRaises(server.CertificateNotFound) as caught:
+            self.check()
         message = str(caught.exception)
         self.assertIn("cert = etc/crypto/cert/mast.crt is not there", message)
         self.assertIn("key = etc/crypto/private/mast.key is not there", message)
@@ -70,8 +71,8 @@ class TestCheckCertificate(unittest.TestCase):
 
     def test_only_the_missing_file_is_named(self):
         self.touch("etc/crypto/cert/mast.crt")
-        with self.assertRaises(gui.CertificateNotFound) as caught:
-            gui.check_certificate()
+        with self.assertRaises(server.CertificateNotFound) as caught:
+            self.check()
         self.assertNotIn("cert = ", str(caught.exception))
         self.assertIn("key = ", str(caught.exception))
 
@@ -80,43 +81,42 @@ class TestCheckCertificate(unittest.TestCase):
     def test_a_key_that_cannot_be_read(self):
         self.touch("etc/crypto/cert/mast.crt")
         os.chmod(self.touch("etc/crypto/private/mast.key"), 0)
-        with self.assertRaises(gui.CertificateNotFound) as caught:
-            gui.check_certificate()
+        with self.assertRaises(server.CertificateNotFound) as caught:
+            self.check()
         self.assertIn("mast.key cannot be read", str(caught.exception))
 
     def test_a_cacert_that_is_set_is_checked(self):
         self.touch("etc/crypto/cert/mast.crt")
         self.touch("etc/crypto/private/mast.key")
-        with mock.patch.object(gui, "cacert", "etc/crypto/cert/ca.crt"):
-            with self.assertRaises(gui.CertificateNotFound) as caught:
-                gui.check_certificate()
+        with self.assertRaises(server.CertificateNotFound) as caught:
+            self.check(cacert="etc/crypto/cert/ca.crt")
         self.assertIn("cacert = etc/crypto/cert/ca.crt", str(caught.exception))
 
     def test_no_error_when_the_files_are_there(self):
         self.touch("etc/crypto/cert/mast.crt")
         self.touch("etc/crypto/private/mast.key")
-        gui.check_certificate()
+        self.check()
 
     def test_absolute_paths(self):
         cert = self.touch("elsewhere/c.crt")
         key = self.touch("elsewhere/k.key")
-        with mock.patch.object(gui, "cert", cert), mock.patch.object(gui, "key", key):
-            gui.check_certificate()
+        self.check(cert=cert, key=key)
 
     def test_no_check_without_tls(self):
-        with mock.patch.object(gui, "secure", False):
-            gui.check_certificate()
+        self.check(secure=False)
 
 
 class TestMastdPlugin(unittest.TestCase):
 
     def test_mastd_logs_the_message_and_goes_on_without_the_web_gui(self):
-        import mast.datapower.web as web
-        problem = gui.CertificateNotFound("no certificate here")
-        with mock.patch.object(web, "main", side_effect=problem), \
-                self.assertLogs("mast.datapower.web", "ERROR") as logs:
-            web.Plugin().run()
-        self.assertIn("no certificate here", "\n".join(logs.output))
+        import mast.web as web
+        for problem in (server.CertificateNotFound("no certificate here"),
+                        server.InsecureServer("no certificate here")):
+            with self.subTest(problem=type(problem).__name__):
+                with mock.patch.object(server, "main", side_effect=problem), \
+                        self.assertLogs("mast.datapower.web", "ERROR") as logs:
+                    web.Plugin().run()
+                self.assertIn("no certificate here", "\n".join(logs.output))
 
 
 class TestGenCert(unittest.TestCase):

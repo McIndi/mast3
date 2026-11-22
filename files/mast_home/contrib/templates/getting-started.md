@@ -44,6 +44,16 @@ Browsers warn about a self-signed certificate until you trust it. For a
 server that other people use, a certificate from your certificate
 authority is better.
 
+
+Every page of the web GUI needs a login. Add the first admin in
+`$MAST_HOME` (on Windows, `mast-users.bat`); it asks for a password:
+
+    :::bash
+    ./mast-users add -u NAME -r admin
+
+Then open the web GUI and log in. The Operator's Guide explains the
+roles and the other `mast-users` commands.
+
 # Configuring your hosts
 
 One of the more useful features of MAST is that you can define aliases for

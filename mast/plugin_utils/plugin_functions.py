@@ -48,6 +48,7 @@ from mast.xor import xordecode, xorencode
 from mast.timestamp import Timestamp
 from mast.logging import make_logger
 from mast import jobs
+from mast.jobs import auth as jobs_auth
 from mast.jobs import client as jobs_client
 from mast.jobs import registry as jobs_registry
 from mast.cli import Result, captured
@@ -910,12 +911,13 @@ def _check(command, values):
     return None
 
 
-def call_method(plugin, form):
+def call_method(plugin, form, principal=jobs.LOCAL):
     """Gather the arguments and function name from form, then put the
-    command in the job queue. Return the html of a box that the
-    browser fills with the progress and the result of the job (see
-    `job_state`). If the arguments are not valid, return the html of
-    the problem and queue nothing."""
+    command in the job queue as `principal`. Return the html of a box
+    that the browser fills with the progress and the result of the job
+    (see `job_state`). If the arguments are not valid, or the principal
+    may not run commands, return the html of the problem and queue
+    nothing."""
     t = Timestamp()
     name = form.get("callable")
     cli = get_module(plugin).cli
@@ -928,6 +930,13 @@ def call_method(plugin, form):
             name, t, kwargs, Markup(html_escape(problem)),
             _save_history(problem, job_id), job_id)
     if not getattr(command, "queued", True):
+        try:
+            jobs_auth.authorize(principal, "submit", command=name)
+        except jobs.Forbidden as exc:
+            return _render_output(
+                name, t, kwargs,
+                Markup(html_escape(_queue_error_message(exc))),
+                _save_history(str(exc), job_id), job_id)
         out, history = _call_now(command, kwargs)
         return _render_output(
             name, t, kwargs, out, _save_history(history, job_id), job_id)
@@ -938,7 +947,7 @@ def call_method(plugin, form):
         jobs_registry.register(namespace, cli)
         jobs_client.start(
             jobs_registry.command_id(namespace, command), kwargs,
-            job_id=job_id)
+            principal=principal, job_id=job_id)
     except Exception as exc:
         # The browser shows this box. Without it, the user would see
         # nothing at all.
@@ -1026,7 +1035,7 @@ def _finished_html(info):
         return rendered
 
 
-def job_state(job_id, after=0):
+def job_state(job_id, after=0, principal=jobs.LOCAL):
     """Return what the browser needs to show a job, as a dict for
     JSON:
 
@@ -1035,11 +1044,12 @@ def job_state(job_id, after=0):
     * `last_event`: The value of `after` for the next call.
     * `html`: The output box, if the job is finished.
 
-    Raises `mast.jobs.JobNotFound`."""
+    Raises `mast.jobs.JobNotFound`, or `mast.jobs.Forbidden` if
+    `principal` may not read the job."""
     # A job whose worker died is declared lost here, so that the box
     # does not show it as running for ever
-    info = jobs.reap_if_expired(jobs.get(job_id))
-    events = jobs.events(job_id, after)
+    info = jobs.reap_if_expired(jobs.get(job_id, principal), principal)
+    events = jobs.events(job_id, after, principal)
     state = {
         "id": info.id,
         "status": info.status,
@@ -1053,11 +1063,11 @@ def job_state(job_id, after=0):
     return state
 
 
-def cancel_job(job_id, after=0):
-    """Ask to cancel a job, and return its state as `job_state` does,
-    with the events after the event `after`."""
-    jobs.cancel(job_id)
-    return job_state(job_id, after)
+def cancel_job(job_id, after=0, principal=jobs.LOCAL):
+    """Ask to cancel a job as `principal`, and return its state as
+    `job_state` does, with the events after the event `after`."""
+    jobs.cancel(job_id, principal)
+    return job_state(job_id, after, principal)
 
 
 def _render_output(name, t, kwargs, out, history_id, token):
@@ -1131,7 +1141,9 @@ def handle(plugin):
     elif flask.request.method == 'POST':
         logger.info("Received POST request for {}".format(plugin))
         try:
-            return Markup(str(call_method(plugin, flask.request.form)))
+            return Markup(str(call_method(
+                plugin, flask.request.form,
+                principal=flask.g.get("mast_principal") or jobs.LOCAL)))
         except Exception:
             logger.exception("An unhandled exception occurred during processing of request.")
             raise
