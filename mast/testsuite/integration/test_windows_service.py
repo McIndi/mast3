@@ -91,6 +91,11 @@ class TestWindowsService(unittest.TestCase):
             "* * * * * echo scheduled-42 && echo done> tmp\\scheduled.txt"])
         cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
         cls.cwd = os.path.dirname(cls.home)
+        # MAST keeps the appliances in its database
+        out = cls.run_mast("mast-appliances.bat", "import")
+        if "Added the environment lab" not in out.stdout:
+            raise AssertionError("mast-appliances import failed:\n"
+                                 + out.stdout)
 
         out = cls.run_mast("mastd.bat", "install")
         if state() is None:

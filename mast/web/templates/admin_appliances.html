@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Appliances · Admin · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/admin-appliances.js') }}"></script>{% endblock %}
+{% block content %}
+<h1 class="h4">Appliances</h1>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+<div class="alert alert-success d-none" role="status" data-notice></div>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Address</th><th>Ports (SOMA / Web / SSH)</th><th>TLS</th><th>Poll</th><th>Environments</th><th></th></tr></thead>
+        <tbody data-appliance-rows><tr><td colspan="7" class="text-body-secondary">Loading…</td></tr></tbody>
+    </table>
+</div>
+
+<h2 class="h5 mt-4" data-editor-title>Add an appliance</h2>
+<form class="row g-2" data-appliance-form autocomplete="off">
+    <input type="hidden" name="original">
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="a-name">Name</label>
+        <input class="form-control form-control-sm" id="a-name" name="name" required>
+        <div class="form-text">What users type.</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="a-address">Address</label>
+        <input class="form-control form-control-sm" id="a-address" name="address" placeholder="the name">
+        <div class="form-text">Hostname or IP address.</div>
+    </div>
+    <div class="col-4 col-lg-2">
+        <label class="form-label small" for="a-soma">SOMA port</label>
+        <input class="form-control form-control-sm" id="a-soma" name="soma_port" type="number" min="1" max="65535" placeholder="default">
+    </div>
+    <div class="col-4 col-lg-2">
+        <label class="form-label small" for="a-web">Web port</label>
+        <input class="form-control form-control-sm" id="a-web" name="web_port" type="number" min="1" max="65535" placeholder="default">
+    </div>
+    <div class="col-4 col-lg-2">
+        <label class="form-label small" for="a-ssh">SSH port</label>
+        <input class="form-control form-control-sm" id="a-ssh" name="ssh_port" type="number" min="1" max="65535" placeholder="default">
+    </div>
+    <div class="col-6 col-lg-3">
+        <label class="form-label small" for="a-spec">SOMA spec file</label>
+        <input class="form-control form-control-sm" id="a-spec" name="soma_spec_file" placeholder="default">
+    </div>
+    <div class="col-6 col-lg-2">
+        <label class="form-label small" for="a-tls">TLS check</label>
+        <select class="form-select form-select-sm" id="a-tls" name="tls_mode">
+            {% for mode in tls_modes %}<option>{{ mode }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="col-12 col-lg-5">
+        <label class="form-label small" for="a-notes">Notes</label>
+        <input class="form-control form-control-sm" id="a-notes" name="notes">
+    </div>
+    <div class="col-12 col-lg-2 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="a-poll" name="poll">
+            <label class="form-check-label small" for="a-poll">Collect status</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <button class="btn btn-sm btn-primary" type="submit" data-save>Add</button>
+        <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-cancel-edit>Cancel</button>
+    </div>
+</form>
+
+<h2 class="h5 mt-5">Environments</h2>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Production</th><th>Appliances</th><th>Description</th><th></th></tr></thead>
+        <tbody data-environment-rows></tbody>
+    </table>
+</div>
+<form class="row g-2 align-items-end" data-environment-form autocomplete="off">
+    <div class="col-12 col-sm-4 col-lg-3">
+        <label class="form-label small" for="e-name">New environment</label>
+        <input class="form-control form-control-sm" id="e-name" name="name" required>
+    </div>
+    <div class="col-12 col-sm-5 col-lg-4">
+        <label class="form-label small" for="e-description">Description</label>
+        <input class="form-control form-control-sm" id="e-description" name="description">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="e-production" name="production">
+            <label class="form-check-label small" for="e-production">Production</label>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2"><button class="btn btn-sm btn-primary" type="submit">Add</button></div>
+</form>
+{% endblock %}

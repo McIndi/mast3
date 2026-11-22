@@ -49,6 +49,10 @@ def accounts():
     _run("mast.datapower.accounts")
 
 
+def appliances():
+    _run("mast.registry")
+
+
 def backups():
     _run("mast.datapower.backups")
 

@@ -39,6 +39,9 @@ model of the command and puts the job in the queue.
 `POST /jobs/<id>/cancel`, `GET /jobs/<id>/files` and
 `GET /jobs/<id>/files/<name>`: The jobs.
 * `GET /workers`: The workers that are alive.
+* `GET /appliances` and `GET /environments`: The appliance registry
+(`mast.registry`). `POST`, `PATCH /<name>` and `DELETE /<name>` change
+it, which needs the action `manage-appliance` (an admin).
 
 The routes for jobs are thin wrappers over `mast.jobs.queue`, which
 checks the role of the user for each action. No route goes around the
@@ -524,3 +527,180 @@ def workers():
     return flask.jsonify({"workers": [
         worker.model_dump(mode="json")
         for worker in queue.workers(principal=principal())]})
+
+
+def _registry_error(exc):
+    from mast import registry
+    if isinstance(exc, registry.UnknownName):
+        return error(404, str(exc))
+    if isinstance(exc, registry.NameTaken):
+        return error(409, str(exc), {"name": str(exc)})
+    return error(422, str(exc))
+
+
+def _appliance_json(appliance):
+    return appliance.model_dump(mode="json")
+
+
+@blueprint.get("/appliances")
+def appliances():
+    """
+    _function_: `mast.web.api.appliances()`
+
+    The appliances of the registry.
+
+    Exposed at: `/api/v1/appliances` via GET
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "read")
+    return flask.jsonify({"appliances": [
+        _appliance_json(a) for a in registry.list_appliances()]})
+
+
+@blueprint.post("/appliances")
+def add_appliance():
+    """
+    _function_: `mast.web.api.add_appliance()`
+
+    Add an appliance: `{name, address, <settings>}`.
+
+    Exposed at: `/api/v1/appliances` via POST
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    fields = {key: body[key] for key in registry.FIELDS
+              if key in body and key != "address"}
+    try:
+        found = registry.add(str(body.get("name") or ""),
+                             body.get("address") or None, **fields)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Added the appliance {}".format(found.name))
+    return flask.jsonify(_appliance_json(found)), 201
+
+
+@blueprint.patch("/appliances/<name>")
+def change_appliance(name):
+    """
+    _function_: `mast.web.api.change_appliance(name)`
+
+    Change the settings of an appliance (null sets one back to its
+    default), or rename it with `rename`.
+
+    Exposed at: `/api/v1/appliances/<name>` via PATCH
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    fields = {key: body[key] for key in registry.FIELDS if key in body}
+    try:
+        found = registry.update(name, **fields)
+        if body.get("rename"):
+            found = registry.rename(name, str(body["rename"]))
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Changed the appliance {}".format(found.name))
+    return flask.jsonify(_appliance_json(found))
+
+
+@blueprint.delete("/appliances/<name>")
+def remove_appliance(name):
+    """
+    _function_: `mast.web.api.remove_appliance(name)`
+
+    Exposed at: `/api/v1/appliances/<name>` via DELETE
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    try:
+        registry.remove(name)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Removed the appliance {}".format(name))
+    return "", 204
+
+
+@blueprint.get("/environments")
+def environments():
+    """
+    _function_: `mast.web.api.environments()`
+
+    The environments of the registry, with their members.
+
+    Exposed at: `/api/v1/environments` via GET
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "read")
+    return flask.jsonify({"environments": [
+        e.model_dump(mode="json") for e in registry.env_list()]})
+
+
+@blueprint.post("/environments")
+def add_environment():
+    """
+    _function_: `mast.web.api.add_environment()`
+
+    Add an environment: `{name, description, production, members}`.
+
+    Exposed at: `/api/v1/environments` via POST
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    try:
+        found = registry.env_add(
+            str(body.get("name") or ""), str(body.get("description") or ""),
+            bool(body.get("production")),
+            [str(m) for m in body.get("members") or []])
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Added the environment {}".format(found.name))
+    return flask.jsonify(found.model_dump(mode="json")), 201
+
+
+@blueprint.patch("/environments/<name>")
+def change_environment(name):
+    """
+    _function_: `mast.web.api.change_environment(name)`
+
+    Change `description`, `production` or `members` of an environment.
+
+    Exposed at: `/api/v1/environments/<name>` via PATCH
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    try:
+        found = registry.env_update(
+            name, body.get("description"),
+            None if "production" not in body else bool(body["production"]))
+        if "members" in body:
+            found = registry.env_set_members(
+                name, [str(m) for m in body.get("members") or []])
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Changed the environment {}".format(name))
+    return flask.jsonify(found.model_dump(mode="json"))
+
+
+@blueprint.delete("/environments/<name>")
+def remove_environment(name):
+    """
+    _function_: `mast.web.api.remove_environment(name)`
+
+    Exposed at: `/api/v1/environments/<name>` via DELETE
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    try:
+        registry.env_remove(name)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Removed the environment {}".format(name))
+    return "", 204
+
+
+def _changed(message):
+    make_logger("mast.registry").info("{} (by {} from {})".format(
+        message, principal().name, flask.request.remote_addr))

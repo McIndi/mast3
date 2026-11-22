@@ -55,9 +55,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 
 | File | What it configures |
 |---|---|
-| `hosts.conf` | Aliases for your appliances. |
-| `environments.conf` | Groups of appliances that a command can act on at once. |
-| `appliances.conf` | The ports, the SOMA spec file and other settings of each appliance, with defaults in `[global]`. |
+| `appliances.conf` | The defaults for every appliance (`[global]`): ports, the SOMA spec file and so on. The appliances themselves, their own settings and the environments are in the database (`mast-appliances`). |
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
@@ -245,6 +243,34 @@ credentials, which are removed when a job ends), progress and results
 stay in the database. Watch its size: the file `var/jobs/jobs.db`, or
 the database in PostgreSQL.
 
+# Appliances and environments
+
+The appliances and the environments are in the job database, the
+*appliance registry*. Manage them with `mast-appliances` on the MAST
+server (it needs no login), or as an admin in the web UI under
+Admin → Appliances. Everybody who can log in can see them; the target
+bar of the Commands page suggests their names.
+
+    :::bash
+    ./mast-appliances add -n dp1 -A 10.0.0.1 --soma-port 5551
+    ./mast-appliances update -n dp1 --clear soma_port --rename dp-one
+    ./mast-appliances env-add -n prod -p -m dp-one
+    ./mast-appliances list
+    ./mast-appliances env-list
+
+A job records the name of each registered appliance that it talks to.
+An address that a registered appliance has counts as that appliance, so
+that two jobs for one appliance wait for each other whatever name they
+used. Every registered appliance also has a TLS check (`--tls-mode`:
+`ca`, `pin` or `none`) and a flag to collect its status (`--poll`),
+which later releases use.
+
+`mast-appliances import` moves `hosts.conf`, `environments.conf` and
+the sections of `appliances.conf` for single appliances of MAST 3.15.2
+into the registry once; `mast-appliances export` writes them back for a
+return to an older MAST. Back up the database (see "Backups") to keep
+the registry.
+
 # The web GUI
 
 The web GUI listens on `127.0.0.1:5000` by default, so only the MAST
@@ -299,7 +325,7 @@ A password has at least 12 characters and is not the user name.
 |---|---|
 | `viewer` | See the jobs, with their progress and results. |
 | `operator` | Also run commands, and cancel their own jobs. |
-| `admin` | Also cancel any job, and manage the users in the web UI (Admin → Users). Later releases add appliances and credentials. |
+| `admin` | Also cancel any job, and manage the users and the appliances in the web UI (Admin). Later releases add credentials. |
 
 The other commands:
 

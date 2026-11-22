@@ -5,7 +5,7 @@
 // name and the password stay in the memory of this page: they are sent in
 // the body of the POST that submits a job, and they are never stored in the
 // browser.
-import {el} from "./api.js";
+import {api, el} from "./api.js";
 
 const KEY = "mast.targets";
 
@@ -95,4 +95,20 @@ if (bar) {
         field.addEventListener("change", () => { for (const listener of listeners) listener(); });
     }
     render();
+    suggest();
+}
+
+// The names of the registry, as suggestions for the input: the
+// environments first, then the appliances
+async function suggest() {
+    const list = bar.querySelector("[data-target-names]");
+    try {
+        const environments = (await api.get("/environments")).environments;
+        const appliances = (await api.get("/appliances")).appliances;
+        list.replaceChildren(
+            ...environments.map((e) => el("option", {value: e.name, label: "environment: " + e.members.join(" ")})),
+            ...appliances.map((a) => el("option", {value: a.name, label: a.address})));
+    } catch (error) {
+        // Suggestions are a help; the input works without them
+    }
 }

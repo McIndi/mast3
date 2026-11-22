@@ -54,89 +54,56 @@ Every page of the web GUI needs a login. Add the first admin in
 Then open the web GUI and log in. The Operator's Guide explains the
 roles and the other `mast-users` commands.
 
-# Configuring your hosts
+# Your appliances and environments
 
-One of the more useful features of MAST is that you can define aliases for
-your appliances which you can use with any of MAST's other features. In order
-to configure your aliases it will be necessary to copy the file
-`$MAST_HOME/etc/default/hosts.conf` to `$MAST_HOME/etc/local/hosts.conf`
-and edit the file in the local directory.
+MAST keeps the appliances and the environments that it knows in its
+database: the appliance registry. Give each appliance a name that is
+easy to type, and the address to connect to:
 
-This file is meant to consist of one stanza of the following format:
+    :::bash
+    ./mast-appliances add -n dev_dp_1 -A 10.0.1.1
+    ./mast-appliances add -n dev_dp_2 -A 10.0.1.2
+    ./mast-appliances add -n prod_dp_1 -A 10.2.1.1
+    ./mast-appliances add -n prod_dp_2 -A 10.2.1.2 --soma-port 5551
 
-    :::ini
-    [hosts]
-    alias_1: hostname_or_ip_1
-    alias_2: hostname_or_ip_2
+A setting that an appliance does not have (the SOMA port, the SOMA spec
+file and so on) takes the default of `[global]` in
+`$MAST_HOME/etc/default/appliances.conf`, which you can change in
+`$MAST_HOME/etc/local/appliances.conf`.
 
-So for instance if you have three environments with two DataPower appliances
-each:
+An environment is a named group of appliances. A command that is given
+the name of an environment acts on all of its appliances:
 
-* dev (10.0.1.1, and 10.0.1.2)
-* qa (10.1.1.1 and 10.1.1.2)
-* prod (10.2.1.1 and 10.2.1.2)
+    :::bash
+    ./mast-appliances env-add -n dev -m dev_dp_1 -m dev_dp_2
+    ./mast-appliances env-add -n prod -p -m prod_dp_1 -m prod_dp_2
+    ./mast-appliances env-add -n all -m dev_dp_1 -m dev_dp_2 -m prod_dp_1 -m prod_dp_2
 
-Then you could create a stanza like the following:
+`-p` marks a production environment. `./mast-appliances list` and
+`./mast-appliances env-list` show what is there; `update`, `remove`,
+`env-set-members` and `env-remove` change it. An admin can do the same
+in the web UI, under Admin → Appliances.
 
-    :::ini
-    [hosts]
-    dev_dp_1: 10.0.1.1
-    dev_dp_2: 10.0.1.2
-    qa_dp_1: 10.1.1.1
-    qa_dp_2: 10.1.1.2
-    prod_dp_1: 10.2.1.1
-    prod_dp_2: 10.2.1.2
+You can still give a command a hostname or an IP address that is not in
+the registry; it uses the defaults of `[global]`.
 
-Then whenever you use mast to administer your appliances, you can refer to
-them by their aliases. so if you want to reference the two appliances in prod
-you can say prod_dp_1 and prod_dp_2.  Using this feature allows your
-organization to keep its existing dns or ip addressing scheme while giving
-your administrators and developers a way to use more contextual names to refer
-to your appliances.
+## Coming from MAST 3.15.2 or older
 
-# Configuring your Environments
+Older versions of MAST kept the aliases in `etc/local/hosts.conf`, the
+environments in `etc/local/environments.conf`, and the settings of
+single appliances in sections of `etc/local/appliances.conf`. MAST no
+longer reads the first two, and warns while they are there. Import them
+once:
 
-Another useful feature of MAST is to allow you to define arbitrary groups of
-appliances. Using the example above it would be useful to define four environments:
+    :::bash
+    ./mast-appliances import --dry-run     # what would be done
+    ./mast-appliances import
 
-* dev
-* qa
-* prod
-* all
-
-This way if you need to affect all the appliances in any of these environments
-you can simply specify the environment name and mast will reach out to all
-of the appliances defined within that environment.
-
-In order to configure your environments, it will be necessary to copy the
-file `$MAST_HOME/etc/default/environments.conf` to
-`$MAST_HOME/etc/local/environments.conf` and edit the file in the local
-directory. This file should consist of a stanza for each environment
-with the following format:
-
-    :::ini
-    [ENVIRONMENT_NAME]
-    appliances: hostname_or_ip_1 hostname_or_ip_2 ...
-
-It should be noted that you can use aliases defined in your hosts.conf here
-instead of the actual hostname or IP Address. So, if we have the hosts.conf
-as defined above, we could configure our environments like this:
-
-    :::ini
-    [dev]
-    appliances: dev_dp_1 dev_dp_2
-
-    [qa]
-    appliances: qa_dp_1 qa_dp_2
-
-    [prod]
-    appliances: prod_dp_1 prod_dp_2
-
-    [all]
-    appliances: dev_dp_1 dev_dp_2 qa_dp_1 qa_dp_2 prod_dp_1 prod_dp_2
-
-Now if you need to affect both appliances in prod, you can simply
-provide `prod` as the hostname
+Every alias, every name in an environment, and every section of
+`appliances.conf` for one appliance becomes an appliance. The files are
+renamed to `*.imported`; `appliances.conf` keeps its `[global]`
+section. To go back to an older MAST, `./mast-appliances export` writes
+the three files again.
 
 # Configuring the Server
 
@@ -155,9 +122,8 @@ see the documentation in logging.conf on what the various options mean.
 
 # Basic Usage
 
-NOTE: We will be using the configurations we defined above, specifically
-the environments.conf and hosts.conf in order to make the examples more
-concise.
+NOTE: We will be using the appliances and environments we defined above
+in order to make the examples more concise.
 
 NOTE: Although we will not include it in the commands, if you have not
 replaced the key pair for the xml management interface, or the key-pair

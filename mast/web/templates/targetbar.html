@@ -6,7 +6,8 @@
         <div class="col-12 col-lg-5">
             <div class="input-group input-group-sm">
                 <span class="input-group-text">Appliances</span>
-                <input class="form-control" data-target-input placeholder="hostname, alias or environment" aria-label="Add an appliance">
+                <input class="form-control" data-target-input list="target-names" placeholder="appliance, environment or hostname" aria-label="Add an appliance">
+                <datalist id="target-names" data-target-names></datalist>
                 <button class="btn btn-outline-secondary" type="submit">Add</button>
             </div>
             <div class="mt-1 d-flex flex-wrap gap-1" data-target-list></div>

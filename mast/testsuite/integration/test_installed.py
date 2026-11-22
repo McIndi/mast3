@@ -54,7 +54,8 @@ from mast.testsuite.integration.homes import TEST_HOME, copy_home
 COMMANDS = (
     "mast-accounts", "mast-backups", "mast-crypto", "mast-deployment",
     "mast-developer", "mast-network", "mast-ssh", "mast-system",
-    "mast-jobs", "mast-users", "mast-worker", "test-mast",
+    "mast-jobs", "mast-users", "mast-appliances", "mast-worker",
+    "test-mast",
 )
 
 CREDENTIALS = "admin:admin"
@@ -94,6 +95,16 @@ class InstalledTestCase(unittest.TestCase):
         cls.write("environments.conf", ["[lab]", "appliances: " + " ".join(names)])
         cls.write("jobs.conf", ["[worker]", "poll_seconds = 1"])
         cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
+        # MAST keeps the appliances in its database: import the files,
+        # as a user of an older MAST does once
+        imported = subprocess.run(
+            [os.path.join(cls.home, "mast-appliances"), "import"],
+            cwd=cls._tmp, env=cls.env, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, timeout=TIMEOUT)
+        if imported.returncode != 0 or "Added the environment lab" \
+                not in imported.stdout:
+            raise AssertionError("mast-appliances import failed:\n"
+                                 + imported.stdout)
 
     @classmethod
     def tearDownClass(cls):

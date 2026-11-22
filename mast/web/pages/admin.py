@@ -17,9 +17,10 @@
 """
 _module_: `mast.web.pages.admin`
 
-The Admin pages, for admins only. For now, Users: list the users, add
-one with a temporary password, change a role, disable and enable, set
-a new temporary password, and delete.
+The Admin pages, for admins only: Users (list the users, add one with
+a temporary password, change a role, disable and enable, set a new
+temporary password, and delete) and Appliances (the appliance
+registry, whose JSON routes are in `mast.web.api`).
 
 The JSON routes:
 
@@ -196,5 +197,21 @@ def delete_user(name):
     return "", 204
 
 
+@blueprint.get("/admin/appliances")
+def appliances_page():
+    """
+    _function_: `mast.web.pages.admin.appliances_page()`
+
+    Admin → Appliances: the appliances and the environments of the
+    registry (`/api/v1/appliances`, `/api/v1/environments`).
+
+    Exposed at: `/admin/appliances` via GET
+    """
+    from mast import registry
+    return flask.render_template("admin_appliances.html",
+                                 tls_modes=registry.TLS_MODES)
+
+
 page = Page(name="admin", title="Admin", order=90, min_role="admin",
-            blueprint=blueprint, nav=(("Users", "/admin/users"),))
+            blueprint=blueprint, nav=(("Users", "/admin/users"),
+                                      ("Appliances", "/admin/appliances")))

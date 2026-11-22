@@ -70,6 +70,7 @@ Homepage = "http://github.com/mcindi/mast"
 # the launcher. The installer does not use these scripts.
 [project.scripts]
 mast-accounts = "mast._entry:accounts"
+mast-appliances = "mast._entry:appliances"
 mast-backups = "mast._entry:backups"
 mast-crypto = "mast._entry:crypto"
 mast-deployment = "mast._entry:deployment"
