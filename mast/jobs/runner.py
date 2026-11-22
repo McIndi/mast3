@@ -56,6 +56,7 @@ command (`mast.cli.Result.outcome`): `succeeded`, `partial` if some
 of what the command did failed, or `failed` if all of it failed. A
 command that raised an exception is `failed` and has no result.
 """
+import json
 import os
 import socket
 import threading
@@ -209,9 +210,23 @@ def _execute(job_id, worker_id, lease, echo=None):
         outcome = _call(job_id, worker_id, store, guard, redact)
     except JobLost:
         return None
-    clean = {"status": lambda value: value, "html": redact[0].html}
+    clean = {"status": lambda value: value, "html": redact[0].html,
+             "data": lambda value: secrets.redact_data(redact[0], value)}
     return {name: clean.get(name, redact[0])(value)
             for name, value in outcome.items()}
+
+
+def _data(result):
+    """Return `result.data()` as JSON types, or None. A result whose
+    data cannot be stored as JSON has none: the web UI then shows its
+    html."""
+    data = result.data()
+    if data is None:
+        return None
+    try:
+        return json.loads(json.dumps(data))
+    except (TypeError, ValueError):
+        return None
 
 
 def _call(job_id, worker_id, store, guard, redact):
@@ -252,7 +267,8 @@ def _call(job_id, worker_id, store, guard, redact):
             error = "The command reported that {} of its {} results " \
                     "failed.".format(outcomes.count(False), len(outcomes))
         return {"status": status, "error": error, "text": result.text(),
-                "html": result.html(), "history": result.history}
+                "html": result.html(), "history": result.history,
+                "data": _data(result)}
     except Exception as exc:
         return {"status": FAILED,
                 "error": "The command finished, but its result could not "

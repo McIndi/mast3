@@ -66,7 +66,7 @@ checkout, so a change to the code is live:
 | DataPower | `mast/datapower/datapower` | `DataPower` talks to one appliance through its XML management interface (SOMA and AMP) and SSH. `Environment` is a group of appliances. The SOMA spec files are in `files/mast_home/etc`. |
 | The commands | `mast/datapower/<plugin>` | `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `ssh`, `status`, `system`. Each has a module-level `cli` and a web plugin. |
 | Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `plugin_functions` (the web forms). |
-| The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), and the CSRF token, the session key and the security headers (`security`). |
+| The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), the CSRF token, the session key and the security headers (`security`), the JSON API (`api`, `catalog`, `uploads`), the pages (`page`, `pages`) and their templates and scripts. |
 | The classic GUI | `mast/datapower/web` | A Flask application that the web UI mounts under `/classic/`. Each web plugin is a tab. |
 | Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast-users` is `mast/auth/cli.py`. |
 | `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler. |
@@ -154,19 +154,81 @@ several things on each appliance, as `add-domain` does.
 
 **The result.** Return a `Result`: `Text` and `Table` from `mast.cli`,
 or a result of `mast.plugin_utils.results`. The command line prints its
-text, and the web GUI shows its HTML. The outcome of the result
+text, the classic GUI shows its HTML, and the web UI shows its `data()`
+as a table that can be sorted and filtered (or its HTML, if `data()` is
+None). A result that is a table gets `data()` from `Table`; a result of
+your own can return a `Table` from `table()` (see
+`mast.plugin_utils.results`). Escape every value from an appliance in
+`html()`: the web UI puts that HTML into the page. The outcome of the result
 (`succeeded`, `partial` or `failed`) is the status of the job and
 decides the exit status of the program.
 
-The new command is on the command line, in the web GUI and in the
-CLI Reference at once. Add a test for it (see "Tests" below), and, if
+The new command is on the command line, in both web GUIs and in the
+CLI Reference at once: the Commands page of the web UI makes its form
+from the model. Add a test for it (see "Tests" below), and, if
 it changes an appliance, an integration test that checks the change on
 the DataPower container.
 
-# Adding a web plugin
+# Adding a page to the web UI
 
-A web plugin is a class with a `route`, `html`, `css` and `js`, listed
-under `mast_web_plugin` in `pyproject.toml`. The DataPower plugins use
+A page of the web UI is a `mast.web.page.Page`, listed under
+`mast_web_page` in `pyproject.toml`:
+
+    :::toml
+    [project.entry-points.mast_web_page]
+    jobs = "mast.web.pages.jobs:page"
+
+    :::python
+    blueprint = flask.Blueprint("jobs", __name__)
+
+    @blueprint.get("/jobs")
+    def jobs():
+        return flask.render_template("jobs.html")
+
+    page = Page(name="jobs", title="Jobs", order=50, min_role="viewer",
+                blueprint=blueprint)
+
+* The page is at `/<name>`, and its JSON routes are under
+`/api/v1/<name>/...` in the same blueprint.
+* The web UI puts it in the navigation for the users whose role is at
+least `min_role`, and refuses (403) every route of the blueprint to the
+others. Check finer rights with `mast.jobs.auth.authorize`.
+* A template extends `base.html` (the navigation, the user menu, the
+theme) and loads its script with
+`<script type="module" src="...">` in the block `scripts`. The scripts
+are plain ES modules (`static/js`): there is no build step, and
+Bootstrap 5.3 is vendored in `static/vendor`. Use `api.js` to call the
+API (it sends the CSRF token) and `el()` to make elements: text from
+the server goes in as text, never as HTML.
+* The core pages are Jobs, Commands and Admin (`mast/web/pages`). A
+DataPower page belongs in `mast/datapower`.
+
+## Widgets
+
+An option of a command can have a `widget`, which says how the web UI
+asks for it. The map is `WIDGETS` in `mast/web/static/js/forms.js`, and
+the same map is in `mast/web/widgets.py`:
+
+| Widget | Control |
+|---|---|
+| `appliances`, `credentials` | The target bar of the page |
+| `upload` | A file input; the file is uploaded first, and the job gets the path on the server |
+| `out_dir`, `out_file` | Hidden; the server chooses the path, and the job page offers the download |
+| `status_provider`, `object_class`, `configured:<Class>` | A select, filled from `POST /api/v1/choices/<widget>` |
+
+Without a widget, the type decides: a checkbox for a `bool`, a select
+for choices, a text area for a `list`, a password input for a secret,
+a number input for an `int` or a `float`, and a text input otherwise.
+A unit test checks that every widget of every command is in the map,
+and that the two maps are the same. A new widget needs a control in
+`forms.js`, an entry in both maps, and, for a choice, a case in
+`mast.plugin_utils.choices`.
+
+# Adding a web plugin (classic GUI)
+
+The classic GUI, under `/classic/`, goes away when the web UI can do
+all that it does. A web plugin is a class with a `route`, `html`,
+`css` and `js`, listed under `mast_web_plugin` in `pyproject.toml`. The DataPower plugins use
 `mast.plugin_utils.plugin_functions`, which makes the forms from the
 `Params` models, so a new command of an existing plugin needs nothing
 more. The web GUI has a strict Content Security Policy:

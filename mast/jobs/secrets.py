@@ -44,7 +44,7 @@ from mast import keyfile
 from mast.cli import params as cli_params
 from mast.jobs import config
 
-__all__ = ["seal", "unseal", "scrub", "redactor", "Redactor",
+__all__ = ["seal", "unseal", "scrub", "redactor", "redact_data", "Redactor",
            "SecretsError", "REDACTED"]
 
 _MARK = "$secret"
@@ -207,6 +207,24 @@ class Redactor(object):
             if index % 2 == 0:
                 parts[index] = self._between_tags(part)
         return "".join(parts)
+
+
+def redact_data(redact, data):
+    """
+    _function_: `mast.jobs.secrets.redact_data(redact, data)`
+
+    Return a copy of `data` (JSON types: dicts, lists, strings,
+    numbers) with `redact` (a `Redactor`) applied to every string in
+    it, keys included.
+    """
+    if isinstance(data, str):
+        return redact(data)
+    if isinstance(data, list):
+        return [redact_data(redact, item) for item in data]
+    if isinstance(data, dict):
+        return {redact_data(redact, key): redact_data(redact, value)
+                for key, value in data.items()}
+    return data
 
 
 def redactor(model, values):

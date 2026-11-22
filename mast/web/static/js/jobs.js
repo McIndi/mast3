@@ -1,0 +1,73 @@
+// The Jobs page: the newest jobs, with filters, refreshed every few
+// seconds; and the workers.
+import {api, el, showError, statusBadge, when} from "./api.js";
+
+const rows = document.querySelector("[data-job-rows]");
+const filters = document.querySelector("[data-job-filters]");
+const errorBox = document.querySelector("[data-error]");
+const more = document.querySelector("[data-more]");
+const workersBox = document.querySelector("[data-workers]");
+const PAGE = 50;
+let limit = PAGE;
+
+function query() {
+    const form = new FormData(filters);
+    const params = new URLSearchParams();
+    for (const [name, value] of form.entries()) {
+        if (value) params.append(name, value);
+    }
+    params.set("limit", String(limit));
+    return params;
+}
+
+async function refresh() {
+    try {
+        const answer = await api.get("/jobs?" + query().toString());
+        rows.replaceChildren();
+        if (!answer.jobs.length) {
+            rows.append(el("tr", {}, el("td", {colSpan: 6, className: "text-body-secondary"}, "No jobs.")));
+        }
+        for (const job of answer.jobs) {
+            const link = el("a", {href: "/jobs/" + job.id}, el("code", {}, job.id.slice(0, 8)));
+            rows.append(el("tr", {},
+                el("td", {}, link, job.parent_id ? el("span", {className: "badge text-bg-light ms-1"}, "child") : null),
+                el("td", {}, statusBadge(job.status), job.cancel_requested && !job.finished
+                    ? el("span", {className: "small ms-1"}, "cancelling") : null),
+                el("td", {}, job.command),
+                el("td", {className: "small"}, job.targets.join(" ")),
+                el("td", {className: "small"}, job.submitted_by),
+                el("td", {className: "small text-nowrap"}, when(job.created_at))));
+        }
+        more.classList.toggle("d-none", answer.jobs.length < limit);
+        showError(errorBox, null);
+    } catch (error) {
+        showError(errorBox, error);
+    }
+}
+
+async function refreshWorkers() {
+    try {
+        const answer = await api.get("/workers");
+        workersBox.replaceChildren();
+        if (!answer.workers.length) {
+            workersBox.append("No worker is running. The web server does the jobs itself.");
+            return;
+        }
+        const list = el("ul", {className: "list-unstyled mb-0"});
+        for (const worker of answer.workers) {
+            list.append(el("li", {}, el("code", {}, worker.id), " on ", worker.hostname,
+                ", ", worker.concurrency, " at a time, last seen ", when(worker.last_seen_at)));
+        }
+        workersBox.append(list);
+    } catch (error) {
+        workersBox.textContent = error.message;
+    }
+}
+
+filters.addEventListener("change", () => { limit = PAGE; refresh(); });
+filters.addEventListener("submit", (event) => { event.preventDefault(); refresh(); });
+more.addEventListener("click", () => { limit += PAGE; refresh(); });
+refresh();
+refreshWorkers();
+setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+setInterval(() => { if (!document.hidden) refreshWorkers(); }, 15000);

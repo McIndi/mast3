@@ -210,7 +210,7 @@ class EthernetInterfaceResults(ActionResults):
     """The configuration of an ethernet interface on each appliance.
     The web GUI shows one row for each setting."""
 
-    def html(self):
+    def table(self):
         rows = []
         for host, response in self.responses.items():
             config = response.xml.find(datapower.CONFIG_XPATH)
@@ -226,7 +226,7 @@ class EthernetInterfaceResults(ActionResults):
                         "", "", "{}.{}".format(child.tag, node.tag),
                         node.text or ""))
         return Table(
-            ("Appliance", "EthernetInterface", "Key", "Value"), rows).html()
+            ("Appliance", "EthernetInterface", "Key", "Value"), rows)
 
 
 class DisplayEthernetInterface(ApplianceParams):

@@ -54,8 +54,23 @@ def _label(host, suffix):
 class _EnvironmentResult(Result):
     """A result that takes its history from an `Environment`. The
     history is only built when it is asked for, because the command
-    line does not use it."""
+    line does not use it.
+
+    A result that the web GUI shows as a table has `table()`, which
+    returns a `mast.cli.Table`. Its `html()` and `data()` are those of
+    the table."""
     env = None
+
+    def table(self):
+        return None
+
+    def html(self):
+        table = self.table()
+        return super().html() if table is None else table.html()
+
+    def data(self):
+        table = self.table()
+        return None if table is None else table.data()
 
     @property
     def history(self):
@@ -93,12 +108,12 @@ class ActionResults(_EnvironmentResult):
     def outcomes(self):
         return [bool(response) for response in self.responses.values()]
 
-    def html(self):
+    def table(self):
         return Table(
             ("Appliance", "Result"),
             [(_label(host, self.suffix),
               "Succeeded" if response else "Failed")
-             for host, response in self.responses.items()]).html()
+             for host, response in self.responses.items()])
 
 
 class Report(_EnvironmentResult):
@@ -134,6 +149,18 @@ class Report(_EnvironmentResult):
     def html(self):
         return "".join(step.html() for step in self.steps)
 
+    def data(self):
+        items = []
+        for step in self.steps:
+            data = step.data()
+            if data is None:
+                text = step.text()
+                if not text:
+                    continue
+                data = {"kind": "text", "text": text}
+            items.append(data)
+        return {"kind": "items", "items": items}
+
     @property
     def history(self):
         own = history(self.env) if self.env is not None else ""
@@ -164,11 +191,11 @@ class CommonItems(_EnvironmentResult):
         lines += ["\t{}".format(item) for item in self.common]
         return "\n".join(lines)
 
-    def html(self):
+    def table(self):
         rows = [(host, "\n".join(found))
                 for host, found in self.items.items()]
         rows.append(("All", "\n".join(self.common)))
-        return Table(("Appliance", self.title), rows).html()
+        return Table(("Appliance", self.title), rows)
 
 
 class SeeDownload(_EnvironmentResult):
@@ -185,11 +212,11 @@ class SeeDownload(_EnvironmentResult):
         self.env = env
         self.suffix = suffix
 
-    def html(self):
+    def table(self):
         return Table(
             ("Appliance", "Result"),
             [(_label(host, self.suffix), "See Download")
-             for host in self.hosts]).html()
+             for host in self.hosts])
 
 
 class ListResults(_EnvironmentResult):
@@ -214,11 +241,11 @@ class ListResults(_EnvironmentResult):
             lines.extend("\t{}".format(item) for item in items)
         return "\n".join(lines)
 
-    def html(self):
+    def table(self):
         return Table(
             ("Appliance", self.title),
             [(_label(key, self.suffix), "\n".join(items))
-             for key, items in self.results.items()]).html()
+             for key, items in self.results.items()])
 
 
 class StatusResults(_EnvironmentResult):
@@ -253,8 +280,8 @@ class StatusResults(_EnvironmentResult):
             lines += ["", key, "=" * len(key), str(status), ""]
         return "\n".join(lines)
 
-    def html(self):
+    def table(self):
         return Table(
             ("Appliance", "Result"),
             [(_label(key, self.suffix), status)
-             for key, status in self.results.items()]).html()
+             for key, status in self.results.items()])

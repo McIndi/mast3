@@ -6,9 +6,10 @@
 
 # Next Release
 
-This release adds users and a login to the web GUI, and the start of a
-new web UI. Please read "Changes that need your attention" before you
-upgrade.
+This release adds users and a login to the web GUI, and a new web UI
+with a Jobs page, a Commands page that has a form for every command,
+and Admin → Users. Please read "Changes that need your attention"
+before you upgrade.
 
 ## Changes that need your attention
 
@@ -16,19 +17,19 @@ upgrade.
 first admin on the MAST server, in `$MAST_HOME`:
 `./mast-users add -u NAME -r admin` (`mast-users.bat` on Windows). Until
 there is a user, the web GUI shows only how to do that.
-* The classic GUI moved to `/classic/`. `/` is the new web UI, which
-for now has the login, the change of password, and a link to the
-classic GUI.
+* The classic GUI moved to `/classic/`. `/` is the new web UI. The
+classic GUI is still there for the `ssh` and status tabs.
 * `mast-web` and `mastd` refuse to serve the web GUI without TLS
 (`secure = false`) on any host but `127.0.0.1` or `::1`.
 * Jobs that the command line submits are recorded as `os:<account>`
 (the operating system account) instead of `local`.
 * `/classic/config/<file>` no longer serves `server.conf` and
 `jobs.conf`, which can hold keys and the password of the database.
-* The job database gets a new table, `users`. MAST adds it when it
-starts. To go back to MAST 3.15.2.x, stop every MAST process of the
-home and run `./mast-jobs downgrade-db -r 0001 -y` first. It drops the
-users; the jobs stay.
+* The job database gets a new table, `users`, and a new column,
+`job_results.data` (the result of a job as a table, for the web UI).
+MAST adds them when it starts. To go back to MAST 3.15.2.x, stop every
+MAST process of the home and run `./mast-jobs downgrade-db -r 0001 -y`
+first. It drops the users and that column; the jobs stay.
 
 ## New
 
@@ -42,6 +43,14 @@ and after 12 hours (`[auth]` in `server.conf`). Five failed logins in
 a row lock a user for 15 minutes.
 * `mast-jobs downgrade-db` takes the job database back to an older
 revision.
+* The web UI (`/`): the **Jobs** page lists the jobs with filters,
+shows one job live with its progress, its result as a table that can
+be sorted and filtered, its child jobs and its downloads, and lists the
+workers. The **Commands** page has a form for every command, made from
+the same model as the command line, with a target bar for the
+appliances and credentials. **Admin → Users** manages the users. It
+uses Bootstrap 5, which ships with MAST, has light and dark themes, and
+works at phone width.
 
 ## Fixed
 

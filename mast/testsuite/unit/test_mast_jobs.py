@@ -991,6 +991,27 @@ class TestRunner(SqliteCase):
                 if secret not in ("a", "amp"):
                     self.assertIn(cell.format("a&amp;b"), html)
 
+    def test_the_data_of_a_result_is_stored_and_redacted(self):
+        secret = "hunter2-secret"
+        job_id = jobs.submit("test.page", {"credentials": [secret]})
+        jobs.run_next("w1")
+        data = jobs.result(job_id).data
+        self.assertEqual(data["kind"], "table")
+        self.assertEqual(data["columns"], ["Appliance", "class"])
+        self.assertEqual(data["rows"], [
+            ["dp1", "a table for ********"], ["a&b", "********"]])
+        self.assertNotIn(secret, repr(data))
+        # A result without data has None
+        job_id = submit("dp1")
+        jobs.run_next("w1")
+        self.assertIsNone(jobs.result(job_id).data)
+
+    def test_redact_data_reaches_every_string(self):
+        redact = secrets.Redactor({"pw"})
+        self.assertEqual(
+            secrets.redact_data(redact, {"pw": ["pw", {"a": "x pw"}, 1, None]}),
+            {"********": ["********", {"a": "x ********"}, 1, None]})
+
     def test_only_the_text_between_tags_is_redacted(self):
         redact = secrets.Redactor({"hunter2", "class"})
         self.assertEqual(

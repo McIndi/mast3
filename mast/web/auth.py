@@ -57,6 +57,7 @@ IDLE_SECONDS = 30 * 60
 MAX_SECONDS = 12 * 60 * 60
 
 LOGIN_PATH = "/login"
+API_PREFIX = "/api/"
 PASSWORD_PATH = "/account/password"
 
 blueprint = flask.Blueprint("auth", __name__)
@@ -160,17 +161,28 @@ def require_login(exempt=()):
         if endpoint == "static" or endpoint.endswith(".static") \
                 or endpoint in exempt:
             return None
+        api = flask.request.path.startswith(API_PREFIX)
         user = session_user()
         if user is None:
+            if api:
+                return _json_error(401, "Log in first.")
             target = _full_path() if flask.request.method == "GET" else "/"
             return flask.redirect("{}?next={}".format(
                 LOGIN_PATH, quote(target, safe="/")))
         flask.g.mast_user = user
         flask.g.mast_principal = Principal(user.name, user.role)
         if user.must_change and endpoint not in may_change:
+            if api:
+                return _json_error(
+                    403, "Change your password first, at {}.".format(
+                        PASSWORD_PATH))
             return flask.redirect(PASSWORD_PATH)
         return None
     return check
+
+
+def _json_error(status, message):
+    return flask.jsonify({"error": message}), status
 
 
 def _no_users():

@@ -1,124 +1,36 @@
-/* The style of the new MAST web UI. The strict Content Security Policy
-   allows no inline style, so every style is here. */
-:root {
-    --bg: #f6f7f9;
-    --fg: #1d2330;
-    --card: #ffffff;
-    --border: #d5d9e0;
-    --accent: #2457c5;
-    --accent-fg: #ffffff;
-    --muted: #5b6475;
-    --error-bg: #fdecec;
-    --error-fg: #9b1c1c;
-    color-scheme: light dark;
-}
+/* The few styles of the web UI that Bootstrap does not have. The Content
+   Security Policy allows no inline style, so every style is here. */
+.mast-narrow { max-width: 28rem; }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #14171d;
-        --fg: #e4e7ee;
-        --card: #1d212a;
-        --border: #343a47;
-        --accent: #7ea2ff;
-        --accent-fg: #0d1117;
-        --muted: #9aa3b5;
-        --error-bg: #3a1e1e;
-        --error-fg: #ffb4b4;
-    }
-}
-
-* { box-sizing: border-box; }
-
-body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-
-a { color: var(--accent); }
-
-.bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.5rem;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    background: var(--card);
-    border-bottom: 1px solid var(--border);
-}
-
-.brand { font-weight: 700; letter-spacing: 0.05em; }
-
-.bar nav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-    align-items: center;
-}
-
-main { padding: 1.5rem 1rem; }
-
-.card {
-    max-width: 60rem;
-    margin: 0 auto;
-    padding: 1.5rem;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-}
-
-.card.narrow { max-width: 26rem; }
-
-h1 { margin-top: 0; font-size: 1.4rem; }
-
-label { display: block; margin: 0.75rem 0 0.25rem; }
-
-input {
-    width: 100%;
-    padding: 0.5rem;
-    font: inherit;
-    color: var(--fg);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-}
-
-button {
-    margin-top: 1rem;
-    padding: 0.5rem 1rem;
-    font: inherit;
-    color: var(--accent-fg);
-    background: var(--accent);
-    border: 0;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-form.inline { display: inline; margin: 0; }
-
-button.link {
-    margin: 0;
-    padding: 0;
-    color: var(--accent);
-    background: none;
-    text-decoration: underline;
-}
-
-.error {
-    padding: 0.5rem 0.75rem;
-    color: var(--error-fg);
-    background: var(--error-bg);
-    border-radius: 4px;
-}
-
-.note { color: var(--muted); font-size: 0.9rem; }
-
-pre {
-    overflow-x: auto;
+.mast-pre {
+    white-space: pre-wrap;
+    word-break: break-word;
     padding: 0.75rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    background: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    font-size: 0.85rem;
 }
+
+.mast-events { max-height: 22rem; overflow-y: auto; min-height: 3rem; }
+
+.mast-command-list { max-height: 70vh; overflow-y: auto; }
+@media (max-width: 767.98px) {
+    .mast-command-list { max-height: 30vh; border-bottom: 1px solid var(--bs-border-color); }
+}
+
+.mast-help { white-space: pre-wrap; }
+
+.mast-target-chip .btn-close { font-size: 0.6rem; }
+
+/* The html of a result, made by mast.cli.Table.html() and the results of
+   the plugins: a table and preformatted text. */
+.mast-result table { width: 100%; margin-bottom: 1rem; border-collapse: collapse; font-size: 0.875rem; }
+.mast-result td, .mast-result th { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--bs-border-color); vertical-align: top; }
+.mast-result .results_table_header_row td, .mast-result th { font-weight: 600; }
+.mast-result pre { white-space: pre-wrap; word-break: break-word; }
+
+.mast-sort { background: none; border: 0; padding: 0; font-weight: 600; color: inherit; }
+.mast-sort[aria-sort="ascending"]::after { content: " \25B2"; font-size: 0.7em; }
+.mast-sort[aria-sort="descending"]::after { content: " \25BC"; font-size: 0.7em; }
+.mast-cell { white-space: pre-wrap; word-break: break-word; }

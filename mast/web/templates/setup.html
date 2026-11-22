@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Set up MAST{% endblock %}
 {% block content %}
-<section class="card narrow">
-    <h1>MAST has no users yet</h1>
-    <p>Add the first admin on the MAST host, in the MAST home:</p>
-    <pre>mast-users add -u NAME -r admin</pre>
-    <p>Then reload this page and log in.</p>
+<section class="card mast-narrow mx-auto">
+    <div class="card-body">
+        <h1 class="h4">MAST has no users yet</h1>
+        <p>Add the first admin on the MAST host, in the MAST home:</p>
+        <pre class="mast-pre">mast-users add -u NAME -r admin</pre>
+        <p>Then reload this page and log in.</p>
+    </div>
 </section>
 {% endblock %}

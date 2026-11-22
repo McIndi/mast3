@@ -167,6 +167,8 @@ class JobResult(Base):
     html: Mapped[str] = mapped_column(Text)
     # The requests and responses, or the traceback of a failed job
     history: Mapped[str] = mapped_column(Text)
+    # The result as JSON types, for the web UI (Result.data())
+    data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Worker(Base):
