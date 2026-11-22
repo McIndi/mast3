@@ -108,12 +108,12 @@ class TestRegistry(SqliteCase):
         registry.add("dp1", soma_port=5551, notes="old")
         registry.env_add("lab", members=["dp1"])
         found = registry.update("dp1", soma_port=None, web_port=9091,
-                                poll=True, notes=None, tls_mode="pin")
+                                poll=True, notes=None, tls_mode="none")
         self.assertIsNone(found.soma_port)
         self.assertEqual(found.web_port, 9091)
         self.assertTrue(found.poll)
         self.assertEqual(found.notes, "")
-        self.assertEqual(found.tls_mode, "pin")
+        self.assertEqual(found.tls_mode, "none")
         renamed = registry.rename("dp1", "dp-one")
         self.assertEqual(renamed.environments, ["lab"])
         self.assertEqual(registry.members("lab"), ["dp-one"])
@@ -127,6 +127,51 @@ class TestRegistry(SqliteCase):
             registry.update("dp1", pin_sha256="ab" * 32)
         self.assertEqual(registry.set_pin("dp1", pin_sha256="ab" * 32)
                          .pin_sha256, "ab" * 32)
+
+    def test_pin_mode_needs_a_pin(self):
+        with self.assertRaises(registry.InvalidValue):
+            registry.add("dp1", tls_mode="pin")
+        registry.add("dp1")
+        with self.assertRaises(registry.InvalidValue):
+            registry.update("dp1", tls_mode="pin")
+        self.assertEqual(registry.get("dp1").tls_mode, "ca")
+
+    def test_pin_tls_and_ssh(self):
+        registry.add("dp1")
+        for bad in ("AB" * 32, "ab" * 31, "zz" * 32, None):
+            with self.subTest(bad=bad), self.assertRaises(registry.InvalidValue):
+                registry.pin_tls("dp1", bad, "os:me")
+        registry.flag_mismatch("dp1", "tls", "cd" * 32)
+        registry.flag_mismatch("dp1", "ssh", "SHA256:x")
+        registry.flag_mismatch("no-such", "tls", "cd" * 32)
+        flagged = registry.get("dp1")
+        self.assertEqual(flagged.tls_mismatch, "cd" * 32)
+        self.assertIsNotNone(flagged.tls_mismatch_at)
+        found = registry.pin_tls("dp1", "ab" * 32, "os:me")
+        self.assertEqual((found.tls_mode, found.pin_sha256, found.pinned_by),
+                         ("pin", "ab" * 32, "os:me"))
+        self.assertIsNone(found.tls_mismatch)
+        self.assertEqual(found.ssh_mismatch, "SHA256:x")
+        found = registry.pin_ssh("dp1", " ssh-ed25519 AAAA ", "user:admin")
+        self.assertEqual((found.ssh_host_key, found.ssh_pinned_by),
+                         ("ssh-ed25519 AAAA", "user:admin"))
+        self.assertIsNone(found.ssh_mismatch)
+        with self.assertRaises(registry.InvalidValue):
+            registry.pin_ssh("dp1", "  ", "os:me")
+        found = registry.unpin("dp1", tls=True)
+        self.assertEqual((found.tls_mode, found.pin_sha256), ("ca", None))
+        self.assertEqual(found.ssh_host_key, "ssh-ed25519 AAAA")
+        found = registry.unpin("dp1", ssh=True)
+        self.assertIsNone(found.ssh_host_key)
+        with self.assertRaises(registry.UnknownName):
+            registry.pin_tls("no-such", "ab" * 32, "os:me")
+
+    def test_ca_bundle_must_be_pem(self):
+        with self.assertRaises(registry.InvalidValue):
+            registry.add("dp1", ca_bundle="not a certificate")
+        with self.assertRaises(registry.InvalidValue):
+            registry.add("dp1", ca_bundle="-----BEGIN CERTIFICATE-----\nAAAA\n"
+                                          "-----END CERTIFICATE-----\n")
 
     def test_environments(self):
         for name in ("dp1", "dp2", "dp3"):
@@ -430,8 +475,11 @@ class TestRegistryApi(WebCase):
         self.login("admin")
         answer = self.call("POST", "/appliances", {
             "name": "dp2", "address": "10.0.0.2", "soma_port": 5551,
-            "tls_mode": "pin", "poll": True})
+            "tls_mode": "none", "poll": True})
         self.assertEqual(answer.status_code, 201)
+        # pin needs a pinned certificate first
+        self.assertEqual(self.call("PATCH", "/appliances/dp2", {
+            "tls_mode": "pin"}).status_code, 422)
         self.assertEqual(answer.get_json()["soma_port"], 5551)
         self.assertEqual(self.call("POST", "/appliances", {
             "name": "dp2"}).status_code, 409)

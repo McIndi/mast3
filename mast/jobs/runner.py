@@ -56,6 +56,7 @@ command (`mast.cli.Result.outcome`): `succeeded`, `partial` if some
 of what the command did failed, or `failed` if all of it failed. A
 command that raised an exception is `failed` and has no result.
 """
+import contextlib
 import json
 import os
 import socket
@@ -65,6 +66,7 @@ import traceback
 import uuid
 
 from mast.cli import Result, guarded, listening
+from mast.cli.results import stored_credential
 from mast.jobs import config, queue, secrets
 from mast.jobs.models import CANCELLED, FAILED, PARTIAL, SUCCEEDED
 from mast.logging import make_logger
@@ -264,6 +266,17 @@ def _with_stored_credential(job_id, command, values):
     return values, found
 
 
+@contextlib.contextmanager
+def _stored_credential(stored):
+    """With a stored credential, every connection of the job must check
+    the certificate or the host key of the appliance."""
+    if not stored:
+        yield
+        return
+    with stored_credential():
+        yield
+
+
 def _call(job_id, worker_id, store, guard, redact):
     """Call the command and give each line of its progress to `store`.
     `guard` is called before each request to an appliance.
@@ -274,7 +287,8 @@ def _call(job_id, worker_id, store, guard, redact):
         command, values = queue.load(job_id, worker_id)
         values, found = _with_stored_credential(job_id, command, values)
         redact[0] = secrets.redactor(command.model, values, extra=found)
-        with listening(store), guarded(guard):
+        with listening(store), guarded(guard), \
+                _stored_credential(bool(found)):
             result = command.fn(command.model(**values))
     except JobCancelled:
         return {"status": CANCELLED,

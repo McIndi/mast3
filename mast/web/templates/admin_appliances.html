@@ -7,10 +7,21 @@
 <div class="alert alert-success d-none" role="status" data-notice></div>
 <div class="table-responsive">
     <table class="table table-sm align-middle">
-        <thead><tr><th>Name</th><th>Address</th><th>Ports (SOMA / Web / SSH)</th><th>TLS</th><th>Poll</th><th>Environments</th><th></th></tr></thead>
-        <tbody data-appliance-rows><tr><td colspan="7" class="text-body-secondary">Loading…</td></tr></tbody>
+        <thead><tr><th>Name</th><th>Address</th><th>Ports (SOMA / Web / SSH)</th><th>TLS</th><th>SSH key</th><th>Poll</th><th>Environments</th><th></th></tr></thead>
+        <tbody data-appliance-rows><tr><td colspan="8" class="text-body-secondary">Loading…</td></tr></tbody>
     </table>
 </div>
+
+<section class="d-none mt-3" data-pin-panel aria-live="polite">
+    <h2 class="h6" data-pin-title>Pin</h2>
+    <p class="small text-body-secondary">MAST connected to the appliance, without a credential, and shows what it found. Compare it with what the appliance itself shows (on its console, or by someone you trust) before you pin it: from then on MAST sends passwords only to this certificate and this host key.</p>
+    <div class="row g-3" data-pin-details></div>
+    <div class="mt-2 d-flex flex-wrap gap-1">
+        <button class="btn btn-sm btn-primary" type="button" data-pin-confirm>Pin what is checked</button>
+        <button class="btn btn-sm btn-outline-danger d-none" type="button" data-unpin>Remove the pins</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-pin-close>Close</button>
+    </div>
+</section>
 
 <h2 class="h5 mt-4" data-editor-title>Add an appliance</h2>
 <form class="row g-2" data-appliance-form autocomplete="off">
@@ -46,6 +57,7 @@
         <select class="form-select form-select-sm" id="a-tls" name="tls_mode">
             {% for mode in tls_modes %}<option>{{ mode }}</option>{% endfor %}
         </select>
+        <div class="form-text">pin: use the Pin button.</div>
     </div>
     <div class="col-12 col-lg-5">
         <label class="form-label small" for="a-notes">Notes</label>

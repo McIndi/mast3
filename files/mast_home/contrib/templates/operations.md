@@ -59,7 +59,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
-| `ssh.conf` | `mast-ssh`: the timeout, and whether new host keys are accepted. |
+| `ssh.conf` | `mast-ssh`: the timeout, and whether host keys that are not pinned are accepted. |
 | `service-config.conf` | `git-deploy`, see the [git-deploy Guide](./git-deploy.html). |
 | `xor.conf` | The key of `mast-system xor`. |
 
@@ -261,9 +261,54 @@ bar of the Commands page suggests their names.
 A job records the name of each registered appliance that it talks to.
 An address that a registered appliance has counts as that appliance, so
 that two jobs for one appliance wait for each other whatever name they
-used. Every registered appliance also has a TLS check (`--tls-mode`:
-`ca`, `pin` or `none`) and a flag to collect its status (`--poll`),
-which later releases use.
+used. Every registered appliance also has a flag to collect its
+status (`--poll`), which a later release uses, and a TLS check (see
+below).
+
+## Checking who the appliance is
+
+Before MAST sends a password to an appliance, it checks that it talks
+to that appliance and not to someone in between. Each registered
+appliance has a TLS check for SOMA (`--tls-mode`):
+
+* `ca` (the default): the certificate must be signed by an authority
+that MAST trusts and be for the address of the appliance. That is the
+trust store of the system, or the authorities of
+`--ca-bundle-file FILE` (a PEM file).
+* `pin`: the certificate must be the one that was pinned. This is for
+the self-signed certificates that DataPower appliances often have.
+* `none`: nothing is checked. Stored credentials are never sent this
+way.
+
+Pin an appliance with one command. MAST connects without a credential,
+shows the certificate (subject, issuer, validity, SHA-256) and the SSH
+host key (type, fingerprint), and asks before it pins them:
+
+    :::bash
+    ./mast-appliances pin -n dp1 --both
+    ./mast-appliances pin -n dp1 -f 3E:6E:D2:...   # a SHA-256 you checked
+    ./mast-appliances pin -n dp1 --ssh -f SHA256:IhWD...
+    ./mast-appliances unpin -n dp1 --both
+
+Compare what it shows with the appliance itself (its console, or a
+colleague who can see it) before you confirm. With `-f` it pins the
+fingerprint that you give and does not connect. In the web UI, the
+**Pin** button of Admin → Appliances does the same.
+
+An appliance that shows another certificate or host key than the
+pinned one gets nothing: the job fails with "The certificate of NAME
+changed (expected ..., got ...). An admin must check it and pin
+again.", before any request is sent. `mast-appliances list` and
+Admin → Appliances mark it CHANGED until an admin pins it again.
+
+`--no-check-hostname` (`-n`) turns off every check of the certificate,
+not only of its name, for an appliance that is not pinned. A pinned
+certificate is checked anyway.
+
+The SSH host key: a registered appliance with a pinned host key
+accepts only that key, before the login. Without a pin, MAST accepts
+any host key with a warning (or none, with `auto_add_keys = false` in
+`ssh.conf`), and never with a stored credential.
 
 `mast-appliances import` moves `hosts.conf`, `environments.conf` and
 the sections of `appliances.conf` for single appliances of MAST 3.15.2
@@ -297,8 +342,10 @@ is used only by commands that only read (those that the Commands page
 marks "This command only reads"). The purpose `change` is for any
 command, and only admins may use it.
 * A stored credential is sent only to an appliance whose certificate is
-checked: not with `--no-check-hostname`, and not to an appliance with
-`--tls-mode none`.
+checked (`ca` or `pin`, see "Checking who the appliance is"): not with
+`--no-check-hostname`, not to an appliance with `--tls-mode none`, not
+over plain `http`, and over SSH only to a pinned host key. To use one
+with a self-signed appliance, pin it first.
 * `test` runs `mast-system check-credentials` with the credential, through
 the job queue: it reads the firmware version, and asks the appliance to
 ping itself, an action that changes nothing, to find out whether the

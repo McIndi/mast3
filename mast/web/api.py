@@ -39,6 +39,9 @@ model of the command and puts the job in the queue.
 `POST /jobs/<id>/cancel`, `GET /jobs/<id>/files` and
 `GET /jobs/<id>/files/<name>`: The jobs.
 * `GET /workers`: The workers that are alive.
+* `POST /appliances/<name>/pin/preview`, `POST /appliances/<name>/pin`
+and `POST /appliances/<name>/unpin`: Pin the TLS certificate and the
+SSH host key of an appliance (`manage-appliance`).
 * `GET /appliances` and `GET /environments`: The appliance registry
 (`mast.registry`). `POST`, `PATCH /<name>` and `DELETE /<name>` change
 it, which needs the action `manage-appliance` (an admin).
@@ -620,6 +623,97 @@ def remove_appliance(name):
         return _registry_error(exc)
     _changed("Removed the appliance {}".format(name))
     return "", 204
+
+
+@blueprint.post("/appliances/<name>/pin/preview")
+def preview_pin(name):
+    """
+    _function_: `mast.web.api.preview_pin(name)`
+
+    Connect to the appliance (without a credential) and show what an
+    admin pins: `{"tls": {subject, issuer, not_before, not_after,
+    sha256}, "ssh": {type, key, fingerprint}}`. The body says which:
+    `{"tls": true, "ssh": true}` (both by default). One that cannot be
+    read is `{"error": ...}`.
+
+    Exposed at: `/api/v1/appliances/<name>/pin/preview` via POST
+    """
+    from mast import registry
+    from mast.datapower.datapower import tls
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    try:
+        record = registry.get(name)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    return flask.jsonify(tls.preview(
+        record, tls=body.get("tls", True) is not False,
+        ssh=body.get("ssh", True) is not False))
+
+
+@blueprint.post("/appliances/<name>/pin")
+def pin_appliance(name):
+    """
+    _function_: `mast.web.api.pin_appliance(name)`
+
+    Pin what the preview showed and the admin confirmed: `{"sha256":
+    "<hex>"}` for the certificate (the TLS check becomes `pin`) and/or
+    `{"ssh_host_key": "<type> <base64>"}` (or a `SHA256:...`
+    fingerprint) for the SSH host key.
+
+    Exposed at: `/api/v1/appliances/<name>/pin` via POST
+    """
+    from mast import registry
+    from mast.datapower.datapower import tls
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    if not body.get("sha256") and not body.get("ssh_host_key"):
+        return error(422, "Give sha256, ssh_host_key or both.")
+    try:
+        sha256 = tls.normalize_fingerprint(body["sha256"]) \
+            if body.get("sha256") else None
+        host_key = tls.normalize_ssh_pin(body["ssh_host_key"]) \
+            if body.get("ssh_host_key") else None
+    except ValueError as exc:
+        return error(422, str(exc))
+    try:
+        found = registry.get(name)
+        if sha256:
+            found = registry.pin_tls(name, sha256, principal().name)
+            _changed("Pinned the certificate {} of {}".format(sha256, name))
+        if host_key:
+            found = registry.pin_ssh(name, host_key, principal().name)
+            _changed("Pinned the SSH host key {} of {}".format(
+                tls.ssh_fingerprint(host_key)
+                if not host_key.startswith("SHA256:") else host_key, name))
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    return flask.jsonify(_appliance_json(found))
+
+
+@blueprint.post("/appliances/<name>/unpin")
+def unpin_appliance(name):
+    """
+    _function_: `mast.web.api.unpin_appliance(name)`
+
+    Remove the pinned certificate (`{"tls": true}`; the TLS check
+    becomes `ca`) and/or the pinned SSH host key (`{"ssh": true}`).
+
+    Exposed at: `/api/v1/appliances/<name>/unpin` via POST
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    kinds = {"tls": body.get("tls") is True, "ssh": body.get("ssh") is True}
+    if not any(kinds.values()):
+        return error(422, "Give tls, ssh or both.")
+    try:
+        found = registry.unpin(name, **kinds)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Removed the pins ({}) of {}".format(
+        ", ".join(k for k, v in kinds.items() if v), name))
+    return flask.jsonify(_appliance_json(found))
 
 
 @blueprint.get("/environments")
