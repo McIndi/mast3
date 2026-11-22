@@ -274,6 +274,63 @@ TOO HEAVILY ON THIS SECURITY**"""
     return Text(xorencode(params.string))
 
 
+class CredentialChecks(Table):
+    """The result of check-credentials: one row for each appliance. The
+    columns are named in mast.credentials, which reads them."""
+    def __init__(self, rows):
+        super().__init__(
+            ["appliance", "works", "firmware", "can change", "problem"],
+            rows)
+
+    def outcomes(self):
+        return [row[1] == "yes" for row in self.rows]
+
+
+def _check_credentials(appliance):
+    """Return the row of check-credentials for one appliance."""
+    try:
+        status = appliance.get_status("FirmwareVersion")
+        found = status.xml.find(".//Version")
+    except Exception as exc:
+        return [appliance.hostname, "no", "", "",
+                "{}: {}".format(type(exc).__name__, exc)]
+    if found is None or not (found.text or "").strip():
+        # A user that an admin just made must change its password
+        # before DataPower gives it any data
+        return [appliance.hostname, "no", "", "",
+                "The appliance gave no data for this user. A new user "
+                "must change its password first (log in once), and the "
+                "user must be allowed to read the status."]
+    firmware = found.text.strip()
+    try:
+        # Ping of the appliance itself changes nothing, but it is an
+        # action, so a user that may only read gets "Permission Denied"
+        response = appliance.do_action("Ping", RemoteHost="127.0.0.1")
+        text = getattr(response, "text", "") or ""
+    except Exception as exc:
+        return [appliance.hostname, "yes", firmware, "",
+                "Could not find out whether the user can change the "
+                "appliance. {}: {}".format(type(exc).__name__, exc)]
+    can_change = "no" if "permission denied" in text.lower() else "yes"
+    return [appliance.hostname, "yes", firmware, can_change, ""]
+
+
+@cli.command('check-credentials', category='utilities', exclusive=False)
+def check_credentials(params: ApplianceParams):
+    """Checks the credentials on each appliance: whether they can log in
+and read the firmware version, and whether they can change the
+appliance. To find that out, it asks the appliance to ping itself, an
+action that changes nothing: a user that may only read is refused.
+
+`mast-credentials test` uses this to test a stored credential."""
+    env = params.environment()
+    rows = []
+    for appliance in env.appliances:
+        say("Checking the credentials on {}".format(appliance.hostname))
+        rows.append(_check_credentials(appliance))
+    return CredentialChecks(rows)
+
+
 # ~#~#~#~#~#~#~#
 # Caches
 # ======

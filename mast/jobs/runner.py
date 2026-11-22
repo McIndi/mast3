@@ -229,6 +229,41 @@ def _data(result):
         return None
 
 
+def _with_stored_credential(job_id, command, values):
+    """Return `(values, secrets)`. If the job names a stored credential,
+    `values` has its user name and password in the credentials of the
+    command, in place of the name, and `secrets` has the password, so
+    that it is redacted also where it stands alone. They are only in
+    the memory of this process.
+
+    The credential is checked again against the appliances (an admin
+    may have changed its bindings since the job was queued), and each
+    appliance's use of it is recorded (see
+    `mast.credentials.store._open`)."""
+    field, name = queue.stored_credential(command.model, values)
+    if not name:
+        return values, ()
+    # Imported here: only a job with a stored credential needs the store
+    from mast.credentials import store as credentials
+    from mast.cli import params as cli_params
+    submitter = queue.get(job_id).submitted_by
+    _, targets = credentials.check_targets(
+        name, queue.appliance_names(command.model, values))
+    opened = None
+    for target in targets:
+        opened = credentials._open(name, target.name, job_id, submitter)
+    values = dict(values)
+    values[field] = None
+    found = ()
+    if opened is not None:
+        username, password = opened
+        for spec in cli_params.options(command.model):
+            if spec.widget == secrets.CREDENTIALS_WIDGET:
+                values[spec.name] = ["{}:{}".format(username, password)]
+        found = (password,)
+    return values, found
+
+
 def _call(job_id, worker_id, store, guard, redact):
     """Call the command and give each line of its progress to `store`.
     `guard` is called before each request to an appliance.
@@ -237,7 +272,8 @@ def _call(job_id, worker_id, store, guard, redact):
     redacted."""
     try:
         command, values = queue.load(job_id, worker_id)
-        redact[0] = secrets.redactor(command.model, values)
+        values, found = _with_stored_credential(job_id, command, values)
+        redact[0] = secrets.redactor(command.model, values, extra=found)
         with listening(store), guarded(guard):
             result = command.fn(command.model(**values))
     except JobCancelled:

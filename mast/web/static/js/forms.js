@@ -13,6 +13,7 @@ import * as targets from "./targets.js";
 export const WIDGETS = {
     "appliances": "target-bar",
     "credentials": "target-bar",
+    "stored_credential": "target-bar",
     "upload": "file",
     "out_dir": "hidden",
     "out_file": "hidden",
@@ -120,7 +121,9 @@ function choicesControl(option, id, context) {
     async function fill() {
         note.textContent = "Loading…";
         if (configured && (!targets.appliances().length || !targets.credentials().length)) {
-            note.textContent = "Add appliances and credentials to the target bar to choose from what is configured on them, or type a value.";
+            note.textContent = targets.storedCredential()
+                ? "With a stored credential, type a value. A list from the appliances needs a typed user name and password."
+                : "Add appliances and credentials to the target bar to choose from what is configured on them, or type a value.";
             useText(true);
             return;
         }
@@ -173,8 +176,10 @@ export function buildForm(command, container) {
     for (const option of command.options) {
         const kind = widgetControl(option.widget);
         if (kind === "target-bar") {
-            readers[option.name] = () => option.widget === "credentials"
-                ? targets.credentials() : targets.appliances();
+            readers[option.name] = {
+                credentials: () => targets.credentials(),
+                stored_credential: () => targets.storedCredential(),
+            }[option.widget] || (() => targets.appliances());
             continue;
         }
         if (kind === "hidden") continue;

@@ -365,5 +365,262 @@ class TestNetworkCLI(CLITestCase):
         self.assertNotIn("cli_alias", names)
 
 
+class _TLSProxy(object):
+    """A TLS server on 127.0.0.1 with a certificate for that address,
+    signed by a certificate authority of the test, that passes each
+    connection on to the SOMA port of the container (whose certificate
+    is self-signed and not for 127.0.0.1). A client that trusts the
+    authority (SSL_CERT_FILE) so checks the certificate as it would
+    for a real appliance, until MAST can pin a certificate."""
+
+    def __init__(self, directory, target_port):
+        import datetime
+        import ipaddress
+        import socket
+        import ssl
+        import threading
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.x509.oid import NameOID
+
+        def name(text):
+            return x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, text)])
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        ca_key = ec.generate_private_key(ec.SECP256R1())
+        ca = (x509.CertificateBuilder()
+              .subject_name(name("mast test CA")).issuer_name(name("mast test CA"))
+              .public_key(ca_key.public_key())
+              .serial_number(x509.random_serial_number())
+              .not_valid_before(now - datetime.timedelta(minutes=5))
+              .not_valid_after(now + datetime.timedelta(days=1))
+              .add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
+              .add_extension(x509.KeyUsage(
+                  digital_signature=True, key_cert_sign=True, crl_sign=True,
+                  content_commitment=False, key_encipherment=False,
+                  data_encipherment=False, key_agreement=False,
+                  encipher_only=False, decipher_only=False), True)
+              .add_extension(x509.SubjectKeyIdentifier.from_public_key(
+                  ca_key.public_key()), False)
+              .sign(ca_key, hashes.SHA256()))
+        key = ec.generate_private_key(ec.SECP256R1())
+        cert = (x509.CertificateBuilder()
+                .subject_name(name("127.0.0.1")).issuer_name(ca.subject)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(now - datetime.timedelta(minutes=5))
+                .not_valid_after(now + datetime.timedelta(days=1))
+                .add_extension(x509.SubjectAlternativeName(
+                    [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), False)
+                .add_extension(x509.ExtendedKeyUsage(
+                    [x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), False)
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                    ca_key.public_key()), False)
+                .sign(ca_key, hashes.SHA256()))
+        self.ca_file = os.path.join(directory, "ca.pem")
+        cert_file = os.path.join(directory, "proxy.pem")
+        with open(self.ca_file, "wb") as fout:
+            fout.write(ca.public_bytes(serialization.Encoding.PEM))
+        with open(cert_file, "wb") as fout:
+            fout.write(cert.public_bytes(serialization.Encoding.PEM))
+            fout.write(key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption()))
+        self._server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self._server.load_cert_chain(cert_file)
+        self._client = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self._client.check_hostname = False
+        self._client.verify_mode = ssl.CERT_NONE
+        self._target = target_port
+        self._socket = socket.create_server(("127.0.0.1", 0))
+        self.port = self._socket.getsockname()[1]
+        self._socket_module = socket
+        self._threading = threading
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                raw, _ = self._socket.accept()
+            except OSError:
+                return
+            self._threading.Thread(
+                target=self._serve, args=(raw,), daemon=True).start()
+
+    def _serve(self, raw):
+        # One thread moves the data both ways. A TLS socket must not be
+        # read in one thread while another thread writes to it: that
+        # can stop the connection at random.
+        import select
+        import ssl
+        raw.settimeout(30)
+        try:
+            inbound = self._server.wrap_socket(raw, server_side=True)
+        except OSError:
+            raw.close()
+            return
+        try:
+            outbound = self._client.wrap_socket(
+                self._socket_module.create_connection(
+                    ("127.0.0.1", self._target), timeout=30))
+        except OSError:
+            inbound.close()
+            return
+        peers = {inbound: outbound, outbound: inbound}
+        wait = (ssl.SSLWantReadError, ssl.SSLWantWriteError)
+
+        def send(sink, data):
+            view = memoryview(data)
+            while view:
+                try:
+                    view = view[sink.send(view):]
+                except wait:
+                    select.select([sink], [sink], [], 30)
+
+        try:
+            for end in peers:
+                end.setblocking(False)
+            while True:
+                # Data that TLS has already read is not seen by select
+                ready = [end for end in peers if end.pending()]
+                if not ready:
+                    ready = select.select(list(peers), [], [], 300)[0]
+                    if not ready:
+                        return
+                for source in ready:
+                    try:
+                        data = source.recv(65536)
+                    except wait:
+                        continue
+                    if not data:
+                        return
+                    send(peers[source], data)
+        except OSError:
+            pass
+        finally:
+            for end in peers:
+                try:
+                    end.close()
+                except OSError:
+                    pass
+
+    def close(self):
+        self._socket.close()
+
+
+class TestStoredCredentialCLI(CLITestCase):
+    """An admin stores a credential for a user that may only read; a job
+    then uses it by name, and the password is nowhere but in the
+    database (encrypted) and the memory of the job."""
+
+    USER = "mast_collector"
+    APPLIANCE = "dp-verified"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.proxy = _TLSProxy(cls.workdir, cls.container.ports[SOMA_PORT])
+        cls.addClassCleanup(cls.proxy.close)
+
+    def setUp(self):
+        self.remove_leftovers(users=[self.USER], groups=[self.USER])
+        self.assertTrue(self.dp.add_group(
+            self.USER, access_policies=["*/*/*?Access=r"]))
+        self.assertTrue(self.dp.add_user(
+            self.USER, GOOD_PASSWORD, user_group=self.USER,
+            supress_force_password_change=True))
+
+    def program(self, launcher, module, *args, stdin=None, trust=True,
+                status=0):
+        """Run a MAST program and return its output. With `trust`, it
+        trusts the authority of the proxy."""
+        if TEST_HOME:
+            command = [self.launcher(launcher)]
+            env = dict(os.environ)
+            env.pop("MAST_HOME", None)
+        else:
+            command = [sys.executable, "-m", module]
+            env = dict(os.environ, MAST_HOME=self.mast_home)
+        env.pop("SSL_CERT_FILE", None)
+        if trust:
+            env["SSL_CERT_FILE"] = self.proxy.ca_file
+        proc = subprocess.run(
+            command + list(args), cwd=self.mast_home, env=env, input=stdin,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(status, proc.returncode, "{} {} exited with {}:\n{}".format(
+            launcher, " ".join(args), proc.returncode, proc.stdout))
+        self.assertNotIn(GOOD_PASSWORD, proc.stdout)
+        return proc.stdout
+
+    def credentials(self, *args, **kwargs):
+        return self.program("mast-credentials", "mast.credentials", *args,
+                            **kwargs)
+
+    def test_a_job_uses_a_stored_credential(self):
+        self.program("mast-appliances", "mast.registry", "add", "-n",
+                     self.APPLIANCE, "-A", "127.0.0.1",
+                     "--soma-port", str(self.proxy.port))
+        self.addCleanup(self.program, "mast-appliances", "mast.registry",
+                        "remove", "-n", self.APPLIANCE)
+        self.credentials("add", "-n", "collector", "-u", self.USER, "-p",
+                         "collect", "-b", self.APPLIANCE, "--password-stdin",
+                         stdin=GOOD_PASSWORD + "\n")
+        self.addCleanup(self.credentials, "delete", "-n", "collector", "-y")
+
+        # The test logs in, reads, and finds that the user cannot change
+        # the appliance
+        out = self.credentials("test", "-n", "collector", "-a", self.APPLIANCE)
+        self.assertIn("works on {}".format(self.APPLIANCE), out)
+        self.assertNotIn("WARNING", out)
+        listed = self.credentials("list")
+        self.assertRegex(listed, r"(?m)^collector .* works +no$")
+
+        # A command that only reads runs with it
+        out = self.program("mast-system", "mast.datapower.system",
+                           "list-domains", "-a", self.APPLIANCE,
+                           "--credential", "collector")
+        self.assertIn("default", out)
+        uses = self.credentials("uses", "-n", "collector")
+        self.assertEqual(2, len([line for line in uses.splitlines()
+                                 if self.APPLIANCE in line]))
+
+        # A command that changes the appliance is refused before it is
+        # queued
+        out = self.program("mast-system", "mast.datapower.system", "save",
+                           "-a", self.APPLIANCE, "--credential", "collector",
+                           status=1)
+        self.assertIn("only by commands that only read", out)
+
+        # Without a certificate that it can check, the password is not
+        # sent: the job fails on the certificate
+        out = self.program("mast-system", "mast.datapower.system",
+                           "list-domains", "-a", self.APPLIANCE,
+                           "--credential", "collector", trust=False,
+                           status=1)
+        self.assertIn("CERTIFICATE_VERIFY_FAILED", out)
+
+        # The password is in no file of the home but the database, where
+        # it is encrypted: not as it is, and not in an Authorization
+        # header
+        import base64
+        forms = (GOOD_PASSWORD.encode(), base64.b64encode(
+            "{}:{}".format(self.USER, GOOD_PASSWORD).encode()))
+        for root, _, names in os.walk(self.mast_home):
+            for name in names:
+                path = os.path.join(root, name)
+                if os.path.islink(path) or "python" in path.split(os.sep):
+                    continue
+                try:
+                    with open(path, "rb") as fin:
+                        data = fin.read()
+                        found = any(form in data for form in forms)
+                except OSError:
+                    continue
+                self.assertFalse(found, "The password is in " + path)
+
+
 if __name__ == "__main__":
     unittest.main()

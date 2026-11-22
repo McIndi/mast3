@@ -404,11 +404,19 @@ class Cli(object):
         `mast.jobs.client`."""
         # Imported here, because mast.jobs imports this module
         from mast.jobs import client, registry
+        from mast.jobs.auth import Forbidden
         registry.register(self.namespace, self)
         command_id = registry.command_id(self.namespace, command)
         log.info(f"Attempting to queue the command: {command_id}")
-        status = client.run(
-            command_id, values, detach=args._detach, local=args._local)
+        try:
+            status = client.run(
+                command_id, values, detach=args._detach, local=args._local)
+        except Forbidden as exc:
+            # For example a stored credential that may not be used here.
+            # Nothing was queued.
+            log.warning("The job was refused: {}".format(exc))
+            command.parser.exit(1, "{}: error: {}\n".format(
+                command.parser.prog, exc))
         if status:
             sys.exit(status)
 

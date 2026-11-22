@@ -57,6 +57,10 @@ def backups():
     _run("mast.datapower.backups")
 
 
+def credentials():
+    _run("mast.credentials")
+
+
 def crypto():
     _run("mast.datapower.crypto")
 

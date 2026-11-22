@@ -22,6 +22,14 @@ mast-appliances env-add -n lab -m dp1 -m dp2
 set MAST_CREDS=username:password
 set XOR_MAST_CREDS=<from mast-system xor>
 
+# Or store a credential (asks for the password), test it, and use it.
+# The appliance's certificate must be one that the MAST host trusts.
+mast-credentials add -n lab-read -u <a user that may only read> -p collect -b lab
+mast-credentials test -n lab-read -a dp1      # works; can change: no
+mast-system list-domains -a lab --credential lab-read
+mast-system save -a lab --credential lab-read # refused: only reads
+mast-credentials uses -n lab-read
+
 # Try ssh (choose one)
 mast-ssh -a lab -c %MAST_CREDS% -d default
 mast-ssh -a lab -c %XOR_MAST_CREDS% -d default

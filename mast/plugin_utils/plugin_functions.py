@@ -196,6 +196,9 @@ def _model_form(plugin, command, env):
                       widgets.OUT_DIR, widgets.OUT_FILE):
             # The web GUI supplies these, see _model_values
             continue
+        elif widget == widgets.STORED_CREDENTIAL:
+            # Only the new web UI offers the stored credentials
+            continue
         elif widget == widgets.UPLOAD:
             file_uploads.append(render_file_upload(plugin, key))
         elif widget in (widgets.STATUS_PROVIDER, widgets.OBJECT_CLASS) \

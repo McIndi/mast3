@@ -271,6 +271,74 @@ into the registry once; `mast-appliances export` writes them back for a
 return to an older MAST. Back up the database (see "Backups") to keep
 the registry.
 
+# Stored credentials
+
+An admin can store a user name and a password for appliances once, and
+operators then run jobs with it by name: they never see the password.
+Manage them with `mast-credentials` on the MAST server (it needs no
+login), or as an admin in the web UI under Admin → Credentials.
+
+    :::bash
+    ./mast-credentials add -n collector -u mastread -p collect -b prod
+    ./mast-credentials test -n collector -a dp1
+    ./mast-credentials list
+    ./mast-system list-domains -a prod --credential collector
+
+* `add` asks for the password twice; `--password-stdin` reads it from
+the first line of standard input, for scripts. The password is never an
+option, and no command, page or answer of the API shows it again.
+* `-b` binds the credential to an appliance or an environment (give it
+once for each). A job can use it only on **registered** appliances that
+it is bound to, directly or through an environment. A hostname that is
+not in the registry is refused, so that nobody can send it to a host of
+their own.
+* The purpose `collect` is for a DataPower user that may only read: it
+is used only by commands that only read (those that the Commands page
+marks "This command only reads"). The purpose `change` is for any
+command, and only admins may use it.
+* A stored credential is sent only to an appliance whose certificate is
+checked: not with `--no-check-hostname`, and not to an appliance with
+`--tls-mode none`.
+* `test` runs `mast-system check-credentials` with the credential, through
+the job queue: it reads the firmware version, and asks the appliance to
+ping itself, an action that changes nothing, to find out whether the
+user can change the appliance. A `collect` credential that can is
+reported with a warning. A DataPower user that an admin just made must
+change its password once before DataPower gives it any data.
+* `replace` gives a new password (and user name), `rebind` new
+bindings, `update` a new description or purpose, `delete` removes it.
+* `uses -n NAME` lists the jobs that used it, and `audit` every change
+that an admin made. Neither has a secret in it.
+
+In the web UI, the target bar of the Commands page offers the stored
+credentials that can be used on all of its appliances. With one chosen,
+the form sends its name and no password.
+
+The passwords are encrypted in the job database with the keys in
+`etc/local/credentials.key` (`[credentials] key_file` in `jobs.conf`),
+which MAST makes the first time it is needed. On Linux and macOS, the
+file and its folder must be readable only by the account that runs MAST:
+MAST makes the folder private when it makes the key, and refuses the
+credential store if the group or others can read either of them, with
+the `chmod` that fixes it. `./mast-credentials rotate-key` makes a new
+key, encrypts every credential again with it, and drops the keys older
+than the one before it.
+
+Keep a copy of `credentials.key` with your backups, but not in the same
+place as the backup of the database: whoever has both has the
+passwords. Without the key file, the stored passwords cannot be read;
+store them again.
+
+What this protects against, and what it does not:
+
+* A copy of the database, or of a backup of it, without the key file
+does not give the passwords.
+* A user of the web UI who is not an admin cannot get a password, and
+cannot point a stored credential at a host of their own.
+* Someone who can read the files of the account that runs MAST has the
+database and the key file, and so the passwords. So does someone who
+can read the memory of a worker while a job runs.
+
 # The web GUI
 
 The web GUI listens on `127.0.0.1:5000` by default, so only the MAST
@@ -325,7 +393,7 @@ A password has at least 12 characters and is not the user name.
 |---|---|
 | `viewer` | See the jobs, with their progress and results. |
 | `operator` | Also run commands, and cancel their own jobs. |
-| `admin` | Also cancel any job, and manage the users and the appliances in the web UI (Admin). Later releases add credentials. |
+| `admin` | Also cancel any job, manage the users, the appliances and the stored credentials in the web UI (Admin), and use credentials for changing. Operators may use the stored credentials for collecting. |
 
 The other commands:
 
@@ -426,13 +494,15 @@ The web server also writes `var/log/flask.log`.
 
 Back up what is yours in the table of the MAST home:
 
-* `etc/local`, with `jobs.key` and `server.key`,
+* `etc/local`, with `jobs.key` and `server.key`, and `credentials.key`
+(keep that copy apart from the copy of the database),
 * `etc/crypto`,
 * `etc/crontab`, if you have one,
 * `var/jobs` (SQLite), or the PostgreSQL database with `jobs.key`,
 * `tmp`, if commands write backups of your appliances there.
 
 Without `jobs.key`, the jobs that wait in the queue cannot be run.
+Without `credentials.key`, the stored credentials cannot be used.
 
 # Upgrades
 

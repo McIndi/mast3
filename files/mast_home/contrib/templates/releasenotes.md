@@ -37,7 +37,8 @@ recorded the address before.
 * `/classic/config/<file>` no longer serves `server.conf` and
 `jobs.conf`, which can hold keys and the password of the database.
 * The job database gets new tables, `users`, `appliances`,
-`environments` and `environment_members`, and a new column,
+`environments`, `environment_members`, `credentials`,
+`credential_bindings`, `credential_uses` and `audit_events`, and a new column,
 `job_results.data` (the result of a job as a table, for the web UI).
 MAST adds them when it starts. To go back to MAST 3.15.2.x, stop every
 MAST process of the home, run `./mast-appliances export` (it writes
@@ -61,6 +62,17 @@ revision.
 `remove`, `list`, the environments (`env-add`, `env-update`,
 `env-set-members`, `env-remove`, `env-list`), and `import` and `export`
 of the old files. Admin → Appliances does the same in the web UI.
+* **Stored credentials**: `mast-credentials` (and Admin → Credentials)
+stores a user name and password once, encrypted with a key in
+`etc/local/credentials.key`, bound to registered appliances and
+environments. Commands take `--credential NAME` in place of
+`--credentials`; the worker decrypts it just before the command runs.
+Operators may use credentials for collecting with commands that only
+read; only admins use credentials for changing. Every use and every
+change is recorded. The target bar of the Commands page offers the
+credentials that fit its appliances.
+* `mast-system check-credentials` checks that credentials log in, and
+whether they can change the appliance.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the

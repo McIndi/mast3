@@ -822,7 +822,7 @@ class TestSystemCommandLine(SystemTestCase):
         self.assertNotIn("hunter2", repr(params))
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(45, len(cli.commands))
+        self.assertEqual(46, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

@@ -24,7 +24,7 @@ every widget of every command is in the map, so that a new widget
 cannot go without a control.
 
 * `target-bar`: The target bar of the page fills it (the appliances,
-the credentials).
+the credentials, the stored credential).
 * `file`: A file input; the file is uploaded first, and the job gets
 the token of the upload.
 * `hidden`: The server fills it (`out_dir`, `out_file`); the job page
@@ -45,6 +45,7 @@ __all__ = ["WIDGETS", "control"]
 WIDGETS = {
     "appliances": "target-bar",
     "credentials": "target-bar",
+    "stored_credential": "target-bar",
     "upload": "file",
     "out_dir": "hidden",
     "out_file": "hidden",

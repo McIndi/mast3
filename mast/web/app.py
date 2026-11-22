@@ -38,6 +38,8 @@ from mast.auth import roles
 from mast.config import get_configs_dict
 from mast.logging import make_logger
 from mast.web import api, auth, security
+# The routes of the credential store, on the blueprint of api
+from mast.web import credentials as _credentials  # noqa: F401
 from mast.web.page import load_pages
 
 __all__ = ["create_app", "settings", "CLASSIC_PREFIX"]
