@@ -450,6 +450,12 @@ class _TLSProxy(object):
                 target=self._serve, args=(raw,), daemon=True).start()
 
     def _serve(self, raw):
+        # One thread moves the data both ways. A TLS socket must not be
+        # read in one thread while another thread writes to it: that
+        # can stop the connection at random.
+        import select
+        import ssl
+        raw.settimeout(30)
         try:
             inbound = self._server.wrap_socket(raw, server_side=True)
         except OSError:
@@ -458,30 +464,47 @@ class _TLSProxy(object):
         try:
             outbound = self._client.wrap_socket(
                 self._socket_module.create_connection(
-                    ("127.0.0.1", self._target)))
+                    ("127.0.0.1", self._target), timeout=30))
         except OSError:
             inbound.close()
             return
+        peers = {inbound: outbound, outbound: inbound}
+        wait = (ssl.SSLWantReadError, ssl.SSLWantWriteError)
 
-        def pump(source, sink):
-            try:
-                while True:
-                    data = source.recv(65536)
-                    if not data:
-                        break
-                    sink.sendall(data)
-            except OSError:
-                pass
-            finally:
-                for end in (source, sink):
+        def send(sink, data):
+            view = memoryview(data)
+            while view:
+                try:
+                    view = view[sink.send(view):]
+                except wait:
+                    select.select([sink], [sink], [], 30)
+
+        try:
+            for end in peers:
+                end.setblocking(False)
+            while True:
+                # Data that TLS has already read is not seen by select
+                ready = [end for end in peers if end.pending()]
+                if not ready:
+                    ready = select.select(list(peers), [], [], 300)[0]
+                    if not ready:
+                        return
+                for source in ready:
                     try:
-                        end.close()
-                    except OSError:
-                        pass
-
-        self._threading.Thread(
-            target=pump, args=(outbound, inbound), daemon=True).start()
-        pump(inbound, outbound)
+                        data = source.recv(65536)
+                    except wait:
+                        continue
+                    if not data:
+                        return
+                    send(peers[source], data)
+        except OSError:
+            pass
+        finally:
+            for end in peers:
+                try:
+                    end.close()
+                except OSError:
+                    pass
 
     def close(self):
         self._socket.close()
