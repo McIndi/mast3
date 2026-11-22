@@ -95,9 +95,16 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
 
+An admin can also store a credential once, for operators to use by name; the password never leaves the MAST server:
+
+```shell
+./mast-credentials add -n collector -u mastread -p collect -b lab
+./mast-system list-domains -a lab --credential collector
+```
+
 ## The web GUI
 
-`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin → Users manages the users. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
+`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances and the stored credentials. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
 
 ## The job queue
 

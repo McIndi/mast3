@@ -19,12 +19,14 @@ _module_: `mast.plugin_utils.params`
 The parameters that the DataPower commands share, and the widgets that
 tell the web GUI how to ask for a value.
 """
+from pydantic import model_validator
+
 from mast.cli import Params, Option
 from mast.datapower.datapower import Environment
 
 __all__ = [
     "ApplianceOptions", "ApplianceParams", "SaveConfigParams",
-    "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
+    "APPLIANCES", "CREDENTIALS", "STORED_CREDENTIAL", "UPLOAD", "OUT_DIR", "OUT_FILE",
     "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
 ]
 
@@ -39,6 +41,10 @@ __all__ = [
 # web GUI. The form does not ask for them again.
 APPLIANCES = "appliances"
 CREDENTIALS = "credentials"
+# The name of a stored credential (see mast.credentials). The worker
+# puts its user name and password in the credentials just before the
+# command runs.
+STORED_CREDENTIAL = "stored_credential"
 # A file that the user uploads. The command receives the path of the
 # uploaded file on the MAST host.
 UPLOAD = "upload"
@@ -103,12 +109,33 @@ class ApplianceOptions(Params):
              "appliance, in the same order as the appliances. If you "
              "would prefer to not use plain-text passwords, you can use "
              "the output of `mast-system xor <username:password>`.")
+    credential: str | None = Option(
+        None, widget=STORED_CREDENTIAL,
+        help="The name of a stored credential to use in place of "
+             "`--credentials` (see `mast-credentials list`). It can be "
+             "used only on the registered appliances that it is bound "
+             "to, and a credential for collecting only with commands "
+             "that only read. The password never leaves the MAST host's "
+             "worker.")
     timeout: int = timeout_option()
     no_check_hostname: bool = Option(
         False, short="n",
         help="If specified SSL verification will be turned off when "
-             "sending commands to the appliances.")
+             "sending commands to the appliances. Not with a stored "
+             "credential (`--credential`).")
 
+    @model_validator(mode="after")
+    def _one_kind_of_credentials(self):
+        if self.credential and self.credentials:
+            raise ValueError(
+                "give either credentials or a stored credential "
+                "(credential), not both")
+        if self.credential and self.no_check_hostname:
+            raise ValueError(
+                "a stored credential is sent only to an appliance whose "
+                "certificate is checked; no_check_hostname cannot be "
+                "used with it")
+        return self
 
 
 class ApplianceParams(ApplianceOptions):

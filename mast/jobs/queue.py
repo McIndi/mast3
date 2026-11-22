@@ -70,6 +70,7 @@ __all__ = [
     "claim", "load", "heartbeat", "cancel_requested", "add_event", "finish",
     "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
+    "appliance_names", "stored_credential", "STORED_CREDENTIAL_WIDGET",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner", "NotQueued",
 ]
@@ -77,6 +78,9 @@ __all__ = [
 # The widget of the parameter that names the appliances, see
 # mast.plugin_utils.params.APPLIANCES
 _APPLIANCES_WIDGET = "appliances"
+# The widget of the parameter that names a stored credential, see
+# mast.plugin_utils.params.STORED_CREDENTIAL
+STORED_CREDENTIAL_WIDGET = "stored_credential"
 
 # A target that is not an appliance starts with this. No address of
 # an appliance does.
@@ -229,15 +233,9 @@ def _targets(model, params):
     # Imported here because it reads the appliance registry, which a
     # program that only reads the queue does not need
     from mast import registry
-    from mast.cli import params as cli_params
 
-    names = []
-    for spec in cli_params.options(model):
-        if spec.widget == _APPLIANCES_WIDGET:
-            value = getattr(params, spec.name)
-            names.extend([value] if isinstance(value, str) else value)
     targets = []
-    for name in names:
+    for name in appliance_names(model, params):
         try:
             found = []
             for appliance in registry.resolve([name]):
@@ -253,6 +251,42 @@ def _targets(model, params):
             if target and target not in targets:
                 targets.append(target)
     return targets
+
+
+def appliance_names(model, params):
+    """
+    _function_: `mast.jobs.queue.appliance_names(model, params)`
+
+    Return the names of appliances and environments in `params` (an
+    instance of `model`, or a dict), as they were given.
+    """
+    from mast.cli import params as cli_params
+    names = []
+    for spec in cli_params.options(model):
+        if spec.widget == _APPLIANCES_WIDGET:
+            value = params.get(spec.name) if isinstance(params, dict) \
+                else getattr(params, spec.name)
+            if value:
+                names.extend([value] if isinstance(value, str) else value)
+    return names
+
+
+def stored_credential(model, params):
+    """
+    _function_: `mast.jobs.queue.stored_credential(model, params)`
+
+    Return `(field, name)`: the parameter of `model` that names a
+    stored credential, and the name in `params` (an instance of
+    `model`, or a dict). Both are None if the command has no such
+    parameter; the name is None if it was not given.
+    """
+    from mast.cli import params as cli_params
+    for spec in cli_params.options(model):
+        if spec.widget == STORED_CREDENTIAL_WIDGET:
+            value = params.get(spec.name) if isinstance(params, dict) \
+                else getattr(params, spec.name)
+            return spec.name, value or None
+    return None, None
 
 
 def _resources(command, params):
@@ -309,6 +343,12 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     queued job whose caller is silent is cancelled.
     * `job_id`: The id for the job, from `new_job_id`. The default is
     a new id.
+
+    A job with a stored credential (the parameter with the widget
+    `stored_credential`) is queued only if `principal` may use that
+    credential on the appliances of the job with this command, see
+    `mast.credentials.store.check_use`. Otherwise `Forbidden` says why.
+    Only the name of the credential is stored with the job.
     """
     cmd = registry.resolve(command)
     if not getattr(cmd, "queued", True):
@@ -317,6 +357,14 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         params = cmd.model(**(params or {}))
     targets = _targets(cmd.model, params)
     authorize(principal, "submit", command=command, targets=targets)
+    _, credential = stored_credential(cmd.model, params)
+    if credential:
+        # Imported here: a program that only reads the queue does not
+        # need the credential store
+        from mast.credentials import store
+        store.check_use(
+            credential, appliance_names(cmd.model, params), principal,
+            command=command, exclusive=getattr(cmd, "exclusive", True))
     if exclusive is None:
         exclusive = getattr(cmd, "exclusive", True)
     locked = targets + _resources(cmd, params)

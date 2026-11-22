@@ -30,13 +30,18 @@ again when there was no job to take.
 * `[worker] mastd`: Whether `mastd` hosts a worker.
 * `[secrets] key_file`: The file that holds the key for the secret
 parameters of queued jobs.
+* `[credentials] key_file`: The file that holds the keys of the
+credential store (`mast.credentials`).
+* `[credentials] key_provider`: Where the keys of the credential store
+come from. Only `file` (the key file) is supported.
 """
 import os
 
 from mast.config import MAST_HOME, get_config
 
 __all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
-           "cancel_poll_seconds", "mastd_worker", "key_file"]
+           "cancel_poll_seconds", "mastd_worker", "key_file",
+           "credentials_key_file", "credentials_key_provider"]
 
 _DEFAULTS = {
     ("database", "url"): "sqlite:///var/jobs/jobs.db",
@@ -46,6 +51,8 @@ _DEFAULTS = {
     ("worker", "cancel_poll_seconds"): "1",
     ("worker", "mastd"): "true",
     ("secrets", "key_file"): "etc/local/jobs.key",
+    ("credentials", "key_file"): "etc/local/credentials.key",
+    ("credentials", "key_provider"): "file",
 }
 
 
@@ -134,3 +141,23 @@ def key_file():
     Return the path of the file that holds the secrets key.
     """
     return _in_home(_get("secrets", "key_file"))
+
+
+def credentials_key_file():
+    """
+    _function_: `mast.jobs.config.credentials_key_file()`
+
+    Return the path of the file that holds the keys of the credential
+    store.
+    """
+    return _in_home(_get("credentials", "key_file"))
+
+
+def credentials_key_provider():
+    """
+    _function_: `mast.jobs.config.credentials_key_provider()`
+
+    Return the name of the key provider of the credential store
+    (`file`).
+    """
+    return _get("credentials", "key_provider").lower()

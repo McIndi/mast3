@@ -42,6 +42,7 @@ model of the command and puts the job in the queue.
 * `GET /appliances` and `GET /environments`: The appliance registry
 (`mast.registry`). `POST`, `PATCH /<name>` and `DELETE /<name>` change
 it, which needs the action `manage-appliance` (an admin).
+* `/credentials`: The credential store, see `mast.web.credentials`.
 
 The routes for jobs are thin wrappers over `mast.jobs.queue`, which
 checks the role of the user for each action. No route goes around the

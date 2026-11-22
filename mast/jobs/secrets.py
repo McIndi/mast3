@@ -45,12 +45,12 @@ from mast.cli import params as cli_params
 from mast.jobs import config
 
 __all__ = ["seal", "unseal", "scrub", "redactor", "redact_data", "Redactor",
-           "SecretsError", "REDACTED"]
+           "SecretsError", "REDACTED", "CREDENTIALS_WIDGET"]
 
 _MARK = "$secret"
 
 # The widget of the credentials, see mast.plugin_utils.params.CREDENTIALS
-_CREDENTIALS_WIDGET = "credentials"
+CREDENTIALS_WIDGET = "credentials"
 
 # What stands in the place of a secret value in the record of a job
 REDACTED = "********"
@@ -227,12 +227,14 @@ def redact_data(redact, data):
     return data
 
 
-def redactor(model, values):
+def redactor(model, values, extra=()):
     """
-    _function_: `mast.jobs.secrets.redactor(model, values)`
+    _function_: `mast.jobs.secrets.redactor(model, values, extra=())`
 
     Return a `Redactor` for the secret parameters of `model`. `values`
-    has the parameters of the job, not encrypted.
+    has the parameters of the job, not encrypted. `extra` has more
+    secrets to redact, in the same forms (the password of a stored
+    credential, which is also found where it stands alone).
 
     A value is found as it was given, base64 encoded, and escaped for
     XML or HTML (once or twice).
@@ -245,6 +247,9 @@ def redactor(model, values):
     that gave the value, or the job could not use the credentials.
     """
     found = set()
+    for item in extra:
+        if isinstance(item, str) and item:
+            found.update(_forms(item))
     for spec in cli_params.options(model):
         if not spec.secret:
             continue
@@ -253,7 +258,7 @@ def redactor(model, values):
             if not isinstance(item, str) or not item:
                 continue
             found.update(_forms(item))
-            if spec.widget == _CREDENTIALS_WIDGET and ":" not in item:
+            if spec.widget == CREDENTIALS_WIDGET and ":" not in item:
                 decoded = _xor_decoded(item)
                 if decoded:
                     found.update(_forms(decoded))
