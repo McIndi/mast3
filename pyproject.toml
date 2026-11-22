@@ -78,6 +78,7 @@ mast-jobs = "mast._entry:jobs"
 mast-network = "mast._entry:network"
 mast-ssh = "mast._entry:ssh"
 mast-system = "mast._entry:system"
+mast-users = "mast._entry:users"
 mast-version = "mast._entry:version"
 mast-web = "mast._entry:web"
 mast-worker = "mast._entry:worker"
@@ -96,7 +97,7 @@ status = "mast.datapower.status:WebPlugin"
 system = "mast.datapower.system:WebPlugin"
 
 [project.entry-points.mastd_plugin]
-mastd_web_plugin = "mast.datapower.web:Plugin"
+mastd_web_plugin = "mast.web:Plugin"
 mastd_cron_plugin = "mast.cron:Plugin"
 mastd_worker_plugin = "mast.jobs.worker:Plugin"
 
@@ -124,6 +125,7 @@ include = ["mast", "mast.*"]
 include-package-data = false
 
 [tool.setuptools.package-data]
+"mast.web" = ["templates/*", "static/css/*"]
 "mast.datapower.accounts" = ["docroot/*"]
 "mast.datapower.backups" = ["docroot/*"]
 "mast.datapower.crypto" = ["docroot/*"]

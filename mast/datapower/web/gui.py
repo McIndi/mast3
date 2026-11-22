@@ -16,6 +16,10 @@
 from io import StringIO, BytesIO
 from importlib import metadata
 from mast.timestamp import Timestamp
+from mast.web import auth as web_auth
+from mast.web import security
+from mast.web.security import (
+    CONTENT_SECURITY_POLICY, CSRF_FIELD, CSRF_HEADER, csrf_token, secret_key)
 from mast.datapower import datapower
 from mast.datapower.datapower import is_environment, get_appliances
 from mast.xor import xordecode, xorencode
@@ -23,21 +27,18 @@ from mast.config import get_configs_dict, MAST_HOME
 from urllib.parse import unquote
 from mast.logging import make_logger
 from mast import jobs
-from mast import keyfile
+from mast.jobs import auth as jobs_auth
 from mast.plugin_utils import plugin_functions
-import cherrypy
-from cheroot.ssl.builtin import BuiltinSSLAdapter
 from markupsafe import Markup
-from cheroot.wsgi import WSGIServer
-import hmac
 import logging
 import random
-import secrets
+import re
+from secrets import token_hex
+from werkzeug.utils import secure_filename
 import string
 import flask
 import json
 import os
-import sys
 import getpass
 
 config = get_configs_dict()["server.conf"]
@@ -62,13 +63,6 @@ secure = bool(config["server"]["secure"])
 # How long a browser keeps to HTTPS for this server after it saw the
 # web GUI over TLS (HSTS). 0 tells browsers to forget it.
 hsts_max_age = int(config["server"].get("hsts_max_age") or 31536000)
-cert, key = None, None
-if secure:
-    key = config["server"]["key"]
-    cert = config["server"]["cert"]
-    cacert = None
-    if "cacert" in config["server"]:
-        cacert = config["server"]["cacert"]
 
 app = flask.Flask(
     __name__,
@@ -77,45 +71,14 @@ app = flask.Flask(
     template_folder=template_dir)
 
 
-# The values that MAST 3.15.2 and older shipped as secret_key. They are
-# not secret, so a server.conf that still has one gets a key file.
-_PUBLIC_SECRET_KEYS = {"", "INSECURE_SECRET_KEY_CHANGE_ME", "changeme"}
-
-
-def secret_key(server_config):
-    """
-    _function_: `mast.datapower.web.secret_key(server_config)`
-
-    Return the key that signs the session cookie of the web GUI: the
-    `secret_key` of the `[server]` stanza if it is set, or else the key
-    in `secret_key_file` (`etc/local/server.key`), which is made with a
-    random key the first time.
-
-    A `secret_key` that MAST once shipped as its default is not secret.
-    It is ignored, with a warning in `gui.log`.
-
-    Parameters:
-
-    * `server_config`: The `[server]` stanza of `server.conf`.
-    """
-    key = (server_config.get("secret_key") or "").strip()
-    if key and key not in _PUBLIC_SECRET_KEYS:
-        return key
-    if key:
-        make_logger("gui").warning(
-            "Ignoring the secret_key in server.conf: it is the default "
-            "of an older MAST and is not secret. Remove it from "
-            "etc/local/server.conf; MAST uses the key in secret_key_file.")
-    path = server_config.get("secret_key_file") or "etc/local/server.key"
-    if not os.path.isabs(path):
-        path = os.path.join(MAST_HOME, path)
-    return keyfile.read_or_create(path)
-
-
 app.secret_key = secret_key(config["server"])
-# The session cookie holds the CSRF token. Over TLS it is only sent over
-# TLS (Secure), and the requests that other sites make in the background
-# do not carry it (SameSite=Lax).
+# The classic GUI shares the session cookie of the web UI (mast.web.app),
+# which mounts it under /classic/: the same name, the path /, and the same
+# flags. Over TLS the cookie is only sent over TLS (Secure), scripts cannot
+# read it (HttpOnly), and the requests that other sites make in the
+# background do not carry it (SameSite=Lax).
+app.config["SESSION_COOKIE_PATH"] = "/"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = secure
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 wzl = logging.getLogger("werkzeug")
@@ -196,6 +159,10 @@ def initialize_plugins():
     # print(Markup(plugins["js"]))
     return plugins
 
+# The configuration files that /config/ does not serve
+_PRIVATE_CONFIGS = frozenset(("xor.conf", "server.conf", "jobs.conf"))
+
+
 @app.route('/config/<_file>')
 def get_json_config(_file):
     """
@@ -213,7 +180,9 @@ def get_json_config(_file):
     * `_file`: The name of the configuration file to parse and return.
     """
     _file = _file if _file.endswith(".conf") else "{}.conf".format(_file)
-    if "xor.conf" in _file:
+    # These files can hold keys or the URL of the database, with its
+    # password. Every user who logs in can read this route.
+    if _file in _PRIVATE_CONFIGS:
         return flask.jsonify({})
 
     config = get_configs_dict()[_file]
@@ -338,15 +307,28 @@ def upload():
     """
     global upload_dir
     UPLOAD_DIRECTORY = upload_dir
+    # A file is uploaded to be used by a command, which only a role
+    # that may run commands can do
+    try:
+        jobs_auth.authorize(web_auth.principal(), "submit")
+    except jobs.Forbidden:
+        flask.abort(403)
     t = Timestamp()
     fin = flask.request.files["_file_in"]
+    # A directory of its own for each upload, and only the last part of
+    # the name that the browser sent, without "..": the name must not
+    # put the file anywhere else
     filename = os.path.join(
         UPLOAD_DIRECTORY,
-        t.timestamp)
+        "{}-{}".format(t.timestamp, token_hex(4)))
     os.makedirs(filename)
-    filename = os.path.join(filename, fin.filename)
+    filename = os.path.join(
+        filename, secure_filename(fin.filename or "") or "upload")
     fin.save(filename)
     return flask.jsonify({"filename": filename})
+
+
+_HISTORY_ID = re.compile(r"^[0-9]{14}-[0-9a-f]{32}\.log$")
 
 
 @app.route('/download_history', methods=["POST"])
@@ -364,7 +346,12 @@ def download_history():
     This function accepts no arguments, but does require a POST body to
     be present in the request.
     """
-    _id = flask.request.form.get("id")
+    _id = flask.request.form.get("id") or ""
+    # The id that plugin_functions._save_history made:
+    # <timestamp>-<id of the job>.log. Anything else could name another
+    # file (with "../"), for example a key file.
+    if not _HISTORY_ID.match(_id):
+        flask.abort(404)
     ts = _id.split("-")[0]
     filename = os.path.join(
         "var",
@@ -444,9 +431,12 @@ def job_state(job_id):
     """
     try:
         after = int(flask.request.args.get("after", 0))
-        return flask.jsonify(plugin_functions.job_state(job_id, after))
+        return flask.jsonify(plugin_functions.job_state(
+            job_id, after, principal=web_auth.principal()))
     except (jobs.JobNotFound, ValueError):
         flask.abort(404)
+    except jobs.Forbidden:
+        flask.abort(403)
 
 
 @app.route('/jobs/<job_id>/cancel', methods=["POST"])
@@ -466,9 +456,12 @@ def cancel_job(job_id):
     """
     try:
         after = int(flask.request.values.get("after", 0))
-        return flask.jsonify(plugin_functions.cancel_job(job_id, after))
+        return flask.jsonify(plugin_functions.cancel_job(
+            job_id, after, principal=web_auth.principal()))
     except (jobs.JobNotFound, ValueError):
         flask.abort(404)
+    except jobs.Forbidden:
+        flask.abort(403)
 
 
 @app.route('/environments/<name>')
@@ -514,48 +507,17 @@ def log_access():
         r.data,
         str(r.headers).replace("\n", "; ")))
 
-# The methods that can change something. A request with one of them must
-# carry the CSRF token of the session, in the header CSRF_HEADER (the
-# requests of jQuery, see mast.js) or in the form field CSRF_FIELD (the
-# forms that the browser submits: uploads and downloads).
-_UNSAFE_METHODS = frozenset(("POST", "PUT", "DELETE", "PATCH"))
-CSRF_HEADER = "X-CSRF-Token"
-CSRF_FIELD = "csrf_token"
-
-# Scripts, style sheets, images and frames only from the web GUI itself,
-# and no inline script or style. The upload form posts into an iframe of
-# the page, so the page may frame itself, but no other site may frame it.
-CONTENT_SECURITY_POLICY = "; ".join((
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self'",
-    "img-src 'self' data:",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-))
-
-
-def csrf_token():
-    """
-    _function_: `mast.datapower.web.csrf_token()`
-
-    Return the CSRF token of the session, and make one if the session
-    has none. The token stays the same for the session, so that every
-    tab of the web GUI can use it. Templates call it as
-    `{{ csrf_token() }}`.
-    """
-    token = flask.session.get("csrf")
-    if not isinstance(token, str) or len(token) < 32:
-        token = secrets.token_urlsafe(32)
-        flask.session["csrf"] = token
-    return token
+# Every request needs the login session of the web UI (mast.web.auth),
+# before anything else. Without one, the browser goes to /login.
+app.before_request(web_auth.require_login())
 
 
 @app.context_processor
 def _template_functions():
-    return {"csrf_token": csrf_token}
+    # mast_root is where the classic GUI is mounted (/classic), for the
+    # links in its pages and its scripts
+    root = flask.request.script_root if flask.has_request_context() else ""
+    return {"csrf_token": csrf_token, "mast_root": root}
 
 
 @app.before_request
@@ -571,12 +533,7 @@ def check_csrf_token():
     Logs to: `gui.log`
     """
     request = flask.request
-    if request.method not in _UNSAFE_METHODS:
-        return None
-    expected = flask.session.get("csrf")
-    sent = request.headers.get(CSRF_HEADER) or request.form.get(CSRF_FIELD)
-    if isinstance(expected, str) and isinstance(sent, str) \
-            and hmac.compare_digest(sent.encode(), expected.encode()):
+    if security.csrf_ok(request):
         return None
     make_logger("gui").warning(
         "Refused {} {} from {}: no valid CSRF token".format(
@@ -595,126 +552,60 @@ def security_headers(response):
     Content Security Policy, no guessing of content types, no referrer
     to other sites, and HSTS when the web GUI uses TLS (`secure`).
     """
-    headers = response.headers
-    headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
-    headers.setdefault("X-Content-Type-Options", "nosniff")
-    headers.setdefault("Referrer-Policy", "same-origin")
-    if secure:
-        headers.setdefault(
-            "Strict-Transport-Security", "max-age={}".format(hsts_max_age))
-    return response
+    return security.add_security_headers(response, secure, hsts_max_age)
 
 
 with app.app_context():
     flask.current_app.PLUGINS = initialize_plugins()
 
+# The names of the web plugins, each of which is a route: /<name>
+_PLUGIN_NAMES = frozenset(app.PLUGINS) - {"css", "html", "js", "tabs"}
 
-class CertificateNotFound(Exception):
+
+@app.before_request
+def check_plugin_role():
     """
-    _class_: `mast.datapower.web.CertificateNotFound`
+    _function_: `mast.datapower.web.check_plugin_role()`
 
-    The web GUI uses TLS (`secure = true`), but a file of its certificate
-    is not there or cannot be read. The message says how to fix it.
+    Refuse (403) a request to a web plugin that is not a GET unless the
+    user may run commands (`submit`). Such a request runs a command,
+    and the `ssh` tab talks to the appliances without the job queue,
+    which would not check the role.
     """
-
-
-def _in_home(path):
-    return path if os.path.isabs(path) else os.path.join(MAST_HOME, path)
-
-
-def check_certificate():
-    """
-    _function_: `mast.datapower.web.check_certificate()`
-
-    If the web GUI uses TLS, raise `CertificateNotFound` when the
-    `cert`, the `key` or the `cacert` (if set) of the `[server]` stanza
-    is not there or cannot be read. A fresh install has no certificate.
-    """
-    if not secure:
-        return
-    files = [("cert", cert), ("key", key)]
-    if cacert:
-        files.append(("cacert", cacert))
-    problems = []
-    for name, path in files:
-        full = _in_home(path)
-        if not os.path.isfile(full):
-            problems.append("{} = {} is not there".format(name, path))
-        elif not os.access(full, os.R_OK):
-            problems.append("{} = {} cannot be read".format(name, path))
-    if not problems:
-        return
-    if sys.platform == "win32":
-        command = "mast.bat contrib\\gen-cert.py"
-    else:
-        command = "./mast contrib/gen-cert.py"
-    raise CertificateNotFound(
-        "The web GUI uses TLS (secure = true in server.conf), but {}.\n"
-        "Set key and cert in the [server] section of "
-        "etc/local/server.conf to the files of your private key and "
-        "certificate, or make a self-signed certificate with this "
-        "command in {}:\n\n    {}\n\nThen start the web GUI again.".format(
-            "; ".join(problems), MAST_HOME, command))
+    request = flask.request
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if request.path.strip("/").split("/")[0] not in _PLUGIN_NAMES:
+        return None
+    try:
+        jobs_auth.authorize(web_auth.principal(), "submit")
+    except jobs.Forbidden:
+        return flask.Response(
+            "Your role may not run commands.\n", status=403,
+            mimetype="text/plain")
+    return None
 
 
 def main():
     """
     _function_: `mast.datapower.web.main()`
 
-    This is the main function which will spin up a server listening
-    to the configured port and block until a SIGTERM or equivalent
-    (Ctrl + C) is received at which point it will quit.
-
-    Logs to: `gui.main.log`
-
-    Parameters:
-
-    This function does not accept any arguments.
+    Serve the web UI, with this classic GUI under `/classic/`. See
+    `mast.web.server.main`.
     """
-    logger = make_logger("gui.main")
-    logger.debug("Running as user {}".format(getpass.getuser()))
-    logger.debug("Running in directory {}".format(os.getcwd()))
-    check_certificate()
-
-    cherrypy.tree.graft(app, '/')
-
-    # Set the configuration of the web server
-    cherrypy.config.update({
-        'engine.autoreload.on': False,
-        'log.screen': True,
-        'server.socket_port': port,
-        'server.socket_host': host,
-        'server.max_request_body_size': max_file_upload_size
-    })
-
-    if secure:
-        logger.debug("Configuring TLS")
-        cherrypy.server.ssl_module = 'builtin'
-        WSGIServer.ssl_adapter = BuiltinSSLAdapter(
-            _in_home(cert),
-            _in_home(key),
-            _in_home(cacert) if cacert else None)
-
-    # Start the CherryPy WSGI web server
-    try:
-        engine = cherrypy.engine
-        engine.signal_handler.subscribe()
-        if hasattr(engine, "console_control_handler"):
-            engine.console_control_handler.subscribe()
-
-        print("MAST Web listening on https://{}:{}".format(host, port))
-
-        cherrypy.engine.start()
-        cherrypy.engine.block()
-    except KeyboardInterrupt:
-        cherrypy.engine.exit()
-    except Exception:
-        logger.exception(
-            "Sorry, an unhandled exception occurred while starting CherryPy")
+    from mast.web.server import main as serve
+    serve()
 
 
 def stop_server():
-    cherrypy.engine.exit()
+    """
+    _function_: `mast.datapower.web.stop_server()`
+
+    Stop the web server. See `mast.web.server.stop_server`.
+    """
+    from mast.web.server import stop_server as stop
+    stop()
+
 
 if __name__ == "__main__":
     main()

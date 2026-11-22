@@ -90,12 +90,15 @@ class TestReadOrCreate(unittest.TestCase):
 
 
 class TestWebSecretKey(unittest.TestCase):
-    """`gui.secret_key` picks the key that signs the session cookie."""
+    """`mast.web.security.secret_key` picks the key that signs the
+    session cookie."""
 
     @classmethod
     def setUpClass(cls):
         from mast.datapower.web import gui
+        from mast.web import security
         cls.gui = gui
+        cls.security = security
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="mast-web-key-")
@@ -112,18 +115,18 @@ class TestWebSecretKey(unittest.TestCase):
                          {b"INSECURE_SECRET_KEY_CHANGE_ME", b"changeme"})
 
     def test_without_a_secret_key_the_key_file_is_made(self):
-        key = self.gui.secret_key({"secret_key_file": self.path})
+        key = self.security.secret_key({"secret_key_file": self.path})
         self.assertTrue(os.path.exists(self.path))
-        self.assertEqual(self.gui.secret_key({"secret_key_file": self.path}), key)
+        self.assertEqual(self.security.secret_key({"secret_key_file": self.path}), key)
 
     def test_a_relative_key_file_is_in_mast_home(self):
-        with mock.patch.object(self.gui, "MAST_HOME", self.tmp):
-            key = self.gui.secret_key({"secret_key_file": "etc/local/web.key"})
+        with mock.patch.object(self.security, "MAST_HOME", self.tmp):
+            key = self.security.secret_key({"secret_key_file": "etc/local/web.key"})
         path = os.path.join(self.tmp, "etc", "local", "web.key")
         self.assertEqual(keyfile.read_or_create(path), key)
 
     def test_a_secret_key_that_is_set_is_used(self):
-        key = self.gui.secret_key({"secret_key": "shared by our two servers",
+        key = self.security.secret_key({"secret_key": "shared by our two servers",
                                    "secret_key_file": self.path})
         self.assertEqual(key, "shared by our two servers")
         self.assertFalse(os.path.exists(self.path))
@@ -132,12 +135,12 @@ class TestWebSecretKey(unittest.TestCase):
         for old in ("INSECURE_SECRET_KEY_CHANGE_ME", "changeme"):
             with self.subTest(secret_key=old):
                 with self.assertLogs("gui", "WARNING"):
-                    key = self.gui.secret_key({"secret_key": old,
+                    key = self.security.secret_key({"secret_key": old,
                                                "secret_key_file": self.path})
                 self.assertEqual(key, keyfile.read_or_create(self.path))
 
     def test_an_empty_secret_key_means_the_key_file(self):
-        key = self.gui.secret_key({"secret_key": "  ",
+        key = self.security.secret_key({"secret_key": "  ",
                                    "secret_key_file": self.path})
         self.assertEqual(key, keyfile.read_or_create(self.path))
 

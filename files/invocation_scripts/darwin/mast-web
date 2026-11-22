@@ -4,4 +4,4 @@ export MAST_HOME="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$MAST_HOME" || exit 1
 
-exec ./mast -m mast.datapower.web "$@"
+exec ./mast -m mast.web "$@"

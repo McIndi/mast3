@@ -4,5 +4,5 @@ SET MAST_HOME=%~dp0
 
 cd /d %MAST_HOME%
 
-mast.bat -m mast.datapower.web %*
+mast.bat -m mast.web %*
 

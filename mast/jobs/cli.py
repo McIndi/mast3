@@ -25,6 +25,8 @@ _module_: `mast.jobs.cli`
 it does.
 * `cancel`: Cancel a job.
 * `workers`: The workers that are alive.
+* `downgrade-db`: Take the tables of the job database back to an older
+revision, to go back to an older MAST.
 
 Where a command takes the id of a job, the first characters of the id
 are enough.
@@ -33,7 +35,7 @@ import sys
 from typing import Literal
 
 from mast.cli import Cli, Option, Params, Table, Text
-from mast.jobs import client, queue
+from mast.jobs import client, db, queue
 from mast.jobs.models import (
     CANCELLED, FAILED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 
@@ -160,3 +162,38 @@ def workers(params: Params):
         [(worker.id, worker.hostname, worker.pid, worker.concurrency,
           _when(worker.started_at), _when(worker.last_seen_at))
          for worker in found])
+
+
+class DowngradeDb(Params):
+    revision: str = Option(
+        short="r",
+        help="The revision to go back to. 0001 is the tables of MAST "
+             "3.15.2.")
+    yes: bool = Option(
+        False, short="y",
+        help="Do it. Without this, only show what would change.")
+
+
+@cli.command("downgrade-db")
+def downgrade_db(params: DowngradeDb):
+    """Take the tables of the job database back to an older revision,
+    to go back to an older MAST. The tables and columns of the newer
+    revisions are dropped, with what they hold (for example the users
+    of the web UI). The jobs stay.
+
+    Stop every MAST process of this home first (mastd, mast-web,
+    mast-worker), and after this start only the older MAST: a newer
+    MAST brings the tables up to date again when it starts."""
+    current = db.revision()
+    if current is None:
+        return Text("The job database has no tables.")
+    if current == params.revision:
+        return Text("The job database is at revision {} already.".format(
+            current))
+    if not params.yes:
+        return Text(
+            "The job database is at revision {}. With --yes, this takes "
+            "it back to revision {}.".format(current, params.revision))
+    db.downgrade(params.revision)
+    return Text("The job database is now at revision {} (it was {}).".format(
+        db.revision(), current))

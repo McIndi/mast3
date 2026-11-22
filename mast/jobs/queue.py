@@ -445,7 +445,8 @@ def cancel(job_id, principal=LOCAL):
     that is not undone. A finished job does not change.
     """
     info = get(job_id, principal)
-    authorize(principal, "cancel", command=info.command, targets=info.targets)
+    authorize(principal, "cancel", command=info.command, targets=info.targets,
+              owner=info.submitted_by)
     now = _now()
     with db.session() as session:
         job = _require(session, job_id)

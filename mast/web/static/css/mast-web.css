@@ -1,0 +1,124 @@
+/* The style of the new MAST web UI. The strict Content Security Policy
+   allows no inline style, so every style is here. */
+:root {
+    --bg: #f6f7f9;
+    --fg: #1d2330;
+    --card: #ffffff;
+    --border: #d5d9e0;
+    --accent: #2457c5;
+    --accent-fg: #ffffff;
+    --muted: #5b6475;
+    --error-bg: #fdecec;
+    --error-fg: #9b1c1c;
+    color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #14171d;
+        --fg: #e4e7ee;
+        --card: #1d212a;
+        --border: #343a47;
+        --accent: #7ea2ff;
+        --accent-fg: #0d1117;
+        --muted: #9aa3b5;
+        --error-bg: #3a1e1e;
+        --error-fg: #ffb4b4;
+    }
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); }
+
+.bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 700; letter-spacing: 0.05em; }
+
+.bar nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+}
+
+main { padding: 1.5rem 1rem; }
+
+.card {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: 1.5rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.card.narrow { max-width: 26rem; }
+
+h1 { margin-top: 0; font-size: 1.4rem; }
+
+label { display: block; margin: 0.75rem 0 0.25rem; }
+
+input {
+    width: 100%;
+    padding: 0.5rem;
+    font: inherit;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+button {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    font: inherit;
+    color: var(--accent-fg);
+    background: var(--accent);
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+form.inline { display: inline; margin: 0; }
+
+button.link {
+    margin: 0;
+    padding: 0;
+    color: var(--accent);
+    background: none;
+    text-decoration: underline;
+}
+
+.error {
+    padding: 0.5rem 0.75rem;
+    color: var(--error-fg);
+    background: var(--error-bg);
+    border-radius: 4px;
+}
+
+.note { color: var(--muted); font-size: 0.9rem; }
+
+pre {
+    overflow-x: auto;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}

@@ -81,12 +81,16 @@ def system():
     _run("mast.datapower.system")
 
 
+def users():
+    _run("mast.auth")
+
+
 def version():
     _run("mast")
 
 
 def web():
-    _run("mast.datapower.web")
+    _run("mast.web")
 
 
 def worker():

@@ -59,7 +59,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 | `environments.conf` | Groups of appliances that a command can act on at once. |
 | `appliances.conf` | The ports, the SOMA spec file and other settings of each appliance, with defaults in `[global]`. |
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
-| `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS. |
+| `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
 | `ssh.conf` | `mast-ssh`: the timeout, and whether new host keys are accepted. |
 | `service-config.conf` | `git-deploy`, see the [git-deploy Guide](./git-deploy.html). |
@@ -251,12 +251,62 @@ The web GUI listens on `127.0.0.1:5000` by default, so only the MAST
 server can reach it. Set `host` and `port` in the `[server]` section
 of `etc/local/server.conf` to change that.
 
-The web GUI has no users or permissions yet. Everybody who can open it
-can run any command with credentials that they know, and can see and
-cancel every job, with its results. The results can show the
-configuration of your appliances. Let only the people who may do that
-reach the web GUI: keep it on `127.0.0.1`, or limit the port with a
-firewall.
+Without TLS (`secure = false`), the host must be `127.0.0.1` or `::1`:
+`mast-web` and `mastd` refuse to serve the web GUI without TLS on an
+address that other hosts can reach, and say why.
+
+The new web UI is at `/`, and the classic GUI at `/classic/`. Both
+need the same login.
+
+## Users and roles
+
+Every page needs a login. The users are local to MAST, and are kept in
+the job database. There is no sign-up page: an admin adds the users on
+the MAST server with `mast-users`. Until there is a user, the web GUI
+shows only how to add the first admin:
+
+    :::bash
+    ./mast-users add -u alice -r admin
+
+`mast-users` asks for the password; it is never an option. A new user's
+password is temporary, and they choose their own at the first login.
+A password has at least 12 characters and is not the user name.
+
+| Role | May |
+|---|---|
+| `viewer` | See the jobs, with their progress and results. |
+| `operator` | Also run commands, and cancel their own jobs. |
+| `admin` | Also cancel any job. Later releases add the management of users, appliances and credentials in the web UI. |
+
+The other commands:
+
+    :::bash
+    ./mast-users list
+    ./mast-users set-role -u alice -r operator
+    ./mast-users set-password -u alice          # add -t to make it temporary
+    ./mast-users disable -u alice               # and enable
+    ./mast-users delete -u alice
+
+The command line of MAST needs no login. Whoever can run it on the MAST
+server can read its database and its key files, so it is an admin. The
+jobs that it submits are recorded as `os:<account>`, the operating
+system account that ran it. Jobs from MAST 3.15.2 and older are
+recorded as `local`; an admin can cancel them, an operator cannot.
+
+## Sessions
+
+A session ends:
+
+* at a logout, which also ends the other sessions of the user (a copy
+of the session cookie does not work after it),
+* when the user gets a new password or another role, or is disabled,
+* `idle_minutes` (30) after it was last used, and `max_hours` (12)
+after the login, from the `[auth]` section of `server.conf`.
+
+Five failed logins in a row lock the user for 15 minutes. The error
+does not say whether the user exists. `var/log/mast.web.auth.log`
+records every login, failed login, lockout and logout, with the user
+name and the address of the client, never the password.
 
 ## TLS
 

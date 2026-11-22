@@ -4,7 +4,7 @@
 <div id="{{ name }}" class="fileUpload">
     <form id="fileUploadForm_{{ name }}"
           method="POST"
-          action="/upload"
+          action="{{ mast_root }}/upload"
           target="_{{ plugin }}_iframe_{{ name }}"
           enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />

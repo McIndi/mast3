@@ -6,7 +6,51 @@
 
 # Next Release
 
-Nothing yet.
+This release adds users and a login to the web GUI, and the start of a
+new web UI. Please read "Changes that need your attention" before you
+upgrade.
+
+## Changes that need your attention
+
+* Every page of the web GUI needs a login. After the upgrade, add the
+first admin on the MAST server, in `$MAST_HOME`:
+`./mast-users add -u NAME -r admin` (`mast-users.bat` on Windows). Until
+there is a user, the web GUI shows only how to do that.
+* The classic GUI moved to `/classic/`. `/` is the new web UI, which
+for now has the login, the change of password, and a link to the
+classic GUI.
+* `mast-web` and `mastd` refuse to serve the web GUI without TLS
+(`secure = false`) on any host but `127.0.0.1` or `::1`.
+* Jobs that the command line submits are recorded as `os:<account>`
+(the operating system account) instead of `local`.
+* `/classic/config/<file>` no longer serves `server.conf` and
+`jobs.conf`, which can hold keys and the password of the database.
+* The job database gets a new table, `users`. MAST adds it when it
+starts. To go back to MAST 3.15.2.x, stop every MAST process of the
+home and run `./mast-jobs downgrade-db -r 0001 -y` first. It drops the
+users; the jobs stay.
+
+## New
+
+* `mast-users` adds, changes, disables and removes the users of the
+web GUI. There are three roles: `viewer` (sees jobs), `operator` (also
+runs commands and cancels their own jobs) and `admin` (also cancels
+any job). The Operator's Guide explains them.
+* Sessions end at a logout (on every browser of the user), at a new
+password or role, when the user is disabled, after 30 idle minutes
+and after 12 hours (`[auth]` in `server.conf`). Five failed logins in
+a row lock a user for 15 minutes.
+* `mast-jobs downgrade-db` takes the job database back to an older
+revision.
+
+## Fixed
+
+* The history download and the upload of the classic GUI used a file
+name from the request as it was. A name with `..` could read or write
+a file outside their directories, for example a key file. They now
+accept only their own names.
+* A viewer cannot run commands from the classic GUI, including the
+`ssh` tab, or upload files.
 
 # MAST Version 3.15.2.1
 
