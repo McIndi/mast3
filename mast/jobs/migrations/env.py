@@ -25,6 +25,7 @@ from alembic import context
 from mast.jobs.models import Base
 # The other tables in the job database, so that they are in Base.metadata
 import mast.auth.models  # noqa: F401
+import mast.registry.models  # noqa: F401
 
 def run():
     context.configure(

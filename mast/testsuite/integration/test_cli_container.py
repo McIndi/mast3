@@ -83,6 +83,27 @@ class CLITestCase(ContainerTestCase):
         cls._write(local, "appliances.conf", (
             "[{}]\nsoma_port: {}\nweb_port: {}\nssh_port: {}\n".format(
                 ALIAS, ports[SOMA_PORT], ports[WEB_PORT], ports[SSH_PORT])))
+        cls._import()
+
+    @classmethod
+    def _import(cls):
+        """Move the three files into the appliance registry of the home,
+        as a user of an older MAST does once."""
+        if TEST_HOME:
+            command = [os.path.join(cls.mast_home, "mast-appliances"
+                                    + (".bat" if sys.platform == "win32"
+                                       else ""))]
+            env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
+        else:
+            command = [sys.executable, "-m", "mast.registry"]
+            env = dict(os.environ, MAST_HOME=cls.mast_home)
+        proc = subprocess.run(
+            command + ["import"], cwd=cls.mast_home, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, timeout=120)
+        if proc.returncode != 0 or "Added the environment" not in proc.stdout:
+            raise AssertionError("mast-appliances import failed:\n"
+                                 + proc.stdout)
 
     def launcher(self, name):
         """The path of a launcher of the private home."""

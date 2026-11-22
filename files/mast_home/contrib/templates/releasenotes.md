@@ -23,13 +23,27 @@ classic GUI is still there for the `ssh` and status tabs.
 (`secure = false`) on any host but `127.0.0.1` or `::1`.
 * Jobs that the command line submits are recorded as `os:<account>`
 (the operating system account) instead of `local`.
+* **The appliances and the environments moved into the database**
+(the appliance registry). MAST no longer reads `etc/local/hosts.conf`
+and `etc/local/environments.conf`, nor the sections of
+`etc/local/appliances.conf` for single appliances (its `[global]`
+section stays). It warns while the old files are there. After the
+upgrade, run `./mast-appliances import` once; `--dry-run` shows what
+it would do. `etc/default/hosts.conf` and `etc/default/environments.conf`
+are gone.
+* A job records the registered name of each appliance it talks to (an
+address of a registered appliance counts as that appliance), where it
+recorded the address before.
 * `/classic/config/<file>` no longer serves `server.conf` and
 `jobs.conf`, which can hold keys and the password of the database.
-* The job database gets a new table, `users`, and a new column,
+* The job database gets new tables, `users`, `appliances`,
+`environments` and `environment_members`, and a new column,
 `job_results.data` (the result of a job as a table, for the web UI).
 MAST adds them when it starts. To go back to MAST 3.15.2.x, stop every
-MAST process of the home and run `./mast-jobs downgrade-db -r 0001 -y`
-first. It drops the users and that column; the jobs stay.
+MAST process of the home, run `./mast-appliances export` (it writes
+`hosts.conf`, `environments.conf` and `appliances.conf` again), then
+`./mast-jobs downgrade-db -r 0001 -y`. That drops the new tables and
+the column; the jobs stay.
 
 ## New
 
@@ -43,6 +57,10 @@ and after 12 hours (`[auth]` in `server.conf`). Five failed logins in
 a row lock a user for 15 minutes.
 * `mast-jobs downgrade-db` takes the job database back to an older
 revision.
+* `mast-appliances` manages the appliance registry: `add`, `update`,
+`remove`, `list`, the environments (`env-add`, `env-update`,
+`env-set-members`, `env-remove`, `env-list`), and `import` and `export`
+of the old files. Admin → Appliances does the same in the web UI.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the

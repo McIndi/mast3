@@ -594,8 +594,8 @@ class DataPower(object):
 
         Parameters:
 
-        * `hostname`: Can be a hostname, IP Address, or an alias configured in
-        $MAST_HOME/etc/local/hosts.conf
+        * `hostname`: Can be a hostname, IP Address, or the name of an
+        appliance in the registry (`mast-appliances`)
         * `credentials`: should be a string that is a username and password
         seperated by a colon (ie. "user:pass")
         * `domain`: The initial domain to start in.
@@ -615,16 +615,21 @@ class DataPower(object):
         * `check_hostname`: If `False` hostname verification will be disabled
         for TLS. Defaults to `True`
         """
-        hosts_config = get_config("hosts.conf")
+        # Imported here: mast.registry uses the job database, which a
+        # program that only imports this module does not need
+        from mast import registry
         self.session_id = random.randint(1000000, 9999999)
         self.correlation_id = None
         self.check_hostname = check_hostname
         self._history = []
         self.hostname = _s(hostname)
-        if hosts_config.has_option("hosts", hostname):
-            self._hostname = _s(hosts_config.get("hosts", hostname))
-        else:
-            self._hostname = _s(hostname)
+        # A name in the appliance registry has its own address and
+        # settings. Any other name is the address itself.
+        from mast.registry.files import warn_legacy
+        warn_legacy()
+        record = registry.by_name(self.hostname)
+        self.registered = record is not None
+        self._hostname = _s(record.address) if record else _s(hostname)
 
         if _s(':') not in _s(credentials):
             credentials = _s(xordecode(credentials).decode())
@@ -646,29 +651,21 @@ class DataPower(object):
         logger = logging.getLogger("DataPower.{}".format(hostname))
         logger.addHandler(logging.NullHandler())
 
-        config = get_config("appliances.conf")
-        if config.has_section(self.hostname):
-
-            if config.has_option(self.hostname, 'soma_port'):
-                self.port = config.getint(self.hostname, 'soma_port')
-
-            if config.has_option(self.hostname, 'web_port'):
-                self.web_port = config.getint(self.hostname, 'web_port')
-
-            if config.has_option(self.hostname, 'ssh_port'):
-                self.ssh_port = config.getint(self.hostname, 'ssh_port')
-
-            if config.has_option(self.hostname, 'soma_scheme'):
-                self.scheme = config.get(self.hostname, 'soma_scheme')
-
-            if config.has_option(self.hostname, 'soma_uri'):
-                self.uri = config.get(self.hostname, 'soma_uri')
-
-            if config.has_option(self.hostname, 'soma_spec_file'):
-                self.test_case = config.get(self.hostname, 'soma_spec_file')
-
-            if config.has_option(self.hostname, 'retry_interval'):
-                self.retry_interval = config.getint(self.hostname, 'retry_interval')
+        if record is not None:
+            if record.soma_port is not None:
+                self.port = record.soma_port
+            if record.web_port is not None:
+                self.web_port = record.web_port
+            if record.ssh_port is not None:
+                self.ssh_port = record.ssh_port
+            if record.soma_scheme:
+                self.scheme = record.soma_scheme
+            if record.soma_uri:
+                self.uri = record.soma_uri
+            if record.soma_spec_file:
+                self.test_case = record.soma_spec_file
+            if record.retry_interval is not None:
+                self.retry_interval = record.retry_interval
 
         # A relative spec file (etc/v11.0.0.3-C.xml in appliances.conf) is
         # in MAST_HOME, whatever the current directory is.
@@ -1648,15 +1645,8 @@ class DataPower(object):
         if self._environment:
             return self._environment
 
-        config = get_config('environments.conf')
-        environments = {}
-        for section in config.sections():
-            environments[section] = config.get(section, 'appliances').split()
-
-        _in = []
-        for env in environments:  # lint:ok
-            if self.hostname in environments[env]:  # lint:ok
-                _in.append(env)
+        from mast import registry
+        _in = registry.which_environments(self.hostname)
         if not _in:
             return "-"
         return ", ".join(_in)

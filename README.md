@@ -38,7 +38,7 @@ MAST ships a SOMA spec file for each of these DataPower versions. Each one was t
 | 10.6.6.0 | CD | `etc/v10.6.6.0-C.xml` |
 | 11.0.0.3 | LTS | `etc/v11.0.0.3-C.xml` |
 
-The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, set `soma_spec_file` in that appliance's section of `etc/local/appliances.conf`.
+The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, give it with `mast-appliances update -n NAME --soma-spec-file etc/v10.6.0.11-C.xml`.
 
 ## Quick start
 
@@ -67,22 +67,15 @@ The console scripts in `MAST_HOME/python/<version>/bin` (`Scripts` on Windows) a
 
 ### 3. Describe your appliances
 
-Put these files in `MAST_HOME/etc/local/`. `etc/default/` has the same files with every setting explained.
+MAST keeps the appliances and the environments in its database:
 
-`hosts.conf`:
-
-```ini
-[hosts]
-dp1: 192.168.0.10
-dp2: 192.168.0.20
+```shell
+./mast-appliances add -n dp1 -A 192.168.0.10
+./mast-appliances add -n dp2 -A 192.168.0.20
+./mast-appliances env-add -n lab -m dp1 -m dp2
 ```
 
-`environments.conf`:
-
-```ini
-[lab]
-appliances: dp1 dp2
-```
+A setting that an appliance does not have takes the default of `[global]` in `etc/default/appliances.conf`. Coming from MAST 3.15.2 or older, run `./mast-appliances import` once to move `hosts.conf`, `environments.conf` and the per-appliance sections of `appliances.conf` into the database; `./mast-appliances export` writes them back.
 
 ### 4. Run a command against the whole environment
 
@@ -177,7 +170,7 @@ uv run pytest mast/testsuite/unit mast/testsuite/regression tools
 
 - MAST is installed editable, so a change to the code is live.
 - The files of `files/mast_home` that git tracks (`etc/default`, the SOMA specs, the web templates and static files) are links to the checkout, so a change to them is live too.
-- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your `hosts.conf` and other local configuration in `.dev/mast_home/etc/local`.
+- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your local configuration in `.dev/mast_home/etc/local`, and your appliances in the registry with `.dev/mast_home/mast-appliances`.
 - Run the command again after you pull: it links new files, removes stale links, and updates the libraries when `uv.lock` changed. `--recreate` starts from an empty home.
 - On Windows, links need developer mode. Without it the files are copied, and you run the command again after you change them.
 

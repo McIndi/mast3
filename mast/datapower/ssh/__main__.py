@@ -133,10 +133,10 @@ class SSH(Params):
     appliances: list[str] = Option(
         default_factory=list, short="a",
         help="The hostname(s), ip addresse(s), environment name(s) or "
-             "alias(es) of the appliances you would like to affect. "
-             "Environments are configured in `environments.conf` and "
-             "aliases in `hosts.conf`, both located in "
-             "`$MAST_HOME/etc/default`.")
+             "appliance name(s) you would like to affect. "
+             "Appliances and environments are kept in the "
+             "registry; see `mast-appliances list` and "
+             "`mast-appliances env-list`.")
     credentials: list[str] = Option(
         default_factory=list, short="c", secret=True,
         help="The credentials to use for authenticating to the "

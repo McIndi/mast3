@@ -12,14 +12,10 @@ cd build\assemble
 
 cd ..\..\ && python mast-setup && cd build\assemble
 
-# Add to hosts.conf
-[hosts]
-dp1: 192.168.0.10
-dp2: 192.168.0.20
-
-# Add to environments.conf
-[lab]
-appliances: dp1 dp2
+# Add the appliances and the environment
+mast-appliances add -n dp1 -A 192.168.0.10
+mast-appliances add -n dp2 -A 192.168.0.20
+mast-appliances env-add -n lab -m dp1 -m dp2
 
 # Setup creds (choose one)
 
@@ -105,8 +101,9 @@ in `etc\local\jobs.conf`.
     mast-jobs show -j <start of the id> -H      # with the request history
 
     # Exit status 1 when an appliance cannot be reached: add an
-    # unreachable address to hosts.conf (dp3: 192.0.2.1) and to the lab
-    # environment. The command stops with the error.
+    # unreachable appliance (mast-appliances add -n dp3 -A 192.0.2.1) to
+    # the lab environment (env-set-members -n lab -m dp1 -m dp2 -m dp3).
+    # The command stops with the error.
     mast-system save -n -a lab -c %MAST_CREDS% -t 5
     echo %ERRORLEVEL%                            # 1
     mast-jobs list -n 1                          # the job is failed
@@ -169,8 +166,8 @@ DataPower takes a few minutes to start. Inside the client container:
     /opt/mast/mast -c "import urllib.request; urllib.request.urlopen('https://pypi.org', timeout=10)"
 
     # Use the address that podman inspect printed
-    printf '[hosts]\ndp1: <address>\n' > /opt/mast/etc/local/hosts.conf
-    printf '[lab]\nappliances: dp1\n' > /opt/mast/etc/local/environments.conf
+    /opt/mast/mast-appliances add -n dp1 -A <address>
+    /opt/mast/mast-appliances env-add -n lab -m dp1
     MAST_CREDS=admin:admin
 
     /opt/mast/mast-version

@@ -52,6 +52,7 @@ from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Base, Job, JobTarget
 # The users table is in the same database (and in Base.metadata)
 import mast.auth.models  # noqa: F401
+import mast.registry.models  # noqa: F401
 from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
@@ -391,18 +392,18 @@ class TestSubmit(SqliteCase):
                 secrets.unseal(stored)
 
     def test_targets_are_resolved(self):
-        from mast.datapower.datapower import environment
-        hosts = os.path.join(
-            os.environ["MAST_HOME"], "etc", "local", "hosts.conf")
-        with open(hosts, "w") as fout:
-            fout.write("[hosts]\ndp1: 10.0.0.1\ndp2: 10.0.0.2\n")
-        self.addCleanup(os.remove, hosts)
-        with mock.patch.dict(
-                environment.environments, {"lab": ["dp1", "dp2"]}):
-            job_id = submit("lab", "10.0.0.1", "DP3.example.com", "dp2")
+        from mast import registry
+        registry.add("dp1", "10.0.0.1")
+        registry.add("dp2", "10.0.0.2")
+        registry.env_add("lab", members=["dp1", "dp2"])
+        # An environment becomes its appliances, an address of a
+        # registered appliance becomes that appliance, and any other
+        # address stays an address
+        job_id = submit("lab", "10.0.0.1", "DP3.example.com", "dp2",
+                        "not a host!")
         self.assertEqual(
             jobs.get(job_id).targets,
-            ["10.0.0.1", "10.0.0.2", "dp3.example.com"])
+            ["dp1", "dp2", "dp3.example.com", "not a host!"])
 
     def test_the_caller_can_choose_the_id(self):
         job_id = jobs.new_job_id()

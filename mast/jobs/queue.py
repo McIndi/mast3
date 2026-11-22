@@ -58,7 +58,6 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, delete, false, or_, select, true, update
 from sqlalchemy.orm import aliased
 
-from mast.config import get_config
 from mast.jobs import config, db, registry, secrets
 from mast.jobs.auth import LOCAL, authorize
 from mast.jobs.models import (
@@ -220,30 +219,39 @@ def _require(session, job_id):
 
 
 def _targets(model, params):
-    """Return the addresses of the appliances that a command with
-    these parameters talks to. An environment becomes its appliances,
-    and an alias from hosts.conf becomes its address, so that two
-    names for one appliance are one target."""
-    # Imported here because it reads the configuration of every
-    # appliance, which a program that only reads the queue does not need
+    """Return the appliances that a command with these parameters talks
+    to: the name of each registered appliance, and the address of each
+    unregistered target, lower case. An environment becomes its
+    appliances, and an address that a registered appliance has becomes
+    that appliance, so that two names for one appliance are one target.
+    A name that is not registered and not an address is kept as it was
+    typed; the command reports it when it runs."""
+    # Imported here because it reads the appliance registry, which a
+    # program that only reads the queue does not need
+    from mast import registry
     from mast.cli import params as cli_params
-    from mast.datapower.datapower import get_appliances, is_environment
 
     names = []
     for spec in cli_params.options(model):
         if spec.widget == _APPLIANCES_WIDGET:
             value = getattr(params, spec.name)
             names.extend([value] if isinstance(value, str) else value)
-    hosts = get_config("hosts.conf")
     targets = []
     for name in names:
-        for hostname in (get_appliances(name) if is_environment(name)
-                         else [name]):
-            if hosts.has_option("hosts", hostname):
-                hostname = hosts.get("hosts", hostname)
-            hostname = hostname.strip().lower()
-            if hostname and hostname not in targets:
-                targets.append(hostname)
+        try:
+            found = []
+            for appliance in registry.resolve([name]):
+                if not appliance.registered:
+                    known = registry.by_address(appliance.address)
+                    appliance = known or appliance
+                found.append(appliance.name if appliance.registered
+                             else appliance.address)
+        except registry.UnknownName:
+            found = [name]
+        for target in found:
+            target = target.strip().lower()
+            if target and target not in targets:
+                targets.append(target)
     return targets
 
 

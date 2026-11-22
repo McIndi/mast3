@@ -91,10 +91,10 @@ class ApplianceOptions(Params):
     appliances: list[str] = Option(
         default_factory=list, short="a", widget=APPLIANCES,
         help="The hostname(s), ip address(es), environment name(s) "
-             "or alias(es) of the appliances you would like to affect. "
-             "Environments are configured in `environments.conf` and "
-             "aliases in `hosts.conf`, both located in "
-             "`$MAST_HOME/etc/default`.")
+             "or appliance name(s) you would like to affect. "
+             "Appliances and environments are kept in the "
+             "registry; see `mast-appliances list` and "
+             "`mast-appliances env-list`.")
     credentials: list[str] = Option(
         default_factory=list, short="c", widget=CREDENTIALS, secret=True,
         help="The credentials to use for authenticating to the "
