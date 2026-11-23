@@ -61,9 +61,11 @@ function show(commandId) {
     const button = el("button", {type: "submit", className: "btn btn-primary"}, command.queued ? "Run" : "Run now");
     formBox.append(
         el("h1", {className: "h4"}, el("code", {}, command.id)),
-        el("p", {className: "mast-help small"}, summary),
-        command.exclusive ? null : el("p", {className: "small text-body-secondary"}, "This command only reads."),
-        form, output);
+        el("p", {className: "mast-help small"}, summary));
+    if (!command.exclusive) {
+        formBox.append(el("p", {className: "small text-body-secondary"}, "This command only reads."));
+    }
+    formBox.append(form, output);
     const built = buildForm(command, form);
     form.append(el("div", {className: "mt-3"}, button));
     form.addEventListener("submit", async (event) => {
