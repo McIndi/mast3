@@ -85,6 +85,15 @@ export function noCheckHostname() {
     return !!(bar && bar.querySelector("[data-target-no-check]").checked);
 }
 
+// Choose a stored credential by name (or none with null). It is chosen
+// as soon as the credentials that fit the appliances offer it, or the
+// user chooses another.
+let wanted = null;
+export function setStoredCredential(name) {
+    wanted = name || "";
+    if (bar) offerStored();
+}
+
 // The name of the stored credential that was chosen, or null
 export function storedCredential() {
     if (!bar) return null;
@@ -120,7 +129,8 @@ async function offerStored() {
     }
     // An answer to an older list of appliances
     if (count !== offerCount) return;
-    const before = select.value;
+    const before = wanted !== null ? wanted : select.value;
+    if (wanted !== null && (wanted === "" || found.some((c) => c.name === wanted))) wanted = null;
     select.replaceChildren(el("option", {value: ""}, "Type a user name and password"),
         el("optgroup", {label: "Stored credentials"},
            ...found.map((c) => el("option", {value: c.name, selected: c.name === before,
@@ -151,6 +161,7 @@ if (bar) {
         field.addEventListener("change", () => { for (const listener of listeners) listener(); });
     }
     bar.querySelector("[data-target-stored]").addEventListener("change", () => {
+        wanted = null;
         showAdhoc();
         for (const listener of listeners) listener();
     });

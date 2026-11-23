@@ -164,8 +164,10 @@ function choicesControl(option, id, context) {
 }
 
 // Build the form of `command` in `container`. Returns {collect, showProblems}:
-// collect() gives the params for POST /api/v1/jobs.
-export function buildForm(command, container) {
+// collect() gives the params for POST /api/v1/jobs. `values` (optional) are
+// the values to start with in place of the defaults, for example the
+// parameters of a schedule.
+export function buildForm(command, container, values) {
     const readers = {};
     const groups = {};
     const targetListeners = [];
@@ -173,7 +175,9 @@ export function buildForm(command, container) {
     targets.onChange(() => { for (const listener of targetListeners) listener(); });
 
     const fields = el("div", {className: "row g-3"});
-    for (const option of command.options) {
+    for (const declared of command.options) {
+        const option = values && Object.prototype.hasOwnProperty.call(values, declared.name)
+            ? {...declared, default: values[declared.name]} : declared;
         const kind = widgetControl(option.widget);
         if (kind === "target-bar") {
             readers[option.name] = {

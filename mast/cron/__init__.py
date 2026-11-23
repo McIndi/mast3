@@ -30,6 +30,11 @@ list of [cron expressions](https://en.wikipedia.org/wiki/Cron#Format),
 each followed by a command. The times are in UTC. The file is read at
 the start of each minute, without the need to reload mastd. See
 `mast.cron.Plugin` for how the tasks are run.
+
+The same plugin also starts `mast.jobs.schedules.QueueScheduler`, which
+queues the jobs of the schedules of the job queue (`mast-jobs schedule`,
+Admin -> Schedules) and prunes old jobs each day
+(`mast.jobs.retention`).
 """
 
 import os
@@ -46,7 +51,8 @@ from mast.config import MAST_HOME
 
 mast_home = MAST_HOME
 
-__all__ = ["CronExpression", "parse_atom", "DEFAULT_EPOCH", "SUBSTITUTIONS"]
+__all__ = ["CronExpression", "parse_atom", "DEFAULT_EPOCH", "SUBSTITUTIONS",
+           "parse_schedule", "is_due", "next_runs"]
 __license__ = "Public Domain"
 
 DAY_NAMES = list(zip(('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'), list(range(7))))
@@ -338,6 +344,84 @@ def parse_atom(parse, minmax):
             return set(noskips[::increment])
 
 
+def parse_schedule(text):
+    """
+    _function_: `mast.cron.parse_schedule(text)`
+
+    Return the `CronExpression` of the five fields `text` (minute,
+    hour, day of the month, month, day of the week, in UTC; or one of
+    `SUBSTITUTIONS`, such as `@daily`). Raises ValueError, with a
+    message for a person, if it is not one.
+    """
+    text = " ".join(str(text or "").split())
+    if not text:
+        raise ValueError("A schedule needs a cron expression, for example "
+                         "'0 2 * * *' (02:00 UTC each day).")
+    try:
+        expression = CronExpression(text)
+        if expression.comment.strip():
+            raise ValueError("it has more than five fields")
+        # The special atoms are checked only when a time is checked
+        expression.check_trigger((2026, 1, 1, 0, 0))
+    except Exception as exc:
+        raise ValueError(
+            "{!r} is not a cron expression of five fields (minute hour "
+            "day-of-month month day-of-week): {}".format(text, exc))
+    return expression
+
+
+def is_due(expression, when):
+    """
+    _function_: `mast.cron.is_due(expression, when)`
+
+    Return True if the `CronExpression` `expression` is due in the
+    minute of the `datetime` `when` (in UTC).
+    """
+    when = when.astimezone(datetime.timezone.utc)
+    return bool(expression.check_trigger(
+        (when.year, when.month, when.day, when.hour, when.minute)))
+
+
+def next_runs(expression, after, count=5, days=732):
+    """
+    _function_: `mast.cron.next_runs(expression, after, count=5, days=732)`
+
+    Return the next `count` times (UTC `datetime`s) after the
+    `datetime` `after` at which the `CronExpression` `expression` is
+    due, looking at most `days` ahead. Only the minutes and hours that
+    the expression can match are tried, so a rare schedule is quick.
+    """
+    if isinstance(expression, str):
+        expression = parse_schedule(expression)
+    after = after.astimezone(datetime.timezone.utc).replace(
+        second=0, microsecond=0)
+    minutes_str, hours_str = expression.string_tab[:2]
+
+    def candidates(field, values, span):
+        if "%" in field or not values:
+            return list(range(span[0], span[1] + 1))
+        return sorted(values)
+
+    minutes = candidates(minutes_str, expression.numerical_tab[0], MINUTES)
+    hours = candidates(hours_str, expression.numerical_tab[1], HOURS)
+    found = []
+    day = after.date()
+    for _ in range(days + 1):
+        for hour in hours:
+            for minute in minutes:
+                when = datetime.datetime(day.year, day.month, day.day, hour,
+                                         minute, tzinfo=datetime.timezone.utc)
+                if when <= after:
+                    continue
+                if expression.check_trigger(
+                        (day.year, day.month, day.day, hour, minute)):
+                    found.append(when)
+                    if len(found) >= count:
+                        return found
+        day += datetime.timedelta(days=1)
+    return found
+
+
 def _minute_tuple(minute):
     """The UTC (year, month, day, hour, minute) of a minute since 1970."""
     return time.gmtime(minute * 60)[:5]
@@ -394,6 +478,24 @@ class Plugin(threading.Thread):
         self._last_minute = None
         self._last_text = None
         self._tasks = []
+        self.queue_scheduler = None
+
+    def _start_queue_scheduler(self):
+        """Start the thread that queues the jobs of the schedules
+        (`mast.jobs.schedules`) and prunes old jobs each day."""
+        # Imported here: the crontab works without the job queue
+        try:
+            from mast.jobs import config, retention, schedules
+            maintenance = []
+            if config.retention_schedule():
+                maintenance.append((config.retention_schedule(), retention.daily))
+            self.queue_scheduler = schedules.QueueScheduler(
+                clock=self.clock, maintenance=maintenance)
+            self.queue_scheduler.start()
+        except Exception:
+            self.logger.exception(
+                "Could not start the scheduler of the job queue. The "
+                "schedules do not run.")
 
     def stop(self):
         """
@@ -553,6 +655,7 @@ class Plugin(threading.Thread):
         called, then wait for the running tasks to end (unless `abort` is
         called).
         """
+        self._start_queue_scheduler()
         while not self._stopping.is_set():
             try:
                 self.check(int(self.clock() // 60))
@@ -562,6 +665,8 @@ class Plugin(threading.Thread):
             # Wake just after the start of the next minute
             delay = 60.0 - self.clock() % 60 + 0.05
             self._stopping.wait(min(max(delay, 0.05), 60.05))
+        if self.queue_scheduler is not None:
+            self.queue_scheduler.stop()
         while self.running() and not self._aborted.is_set():
             self.logger.info("Waiting for these tasks to end: {}".format(
                 ", ".join(self.running())))

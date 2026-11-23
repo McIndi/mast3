@@ -182,7 +182,10 @@ have to restart `mastd`.
 
 Credentials in `etc/crontab` are in clear text, or in the form of
 `mast-system xor`, which is not encryption (see "Credentials" below).
-Make the file readable only by the user that runs `mastd`.
+Make the file readable only by the user that runs `mastd`. For a
+command of MAST, prefer a schedule of the job queue (see "Scheduled
+jobs" below): it uses a stored credential, and its jobs are in the
+Jobs page.
 
 # The job queue
 
@@ -196,6 +199,8 @@ a job. `mast-jobs` shows them:
 | `mast-jobs follow -j <id>` | A job until it ends. |
 | `mast-jobs cancel -j <id>` | Cancel a job. |
 | `mast-jobs workers` | The workers that are alive. |
+| `mast-jobs schedule-list` | The scheduled jobs (see "Scheduled jobs"). |
+| `mast-jobs prune` | Delete old jobs and files now (see "Old jobs"). |
 
 The first characters of an id are enough, as long as they are unique.
 
@@ -236,12 +241,60 @@ Ctrl-C in the program that runs it, and within about a second
 the web GUI. A request that has started is completed first. What the
 job did before it stopped is not undone.
 
+## Scheduled jobs
+
+A schedule puts a command in the job queue when its cron expression is
+due. `mastd` checks the schedules at the start of every minute (the
+same plugin that reads `etc/crontab`). Manage them with `mast-jobs` on
+the MAST server, or as an admin in the web UI under Admin → Schedules,
+which has the form of each command and shows the next five runs:
+
+    :::bash
+    ./mast-jobs schedule-add -n nightly-domains -c system.list-domains \
+        -t "0 2 * * *" -s 'appliances=["prod"]' -s credential=collector
+    ./mast-jobs schedule-list
+    ./mast-jobs schedule-run -n nightly-domains     # now, once
+    ./mast-jobs schedule-disable -n nightly-domains # and -enable
+    ./mast-jobs schedule-update -n nightly-domains -t "30 1 * * *"
+    ./mast-jobs schedule-remove -n nightly-domains
+
+* The times are in UTC: five fields (minute, hour, day of the month,
+month, day of the week), or `@daily`, `@hourly` and the like.
+* A schedule holds no password. A command that talks to appliances uses
+a stored credential (`-s credential=NAME`, see "Stored credentials"),
+which is checked when the schedule is saved and again for each job.
+* The parameters are those of the command: `-p` takes them as a JSON
+object, and `-s NAME=VALUE` sets one (a VALUE that is JSON, such as
+`["prod"]`, is read as JSON).
+* Its jobs run as `schedule:NAME`, with the role of the admin who made
+the schedule. The Jobs page can show only the jobs of one schedule.
+* If the job of the last run still waits or runs when the schedule is
+due again, that run is skipped, and `schedule-list` says why.
+* If the admin who made it is removed, disabled or no longer an
+operator or an admin, the schedule is paused, with the reason. Enable
+it again once that is fixed, or make it again as another admin.
+* If `mastd` was not running, the runs that it missed are not made up,
+except that after a short gap (up to an hour) a schedule that was due
+runs once. Two `mastd` on one database do not run a schedule twice.
+
 ## Old jobs
 
-MAST does not delete old jobs. Their parameters (without the
-credentials, which are removed when a job ends), progress and results
-stay in the database. Watch its size: the file `var/jobs/jobs.db`, or
-the database in PostgreSQL.
+`mastd` deletes old things each day at 03:30 UTC, as `[retention]` of
+`jobs.conf` says. `mast-jobs prune` does it now; `--dry-run` only counts.
+
+| What | Kept for (days) | Setting |
+|---|---|---|
+| Finished jobs that people submitted, with their progress, results and files | 90 | `jobs_days` |
+| Finished jobs of schedules that succeeded | 7 | `scheduled_jobs_days` |
+| Finished jobs of schedules that did not succeed | 30 | `scheduled_failed_days` |
+| The uses of stored credentials, and the audit events of the credentials | 400 | `credential_uses_days`, `audit_events_days` |
+| Files uploaded in the web UI | 1 | `uploads_days` |
+| Log files in `var/log` (by the time they were last written), and the folders that they leave empty | 30 | `logs_days` |
+
+A child job goes with its parent, and a parent stays while one of its
+children has not finished. `0` keeps that kind of thing for ever, and
+an empty `schedule` turns the daily run off. The deletes go in batches
+of 1000 rows, so that the queue is never held up for long.
 
 # Appliances and environments
 

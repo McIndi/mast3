@@ -46,6 +46,7 @@ SSH host key of an appliance (`manage-appliance`).
 (`mast.registry`). `POST`, `PATCH /<name>` and `DELETE /<name>` change
 it, which needs the action `manage-appliance` (an admin).
 * `/credentials`: The credential store, see `mast.web.credentials`.
+* `/schedules`: The scheduled jobs, see `mast.web.schedules`.
 
 The routes for jobs are thin wrappers over `mast.jobs.queue`, which
 checks the role of the user for each action. No route goes around the
@@ -332,8 +333,9 @@ def list_jobs():
     _function_: `mast.web.api.list_jobs()`
 
     The newest jobs first. Filters (all optional): `status` (repeat it
-    for several), `mine=1`, `command`, `appliance`, `before` (an ISO
-    time, for the next page) and `limit` (50 by default).
+    for several), `mine=1`, `command`, `appliance`, `schedule` (the
+    name of a schedule), `before` (an ISO time, for the next page) and
+    `limit` (50 by default).
 
     Exposed at: `/api/v1/jobs` via GET
     """
@@ -348,12 +350,19 @@ def list_jobs():
         before = _when(args.get("before"))
         if before is None:
             return error(400, "before must be an ISO time.")
+    schedule_id = None
+    if args.get("schedule"):
+        from mast.jobs import schedules
+        try:
+            schedule_id = schedules.get(args.get("schedule"), who).id
+        except schedules.UnknownSchedule as exc:
+            return error(404, str(exc))
     found = queue.list_jobs(
         status=args.getlist("status") or None, limit=limit, principal=who,
         submitted_by=who.name if args.get("mine") in ("1", "true") else None,
         command=args.get("command") or None,
         appliance=args.get("appliance") or None,
-        before=before, parent_id=None)
+        before=before, parent_id=None, schedule_id=schedule_id)
     return flask.jsonify({"jobs": [_job_json(info) for info in found]})
 
 
