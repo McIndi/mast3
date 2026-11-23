@@ -769,18 +769,20 @@ class TestRunner(SqliteCase):
         self.assertIn("KeyboardInterrupt", info.error)
 
     def test_heartbeats_keep_a_long_job(self):
-        job_id = submit("dp1", seconds=1.5)
-        jobs.claim("w1", lease_seconds=0.6)
+        # The job runs for twice its lease. A heartbeat comes every half
+        # second, so a stall of the machine of up to a second is fine.
+        job_id = submit("dp1", seconds=3.0)
+        jobs.claim("w1", lease_seconds=1.5)
         reaped = []
 
         def reap_soon():
-            time.sleep(1.0)
+            time.sleep(2.2)
             reaped.extend(jobs.reap())
 
         thread = threading.Thread(target=reap_soon)
         thread.start()
         self.assertEqual(
-            jobs.run_job(job_id, "w1", lease_seconds=0.6), jobs.SUCCEEDED)
+            jobs.run_job(job_id, "w1", lease_seconds=1.5), jobs.SUCCEEDED)
         thread.join()
         self.assertEqual(reaped, [])
 
@@ -940,8 +942,10 @@ class TestRunner(SqliteCase):
         self.assertEqual(jobs.get(job_id).status, jobs.LOST)
 
     def test_a_job_that_keeps_its_lease_sends_every_request(self):
-        job_id, thread, outcome = self.run_requests(lease_seconds=0.6)
-        time.sleep(0.8)
+        # The request takes longer than the lease; the heartbeats (every
+        # half second) keep it
+        job_id, thread, outcome = self.run_requests(lease_seconds=1.5)
+        time.sleep(2.0)
         blocked["dp1"].set()
         thread.join(5)
         self.assertEqual(sent, ["dp1", "dp2"])
@@ -1459,15 +1463,23 @@ class TestCommandLine(CliCase):
         result = []
         thread = threading.Thread(
             target=lambda: result.append(self.run_cli("work", "-a", "dp1")))
-        with mock.patch.object(client, "_note"), mock.patch(
-                "mast.jobs.config.lease_seconds", return_value=0.3):
-            thread.start()
-            self.assertTrue(wait_for(lambda: len(jobs.list_jobs()) == 2))
-            mine = jobs.list_jobs()[0].id
-            for _ in range(10):
-                time.sleep(0.1)
-                clock.advance(0.1)
-            self.assertEqual(jobs.get(mine).status, jobs.QUEUED)
+        with mock.patch.object(client, "_note"):
+            # A short lease while the job waits: the command must say
+            # again and again that it still waits, or the job is
+            # cancelled. The queue measures this with the test's clock.
+            with mock.patch("mast.jobs.config.lease_seconds",
+                            return_value=0.3):
+                thread.start()
+                self.assertTrue(wait_for(lambda: len(jobs.list_jobs()) == 2))
+                mine = jobs.list_jobs()[0].id
+                for _ in range(10):
+                    time.sleep(0.1)
+                    clock.advance(0.1)
+                self.assertEqual(jobs.get(mine).status, jobs.QUEUED)
+            # The run that follows has the normal lease. The worker
+            # measures its lease with the real clock, and a run with a
+            # lease of 0.3 seconds is lost if the machine stalls for that
+            # long, which is not what this test is about.
             jobs.finish(ahead, "somebody", jobs.SUCCEEDED)
             thread.join(10)
         self.assertEqual(jobs.get(mine).status, jobs.SUCCEEDED)
