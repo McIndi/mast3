@@ -463,3 +463,7 @@ class WebPlugin(Plugin):
 
 if __name__ == "__main__":
     cli.run()
+
+
+# The crypto inventory: its commands join this cli
+from . import export, inventory  # noqa: E402,F401

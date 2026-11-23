@@ -225,13 +225,69 @@ class TestDomains(ContainerTestCase):
         names = [d["name"] for d in detail["domains"]]
         self.assertIn("default", names)
         self.assertIn("polled", names)
-        # Both domains were asked for their objects
-        self.assertEqual(set(detail["objects_checked_at"]),
-                         {"default", "polled"})
+        # Both domains were asked for their objects (the container can
+        # have other domains too)
+        self.assertLessEqual({"default", "polled"},
+                             set(detail["objects_checked_at"]))
 
     def test_invalid_action_parameter(self):
         with self.assertRaises(ValueError):
             self.dp.SaveConfig(not_a_parameter="x")
+
+
+class TestCryptoInventory(ContainerTestCase):
+    """The crypto inventory of a domain of crypto objects
+    (`crypto_lab`), read with both methods."""
+
+    DOMAIN = "mastcryptolab"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from mast.testsuite.integration import crypto_lab
+        crypto_lab.make_lab(cls.dp, cls.DOMAIN)
+        cls.addClassCleanup(cls.dp.del_domain, cls.DOMAIN)
+
+    def test_both_methods_find_the_same(self):
+        from unittest import mock
+        from mast.datapower.crypto import inventory
+        from mast.datapower.crypto.models import EXPORT
+        from mast.testsuite.integration.crypto_lab import (
+            ALIAS_PASSWORD, LAB, PLAINTEXT_PASSWORD)
+        by_details = inventory.collect(self.dp, [self.DOMAIN], delay=0.1)
+        with mock.patch.object(inventory, "spec_for",
+                               return_value=("etc/v7000-xi52.xml", EXPORT)):
+            by_export = inventory.collect(self.dp, [self.DOMAIN], delay=0.1,
+                                          job_id="integration")
+        self.assertEqual(by_details["problems"], [])
+        self.assertEqual(by_export["problems"], [])
+        self.assertEqual(set(by_details["objects"]), set(by_export["objects"]))
+        self.assertEqual(by_details["certs"], by_export["certs"])
+        self.assertEqual(by_details["edges"], by_export["edges"])
+        for _class in ("CryptoCertificate", "CryptoKey", "CryptoIdentCred",
+                       "CryptoValCred", "SSLServerProfile", "SSLClientProfile",
+                       "PasswordAlias", "HTTPSSourceProtocolHandler"):
+            names = {n for (d, c, n) in by_details["objects"] if c == _class}
+            self.assertEqual(names, set(LAB[_class]), _class)
+        self.assertIn((self.DOMAIN, "HTTPSSourceProtocolHandler", "lab-https",
+                       "SSLServerProfile", "lab-server-profile", "SSLServer"),
+                      by_details["edges"])
+        server = by_details["certs"][(self.DOMAIN, "lab-server-cert")]
+        self.assertEqual((server["key_alg"], server["key_bits"]), ("RSA", 2048))
+        self.assertTrue(by_details["objects"][(self.DOMAIN, "CryptoKey",
+                                               "lab-old-key")]
+                        ["has_plaintext_password"])
+        self.assertNotIn(PLAINTEXT_PASSWORD, repr(by_details))
+        self.assertNotIn(ALIAS_PASSWORD, repr(by_details))
+        self.assertEqual(
+            {f["name"] for f in by_details["files"]
+             if f["domain"] == self.DOMAIN},
+            {"cert:///" + n for n in LAB["files"]})
+        # The exports left no file behind
+        temporary = self.dp.get_filestore(domain=self.DOMAIN,
+                                          location="temporary:")
+        names = [f.get("name") for f in temporary.xml.findall(".//file")]
+        self.assertFalse([n for n in names if n.startswith("mast-")], names)
 
 
 class TestAccounts(ContainerTestCase):

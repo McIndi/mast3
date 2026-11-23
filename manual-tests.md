@@ -158,6 +158,24 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
     #    appliances"), and no job runs. The same with -c and the password
     #    of the read-only user: DataPower answers "Authorization failure".
 
+# Phase C: the crypto inventory
+
+The home of the Phase A test, with the credential collector. A domain
+with crypto objects helps: `uv run python -c "from mast.datapower.datapower
+import DataPower; from mast.testsuite.integration import crypto_lab;
+crypto_lab.make_lab(DataPower('127.0.0.1', 'admin:PASSWORD', port=PORT,
+check_hostname=False), 'cryptolab')"` makes one on a test appliance.
+
+    ./mast-crypto inventory --credential collector
+    # The Jobs page: the inventory, and a child job for each appliance
+    # under it, each with its table (objects, certificates, files).
+    ./mast-crypto export -f xlsx                  # open it: six sheets
+    ./mast-crypto export -f cbom                  # a CycloneDX 1.6 JSON
+    # In the files under tmp/: no password (grep for the passwords of
+    # the appliance's keys and aliases finds nothing).
+    # Cancel an inventory of several appliances: its children are
+    # cancelled too.
+
 # Phase B: the status of the appliances
 
 The home of the Phase A test, with the credential collector and a

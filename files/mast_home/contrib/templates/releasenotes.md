@@ -54,7 +54,8 @@ them for longer. `mast-jobs prune --dry-run` shows what would go.
 * The job database gets new tables, `users`, `appliances`,
 `environments`, `environment_members`, `credentials`,
 `credential_bindings`, `credential_uses`, `audit_events`,
-`status_latest`, `status_samples` and `status_rollups`, and new
+`status_latest`, `status_samples`, `status_rollups` and the
+`crypto_*` tables of the inventory, and new
 columns: `job_results.data` (the result of a job as a table, for the
 web UI), four in `appliances` for a pin that did not match, and the
 table `schedules` with two columns of `jobs` (`passive`,
@@ -121,6 +122,14 @@ credential for collecting. Its jobs are passive, and each worker has a
 slot for passive jobs (`[worker] passive_slots = 1`), so a long job
 does not hold up the polls. The status is kept for a while
 (`status_*_days` in `[retention]`).
+* **The crypto inventory**: `mast-crypto inventory` reads the
+certificates, keys, credentials, crypto and TLS profiles of every
+domain, what uses them, and the files of `cert:`, `pubcert:` and
+`sharedcert:`, and keeps a snapshot of each appliance; no password or
+key is kept. Each appliance is a child job. `mast-crypto export` writes
+it as a CycloneDX 1.6 CBOM, a spreadsheet or a CSV of the
+certificates. Snapshots are kept 400 days (`crypto_snapshots_days`),
+but the newest of each appliance.
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists

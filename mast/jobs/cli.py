@@ -408,6 +408,7 @@ def prune(params: Prune):
         "logs_days": "log files",
         "status_samples_days": "status samples",
         "status_hourly_days": "hourly status",
-        "status_daily_days": "daily status"}
+        "status_daily_days": "daily status",
+        "crypto_snapshots_days": "crypto inventory snapshots"}
     return Table(("What", "Would delete" if params.dry_run else "Deleted"),
                  [(what[rule], count) for rule, count in counts.items()])

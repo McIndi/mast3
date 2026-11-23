@@ -294,6 +294,7 @@ first one deletes and the others find little left. `mast-jobs prune` does it now
 | Files uploaded in the web UI | 1 | `uploads_days` |
 | Log files in `var/log` (by the time they were last written), and the folders that they leave empty | 30 | `logs_days` |
 | The status of the appliances: each poll, then summed up by hour, then by day | 2, 31, 400 | `status_samples_days`, `status_hourly_days`, `status_daily_days` |
+| The snapshots of the crypto inventory (the newest of each appliance stays) | 400 | `crypto_snapshots_days` |
 
 A child job goes with its parent, and a parent stays while one of its
 children has not finished. `0` keeps that kind of thing for ever, and
@@ -340,6 +341,49 @@ asked for their objects every 15 minutes (`--object-status-minutes`).
 nor hold up other jobs. Each worker also has a slot for passive jobs
 only (`passive_slots` in the `[worker]` section of `jobs.conf`), so a
 long backup or deployment does not stop the status from updating.
+
+## The crypto inventory
+
+`mast-crypto inventory` reads what cryptography the appliances use and
+keeps it as a snapshot of each appliance in the job database: the
+certificates (subject, issuer, validity, key algorithm and size,
+signature algorithm, alternative names), the keys, the identification
+and validation credentials, the crypto profiles, the TLS profiles
+(protocols, ciphers, KEM algorithms), the password aliases (their names
+only), the files of `cert:`, `pubcert:` and `sharedcert:`, and which
+object uses which, up to the listeners and the services. No password,
+key or file content is kept; a key with a plaintext password in its
+configuration is marked so. With no `-a`, every registered appliance.
+
+    :::bash
+    ./mast-crypto inventory --credential collector
+    ./mast-crypto inventory -a prod -d app1 -d app2 --credential collector
+    ./mast-jobs schedule-add -n crypto-inventory -c crypto.inventory \
+        -t "0 2 * * *" -s credential=collector
+
+* Each appliance is a child job of the inventory: the Jobs page shows
+them under it, each with its progress and its result. The children run
+in the same worker as their parent, a few at a time (`--workers`).
+* For each domain, MAST reads the running and the saved configuration
+once each, and each certificate with `do-view-certificate-details`.
+On firmware older than 7.5 (whose SOMA spec does not have that
+request), it exports each certificate to a temporary file with a name
+of the job, reads it and deletes it, also when something fails.
+* A user that may only read (see "A DataPower user that may only read")
+can read everything that the inventory needs.
+
+`mast-crypto export` writes the newest snapshot of each appliance (or
+the one of `--snapshot ID`) to a file:
+
+    :::bash
+    ./mast-crypto export -f cbom      # CycloneDX 1.6 JSON
+    ./mast-crypto export -f xlsx      # a sheet each: certificates, keys, ...
+    ./mast-crypto export -f csv -a prod-dp1
+
+The CBOM (cryptographic bill of materials) lists each certificate, key,
+credential, password alias and TLS profile as a `cryptographic-asset`,
+the algorithms of the certificates, each listener or service that uses
+them as an `application`, and the references as `dependencies`.
 
 # Appliances and environments
 

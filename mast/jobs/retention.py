@@ -26,6 +26,8 @@ children has not finished;
 * the status of the appliances: the samples of each poll, and the
 hourly and daily rollups (`mast.datapower.status`). The daily rollups
 of the days that ended are made first;
+* the snapshots of the crypto inventory, but the newest of each
+appliance (`mast.datapower.crypto`);
 * the uploads of the web UI (`var/www/uploads`);
 * the log files in `var/log`, and the folders that they leave empty.
 
@@ -207,6 +209,30 @@ def _prune_status(now, dry_run, counts):
                     delete(StatusRollup).where(*where)).rowcount
 
 
+def _prune_crypto(now, dry_run, counts):
+    cutoff = _cutoff(now, "crypto_snapshots_days")
+    if cutoff is None:
+        return
+    try:
+        # Imported here: the inventory is the DataPower plugin's
+        from mast.datapower.crypto.models import CryptoSnapshot
+    except ImportError:
+        return
+    with db.session() as session:
+        newest = select(func.max(CryptoSnapshot.id)).group_by(
+            CryptoSnapshot.appliance_id)
+        ids = list(session.scalars(
+            select(CryptoSnapshot.id).where(
+                CryptoSnapshot.collected_at < cutoff,
+                CryptoSnapshot.id.not_in(newest))))
+        if ids and not dry_run:
+            # Their objects, certificates, files and edges go with them
+            for start in range(0, len(ids), BATCH):
+                session.execute(delete(CryptoSnapshot).where(
+                    CryptoSnapshot.id.in_(ids[start:start + BATCH])))
+    counts["crypto_snapshots_days"] = len(ids)
+
+
 def _old(path, cutoff):
     try:
         return datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < cutoff
@@ -280,6 +306,7 @@ def prune(now=None, dry_run=False, root=None):
     _prune_jobs(now, dry_run, counts)
     _prune_rows(now, dry_run, counts)
     _prune_status(now, dry_run, counts)
+    _prune_crypto(now, dry_run, counts)
     _prune_uploads(now, dry_run, counts, root)
     _prune_logs(now, dry_run, counts, root)
     if not dry_run:

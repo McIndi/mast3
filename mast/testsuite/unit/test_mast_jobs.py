@@ -55,6 +55,7 @@ import mast.auth.models  # noqa: F401
 import mast.registry.models  # noqa: F401
 import mast.credentials.models  # noqa: F401
 import mast.datapower.status.models  # noqa: F401
+import mast.datapower.crypto.models  # noqa: F401
 from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
