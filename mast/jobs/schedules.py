@@ -17,8 +17,8 @@
 _module_: `mast.jobs.schedules`
 
 Scheduled jobs: a command, its parameters and a cron expression (five
-fields, in UTC). When the expression is due, the scheduler of `mastd`
-(`QueueScheduler`) puts a job in the queue, as the principal
+fields, in UTC). When the expression is due, the scheduler of a worker
+(`QueueScheduler`, see `mast.jobs.worker`) puts a job in the queue, as the principal
 `schedule:<name>` with the role of the admin who made the schedule.
 
 * A schedule holds no secret. A command that talks to appliances uses a
@@ -29,7 +29,7 @@ run is skipped and `last_skip_reason` says why.
 * If the principal that made the schedule is removed, disabled or may
 no longer submit jobs, the schedule is paused (`enabled` false).
 * **One firing:** each run is claimed in a transaction that compares
-`last_fired_at`, so two `mastd` on one database do not both submit it.
+`last_fired_at`, so two workers on one database do not both submit it.
 
 `mast-jobs schedule ...` and Admin -> Schedules manage them (the
 action `manage-schedule`, admins).
@@ -327,7 +327,7 @@ def next_runs(cron_text, count=5, now=None):
 
 def _claim(schedule_id, due_at, force=False):
     """Mark the schedule as fired for the minute `due_at`, unless it was
-    fired for that minute or a later one already (by another mastd).
+    fired for that minute or a later one already (by another worker).
     Return the `ScheduleInfo`, or None if another process has it."""
     with db.session() as session:
         connection = session.connection()
@@ -453,7 +453,7 @@ class QueueScheduler(threading.Thread):
     """
     _class_: `mast.jobs.schedules.QueueScheduler(clock=time.time, maintenance=None)`
 
-    The thread of `mastd` (started by the cron plugin) that wakes at the
+    The thread of a worker (`mast.jobs.worker.Worker`) that wakes at the
     start of each minute and queues the jobs of the schedules that are
     due (`fire_due`). After a gap (the server was busy or suspended),
     it looks at the missed minutes too, up to `CATCH_UP_MINUTES`, and a

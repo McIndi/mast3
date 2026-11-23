@@ -23,6 +23,12 @@ Start one with `mast-worker`. `mastd` also hosts one, unless
 `jobs.conf` says otherwise. Any number of workers can use one
 database. They can be started and stopped at any time.
 
+A worker also runs the scheduler of the job queue
+(`mast.jobs.schedules.QueueScheduler`), unless `[worker] schedules` of
+`jobs.conf` is false or it drains: it queues the jobs of the schedules
+when they are due and runs the daily retention (`mast.jobs.retention`).
+Each run of a schedule is queued once, however many workers check it.
+
 To stop a worker, send it SIGTERM or press Ctrl-C. It takes no more
 jobs and stops when its running jobs end. A second signal stops it
 now. The jobs that it was running become `lost`, because their
@@ -48,7 +54,8 @@ __all__ = ["Worker", "Plugin", "main"]
 class Worker(object):
     """
     _class_: `mast.jobs.worker.Worker(concurrency=None,
-    poll_seconds=None, lease_seconds=None, drain=False, report=None)`
+    poll_seconds=None, lease_seconds=None, drain=False, report=None,
+    schedules=None)`
 
     Takes jobs from the queue and runs them, `concurrency` at a time,
     each in its own thread.
@@ -62,11 +69,15 @@ class Worker(object):
     * `drain`: If True, `run` returns when no job waits in the queue.
     * `report`: A function that is called with one line of text when
     something happens (a job starts, a job ends, the worker stops).
+    * `schedules`: Whether to run the scheduler of the job queue while
+    the worker runs. A worker that drains never runs it.
 
-    The defaults of the first three are in `jobs.conf`.
+    The defaults of the first three and of `schedules` are in
+    `jobs.conf`.
     """
     def __init__(self, concurrency=None, poll_seconds=None,
-                 lease_seconds=None, drain=False, report=None):
+                 lease_seconds=None, drain=False, report=None,
+                 schedules=None):
         self.id = runner.new_worker_id()
         self.concurrency = (
             config.concurrency() if concurrency is None else concurrency)
@@ -77,6 +88,9 @@ class Worker(object):
         self.lease_seconds = (
             config.lease_seconds() if lease_seconds is None else lease_seconds)
         self.drain = drain
+        self.schedules = not drain and (
+            config.worker_schedules() if schedules is None else schedules)
+        self.scheduler = None
         self._report = report
         self._logger = make_logger("mast.jobs.worker")
         self._stop = threading.Event()
@@ -113,9 +127,11 @@ class Worker(object):
         """
         _method_: `mast.jobs.worker.Worker.stop(self)`
 
-        Take no more jobs. `run` returns when the running jobs end.
+        Take no more jobs and queue no more jobs of schedules. `run`
+        returns when the running jobs end.
         """
         self._stop.set()
+        self._stop_scheduler()
 
     def abort(self):
         """
@@ -127,6 +143,30 @@ class Worker(object):
         """
         self._abort.set()
         self._stop.set()
+        self._stop_scheduler()
+
+    def _start_scheduler(self):
+        # Imported here: a worker that does not run it does not need it
+        try:
+            from mast.jobs import retention, schedules
+            maintenance = []
+            if config.retention_schedule():
+                maintenance.append(
+                    (config.retention_schedule(), retention.daily))
+            self.scheduler = schedules.QueueScheduler(maintenance=maintenance)
+            self.scheduler.start()
+            self._say("queues the jobs of the schedules when they are due")
+        except Exception:
+            self.scheduler = None
+            self._logger.exception(
+                "{}: could not start the scheduler of the job queue. This "
+                "worker does not queue the jobs of the schedules.".format(
+                    self.id))
+
+    def _stop_scheduler(self):
+        scheduler = self.scheduler
+        if scheduler is not None:
+            scheduler.stop()
 
     def _slot(self, slot_id):
         """The loop of one thread: claim a job, run it, again."""
@@ -197,6 +237,8 @@ class Worker(object):
         until no job waits). Call this once.
         """
         self._seen()
+        if self.schedules and not self._stop.is_set():
+            self._start_scheduler()
         threads = [
             threading.Thread(
                 target=self._slot, args=("{}/{}".format(self.id, number),),
@@ -222,6 +264,7 @@ class Worker(object):
                     next_seen = time.monotonic() + self.lease_seconds / 3.0
                 time.sleep(0.1)
         finally:
+            self._stop_scheduler()
             try:
                 queue.worker_gone(self.id)
             except Exception:
@@ -236,9 +279,9 @@ class Plugin(threading.Thread):
     _class_: `mast.jobs.worker.Plugin(threading.Thread)`
 
     A `mastd` plugin that hosts a worker, so that an installation
-    that runs `mastd` needs no other process to run jobs. Set
-    `mastd` to `false` in the `[worker]` section of `jobs.conf` to
-    turn it off.
+    that runs `mastd` needs no other process to run jobs and
+    schedules. Set `mastd` to `false` in the `[worker]` section of
+    `jobs.conf` to turn it off.
     """
     def __init__(self):
         super(Plugin, self).__init__()
@@ -314,13 +357,18 @@ def _signals():
 
 
 def main(params: Main):
-    """Take jobs from the MAST job queue and run them.
+    """Take jobs from the MAST job queue and run them, and queue the
+    jobs of the schedules when they are due.
 
     Any number of workers can run at the same time. To stop a worker,
     press Ctrl-C (or send SIGTERM). It then takes no more jobs and
     stops when its running jobs end. Do that again to stop it now.
     The jobs that it was running then become "lost", and the exit
-    status is 1."""
+    status is 1.
+
+    `schedules = false` in the `[worker]` section of `jobs.conf` makes
+    it only run jobs. With `--drain` it never queues the jobs of the
+    schedules."""
     worker = Worker(
         concurrency=params.concurrency, poll_seconds=params.poll_seconds,
         drain=params.drain, report=lambda message: print(message, flush=True))

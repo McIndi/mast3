@@ -31,10 +31,9 @@ each followed by a command. The times are in UTC. The file is read at
 the start of each minute, without the need to reload mastd. See
 `mast.cron.Plugin` for how the tasks are run.
 
-The same plugin also starts `mast.jobs.schedules.QueueScheduler`, which
-queues the jobs of the schedules of the job queue (`mast-jobs schedule`,
-Admin -> Schedules) and prunes old jobs each day
-(`mast.jobs.retention`).
+The schedules of the job queue (`mast-jobs schedule-add`, Admin ->
+Schedules) are not in this file: the workers queue their jobs (see
+`mast.jobs.worker`). This module parses their cron expressions.
 """
 
 import os
@@ -478,24 +477,6 @@ class Plugin(threading.Thread):
         self._last_minute = None
         self._last_text = None
         self._tasks = []
-        self.queue_scheduler = None
-
-    def _start_queue_scheduler(self):
-        """Start the thread that queues the jobs of the schedules
-        (`mast.jobs.schedules`) and prunes old jobs each day."""
-        # Imported here: the crontab works without the job queue
-        try:
-            from mast.jobs import config, retention, schedules
-            maintenance = []
-            if config.retention_schedule():
-                maintenance.append((config.retention_schedule(), retention.daily))
-            self.queue_scheduler = schedules.QueueScheduler(
-                clock=self.clock, maintenance=maintenance)
-            self.queue_scheduler.start()
-        except Exception:
-            self.logger.exception(
-                "Could not start the scheduler of the job queue. The "
-                "schedules do not run.")
 
     def stop(self):
         """
@@ -655,7 +636,6 @@ class Plugin(threading.Thread):
         called, then wait for the running tasks to end (unless `abort` is
         called).
         """
-        self._start_queue_scheduler()
         while not self._stopping.is_set():
             try:
                 self.check(int(self.clock() // 60))
@@ -665,8 +645,6 @@ class Plugin(threading.Thread):
             # Wake just after the start of the next minute
             delay = 60.0 - self.clock() % 60 + 0.05
             self._stopping.wait(min(max(delay, 0.05), 60.05))
-        if self.queue_scheduler is not None:
-            self.queue_scheduler.stop()
         while self.running() and not self._aborted.is_set():
             self.logger.info("Waiting for these tasks to end: {}".format(
                 ", ".join(self.running())))

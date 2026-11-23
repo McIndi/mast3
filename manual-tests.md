@@ -106,7 +106,7 @@ mast-developer import -n -a lab -c %MAST_CREDS% -D new_domain -f ~/Downloads/exp
 # Save a domain
 mast-system save -n -a lab -c %MAST_CREDS% -D new_domain
 
-# Schedules (mastd running, or mast-worker)
+# Schedules (a worker running: mast-worker, or the one in mastd)
 mast-jobs schedule-add -n lab-domains -c system.list-domains -t "*/2 * * * *" -s 'appliances=["lab"]' -s credential=lab-read
 mast-jobs schedule-list                       # next run in two minutes
 # Wait: a job by schedule:lab-domains every two minutes (mast-jobs list)
