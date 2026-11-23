@@ -70,6 +70,11 @@ function warnings(appliance, now) {
             title: "The stored credential of the poll could change the appliance at its last test. Use a user that may only read."},
             "Credential can change it"));
     }
+    if (status && status.statistics_off) {
+        found.push(el("span", {className: "badge text-bg-secondary",
+            title: "DataPower measures the CPU only while Statistics is enabled in the default domain."},
+            "Statistics off: no CPU"));
+    }
     if (status && minutesOld(status.collected_at, now) > STALE_MINUTES) {
         found.push(el("span", {className: "badge text-bg-secondary"}, "Not polled lately"));
     }

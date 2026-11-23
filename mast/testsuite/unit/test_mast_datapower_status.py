@@ -89,7 +89,8 @@ OBJECTS = {
         _object("Domain", "broken", "down"),
         _object("XMLFirewallService", "fw1", "down", code="0x00b30001"),
         _object("SNMPSettings", "snmp", "down", "disabled"),
-        _object("HTTPService", "web"))),
+        _object("HTTPService", "web"),
+        _object("Statistics", "default", "down", "disabled"))),
     "app": _object("MultiProtocolGateway", "mpg", "down", code="0x123"),
 }
 
@@ -169,7 +170,8 @@ class TestPoll(SqliteCase):
         self.assertEqual([c for c in appliance.calls if c[0] == "ObjectStatus"],
                          [("ObjectStatus", "default"), ("ObjectStatus", "app")])
         self.assertEqual(set(detail), {"domains", "objects_down",
-                                       "objects_checked_at"})
+                                       "statistics", "objects_checked_at"})
+        self.assertEqual(detail["statistics"], "disabled")
 
     def test_the_other_domains_are_asked_less_often(self):
         first = collector.poll(FakeAppliance("dp1"), now=T0, delay=0)
@@ -317,7 +319,7 @@ class TestCollect(CollectCase):
         collector.collect(credentials=["u:p"], request_delay=0)
         row = self.latest("dp1")
         self.assertEqual(set(row.detail), {"domains", "objects_down",
-                                           "objects_checked_at"})
+                                           "statistics", "objects_checked_at"})
         for found in row.detail["objects_down"]:
             self.assertEqual(set(found), {"class", "name", "domain",
                                           "event_code"})
@@ -478,6 +480,8 @@ class TestAppliancesPage(WebCase):
         self.assertTrue(status["ok"])
         self.assertEqual((status["cpu_1m"], status["objects_down"]), (6.0, 3))
         self.assertTrue(status["credential_can_write"])
+        # The fake has Statistics disabled: the page says why no CPU
+        self.assertTrue(status["statistics_off"])
         # A viewer does not see the name of the credential
         self.assertNotIn("credential", status)
         self.assertNotIn("detail", status)

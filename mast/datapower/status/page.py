@@ -89,6 +89,9 @@ def _status_json(found, cache, detail=False):
         return None
     status = {k: _json(v) for k, v in found.items()
               if k != "detail" and k != "credential"}
+    # DataPower measures the CPU only with Statistics enabled in default
+    state = (found.get("detail") or {}).get("statistics")
+    status["statistics_off"] = state is not None and state != "enabled"
     status["credential_can_write"] = _can_write(found.get("credential"), cache)
     if _may_see_credentials():
         status["credential"] = found.get("credential")

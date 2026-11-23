@@ -214,10 +214,14 @@ class TestDomains(ContainerTestCase):
                      "mem_used_pct", "load_pct", "fs_free_temporary_mb",
                      "fs_total_temporary_mb", "domains_total", "objects_down"):
             self.assertIsNotNone(values[name], name)
-        # Right after it starts, DataPower answers CPUUsage with an empty
-        # status (seen on 10.5.0.23 and 11.0.0.3): the CPU is then
+        # DataPower answers CPUUsage only while Statistics is enabled in
+        # default, which it is not out of the box: the CPU is then
         # unknown, not an error
-        self.assertIn("cpu_1m", values)
+        self.assertIn(detail["statistics"], ("enabled", "disabled"))
+        if detail["statistics"] == "enabled":
+            self.assertIsNotNone(values["cpu_1m"])
+        else:
+            self.assertIsNone(values["cpu_1m"])
         names = [d["name"] for d in detail["domains"]]
         self.assertIn("default", names)
         self.assertIn("polled", names)

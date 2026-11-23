@@ -191,7 +191,11 @@ worker running.
     # 6. As a viewer: the same page, without the name of the credential
     #    and without "Start polling" or "Run a command".
 
-    # 7. Dark theme and phone width: the bars and charts are readable.
+    # 7. With Statistics disabled in default, the CPU is empty and the
+    #    row says "Statistics off: no CPU"; enable it, and the next poll
+    #    has the CPU.
+
+    # 8. Dark theme and phone width: the bars and charts are readable.
 
     ./mast-jobs prune --dry-run                   # status samples, hourly, daily
 

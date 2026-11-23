@@ -329,7 +329,12 @@ requests with "Authentication failure".
 * An appliance that does not answer is marked so, with the reason, and
 keeps the values of its last good poll. The job is then `partial`.
 * An object is down when it is enabled but not up; the objects that an
-admin disabled do not count. The domains other than `default` are
+admin disabled do not count.
+* DataPower measures the CPU only while **Statistics** is enabled in
+the `default` domain, and it is disabled out of the box. Without it the
+CPU is empty and the page says "Statistics off: no CPU". Enable the
+`Statistics` object of the `default` domain on the appliance; the CPU
+shows from the next poll. The domains other than `default` are
 asked for their objects every 15 minutes (`--object-status-minutes`).
 * The jobs of `mast-status collect` are passive: they neither wait for
 nor hold up other jobs. Each worker also has a slot for passive jobs

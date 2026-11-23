@@ -36,8 +36,10 @@ down are kept in between.
 
 An object is down when it is enabled but not up. The objects that an
 admin disabled are not counted. A value that the appliance does not
-give is None: right after it starts, DataPower answers `CPUUsage` with
-an empty status.
+give is None. DataPower answers `CPUUsage` only while `Statistics` is
+enabled in the `default` domain (it is disabled out of the box); the
+state of `Statistics` is kept in `detail`, so that the page can say
+why the CPU is unknown.
 """
 import contextvars
 import re
@@ -248,6 +250,8 @@ def poll(appliance, previous=None, now=None, delay=0.1,
         down += _objects_down(poller.entries("ObjectStatus", domain=name),
                               name)
         checked[name] = now.isoformat()
+    statistics = [_text(e, "AdminState") for e in objects
+                  if _text(e, "Class") == "Statistics"]
     names = {d["name"] for d in domains}
     values["domains_total"] = len(domains)
     values["domains_down"] = sum(
@@ -257,6 +261,8 @@ def poll(appliance, previous=None, now=None, delay=0.1,
     values["detail"] = {
         "domains": sorted(domains, key=lambda d: d["name"] or ""),
         "objects_down": down,
+        # The admin state of Statistics in default: without it, no CPU
+        "statistics": statistics[0] if statistics else None,
         "objects_checked_at": {k: v for k, v in checked.items()
                                if k in names or k == "default"},
     }
