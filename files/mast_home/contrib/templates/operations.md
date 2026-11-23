@@ -244,8 +244,10 @@ job did before it stopped is not undone.
 ## Scheduled jobs
 
 A schedule puts a command in the job queue when its cron expression is
-due. `mastd` checks the schedules at the start of every minute (the
-same plugin that reads `etc/crontab`). Manage them with `mast-jobs` on
+due. Every worker (`mast-worker`, and the one that `mastd` hosts)
+checks the schedules at the start of every minute, unless
+`schedules = false` is in the `[worker]` section of `jobs.conf`. So the
+schedules run whenever a worker runs. Manage them with `mast-jobs` on
 the MAST server, or as an admin in the web UI under Admin → Schedules,
 which has the form of each command and shows the next five runs:
 
@@ -273,14 +275,15 @@ due again, that run is skipped, and `schedule-list` says why.
 * If the admin who made it is removed, disabled or no longer an
 operator or an admin, the schedule is paused, with the reason. Enable
 it again once that is fixed, or make it again as another admin.
-* If `mastd` was not running, the runs that it missed are not made up,
+* If no worker was running, the runs that were missed are not made up,
 except that after a short gap (up to an hour) a schedule that was due
-runs once. Two `mastd` on one database do not run a schedule twice.
+runs once. Several workers on one database do not queue a run twice.
 
 ## Old jobs
 
-`mastd` deletes old things each day at 03:30 UTC, as `[retention]` of
-`jobs.conf` says. `mast-jobs prune` does it now; `--dry-run` only counts.
+The workers that check the schedules also delete old things each day
+at 03:30 UTC, as `[retention]` of `jobs.conf` says. If several do, the
+first one deletes and the others find little left. `mast-jobs prune` does it now; `--dry-run` only counts.
 
 | What | Kept for (days) | Setting |
 |---|---|---|

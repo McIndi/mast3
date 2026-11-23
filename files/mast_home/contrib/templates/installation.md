@@ -62,7 +62,8 @@ explains every setting.
 `$MAST_HOME/etc/local/jobs.key`. MAST makes this file the first time it is needed.
 Every process that uses the database must read the same key, so back it up with the
 database, and copy it to every MAST installation that shares a PostgreSQL database.
-* Workers run the jobs. `mastd` hosts one, unless `mastd = false` is in the `[worker]`
+* Workers run the jobs, queue the jobs of the schedules when they are due, and delete
+old jobs each day. `mastd` hosts one, unless `mastd = false` is in the `[worker]`
 section of `jobs.conf`. To run workers without `mastd`, start `mast-worker` as a
 service. A worker stops when it gets SIGTERM, after its running jobs end.
 * A job of the web GUI is done by a worker if one is running, and otherwise by the web

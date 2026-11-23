@@ -27,9 +27,11 @@ children has not finished;
 * the log files in `var/log`, and the folders that they leave empty.
 
 `prune` deletes in batches of `BATCH` rows, each in its own
-transaction, so that it never holds the SQLite lock for long. mastd
-runs it each day (`[retention] schedule`); `mast-jobs prune` runs it
-now, and with `--dry-run` only counts.
+transaction, so that it never holds the SQLite lock for long. The
+workers run it each day (`[retention] schedule`, see
+`mast.jobs.worker`); if several do, the first deletes and the others
+find little left. `mast-jobs prune` runs it now, and with `--dry-run`
+only counts.
 """
 import os
 import shutil

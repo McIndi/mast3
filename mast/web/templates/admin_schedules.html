@@ -4,7 +4,7 @@
 {% block targetbar %}{% include "targetbar.html" %}{% endblock %}
 {% block content %}
 <h1 class="h4">Schedules</h1>
-<p class="small text-body-secondary">mastd puts the job of a schedule in the queue when its cron expression is due (times in UTC). A job of a schedule runs as <code>schedule:NAME</code> with the role of the admin who made it, and is skipped while the job of its last run still waits or runs. A command that talks to appliances needs a stored credential: choose the appliances and the credential in the bar above.</p>
+<p class="small text-body-secondary">A worker (<code>mast-worker</code>, or the one in mastd) puts the job of a schedule in the queue when its cron expression is due (times in UTC). A job of a schedule runs as <code>schedule:NAME</code> with the role of the admin who made it, and is skipped while the job of its last run still waits or runs. A command that talks to appliances needs a stored credential: choose the appliances and the credential in the bar above.</p>
 <div class="alert alert-danger d-none" role="alert" data-error></div>
 <div class="alert alert-success d-none" role="status" data-notice></div>
 <div class="table-responsive">

@@ -41,7 +41,8 @@ it behaves as before (`auto_add_keys` of `ssh.conf`), with a warning.
 it did before, except for a pinned certificate, which is always
 checked. Its help now says so.
 * SOMA requests are sent with `Content-Type: text/xml`.
-* **MAST now deletes old things** each day at 03:30 UTC: finished jobs
+* **MAST now deletes old things** each day at 03:30 UTC (the workers,
+in `mastd` or `mast-worker`, do it): finished jobs
 after 90 days (jobs of schedules sooner), uploads after a day, and log
 files in `var/log` after 30 days. Change or turn this off in
 `[retention]` of `etc/local/jobs.conf` before you upgrade if you need
@@ -95,9 +96,12 @@ update --ca-bundle-file` sets the authorities for the TLS check `ca`.
 * **Scheduled jobs**: `mast-jobs schedule-add` (and Admin → Schedules)
 puts a command in the job queue on a cron schedule, with a stored
 credential. A run is skipped while the last one still runs, a schedule
-whose admin may no longer submit jobs is paused, and two `mastd` on one
-database do not run it twice. The Jobs page can show the jobs of one
-schedule. `etc/crontab` still works.
+whose admin may no longer submit jobs is paused, and several workers on
+one database do not run it twice. Every worker (`mast-worker`, and the
+one in `mastd`) queues the jobs of the schedules, unless `schedules =
+false` is in the `[worker]` section of `jobs.conf`. The Jobs page can
+show the jobs of one schedule. `etc/crontab` still works, and only
+`mastd` reads it.
 * `mast-jobs prune` deletes old jobs, uploads and logs now.
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.

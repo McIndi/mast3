@@ -28,6 +28,8 @@ its job is declared lost.
 * `[worker] poll_seconds`: How long a worker waits before it looks
 again when there was no job to take.
 * `[worker] mastd`: Whether `mastd` hosts a worker.
+* `[worker] schedules`: Whether a worker also queues the jobs of the
+schedules and runs the daily retention.
 * `[secrets] key_file`: The file that holds the key for the secret
 parameters of queued jobs.
 * `[credentials] key_file`: The file that holds the keys of the
@@ -43,7 +45,7 @@ import os
 from mast.config import MAST_HOME, get_config
 
 __all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
-           "cancel_poll_seconds", "mastd_worker", "key_file",
+           "cancel_poll_seconds", "mastd_worker", "worker_schedules", "key_file",
            "credentials_key_file", "credentials_key_provider",
            "retention_days", "retention_schedule", "RETENTION_RULES"]
 
@@ -54,6 +56,7 @@ _DEFAULTS = {
     ("worker", "poll_seconds"): "2",
     ("worker", "cancel_poll_seconds"): "1",
     ("worker", "mastd"): "true",
+    ("worker", "schedules"): "true",
     ("secrets", "key_file"): "etc/local/jobs.key",
     ("credentials", "key_file"): "etc/local/credentials.key",
     ("credentials", "key_provider"): "file",
@@ -147,7 +150,22 @@ def mastd_worker():
 
     Return True if `mastd` hosts a worker.
     """
-    return _get("worker", "mastd").lower() in ("on", "true", "t", "yes", "y")
+    return _flag("worker", "mastd")
+
+
+def worker_schedules():
+    """
+    _function_: `mast.jobs.config.worker_schedules()`
+
+    Return True if a worker also runs the scheduler of the job queue:
+    it queues the jobs of the schedules that are due and runs the daily
+    retention. Several workers can run it, see `mast.jobs.schedules`.
+    """
+    return _flag("worker", "schedules")
+
+
+def _flag(section, option):
+    return _get(section, option).lower() in ("on", "true", "t", "yes", "y")
 
 
 def key_file():

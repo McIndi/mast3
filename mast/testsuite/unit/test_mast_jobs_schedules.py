@@ -14,8 +14,8 @@
 #
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
-Unit tests for the scheduled jobs (mast.jobs.schedules and the cron
-helpers of mast.cron), passive jobs, retention (mast.jobs.retention),
+Unit tests for the scheduled jobs (mast.jobs.schedules, the cron
+helpers of mast.cron and the scheduler of the workers), passive jobs, retention (mast.jobs.retention),
 migration 0007, mast-jobs schedule-* and prune, and the schedule API.
 """
 import contextlib
@@ -39,10 +39,11 @@ from mast.jobs import db, queue, retention, schedules
 from mast.jobs.auth import LOCAL, Forbidden, Principal
 from mast.jobs.cli import cli as jobs_cli
 from mast.jobs.models import Job, JobResult, Schedule
+from mast.jobs.worker import Plugin as WorkerPlugin, Worker
 from mast.testsuite.unit.test_mast_auth import fast_hashes
 from mast.testsuite.unit.test_mast_credentials import (
     ADMIN, PASSWORD, CredentialsCase)
-from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
+from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase, wait_for
 from mast.testsuite.unit.web_helpers import WebCase
 
 UTC = timezone.utc
@@ -337,21 +338,76 @@ class TestQueueScheduler(ScheduleCase):
             self.assertEqual(scheduler.check(T0 + timedelta(hours=3, minutes=1)), {})
 
 
-class TestMastdStartsIt(SqliteCase):
+class TestWorkersRunIt(ScheduleCase):
 
-    def test_the_cron_plugin_starts_the_queue_scheduler(self):
-        plugin = cron.Plugin(crontab=os.path.join(self.tmp, "crontab"))
+    def start(self, worker):
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(worker.abort)
+        return thread
+
+    def test_a_worker_queues_the_jobs_of_the_schedules(self):
+        info = self.schedule(cron_text="* * * * *")
+        lines = []
+        worker = Worker(poll_seconds=0.02, report=lines.append)
+        thread = self.start(worker)
+        self.assertTrue(wait_for(lambda: jobs.list_jobs(schedule_id=info.id)))
+        self.assertIn("queues the jobs of the schedules when they are due", lines)
+        worker.stop()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(wait_for(lambda: not worker.scheduler.is_alive()))
+
+    def test_two_workers_queue_one_job(self):
+        info = self.schedule(cron_text="* * * * *")
+        real, checked = schedules.fire_due, []
+
+        def fire_due(minutes):
+            fired = real(minutes)
+            checked.append(fired)
+            return fired
+        # They take no job, so that the queue shows what they queued
+        with mock.patch.object(queue, "claim", return_value=None), \
+                mock.patch.object(schedules, "fire_due", fire_due):
+            first, second = Worker(poll_seconds=0.02), Worker(poll_seconds=0.02)
+            self.start(first)
+            self.start(second)
+            self.assertTrue(wait_for(lambda: len(checked) >= 2))
+            first.stop()
+            second.stop()
+        self.assertEqual(len(jobs.list_jobs(schedule_id=info.id)), 1)
+
+    def test_the_daily_retention_runs_in_it(self):
+        worker = Worker()
         with mock.patch.object(schedules.QueueScheduler, "start") as start:
-            plugin._start_queue_scheduler()
+            worker._start_scheduler()
         start.assert_called_once_with()
-        scheduler = plugin.queue_scheduler
+        scheduler = worker.scheduler
         self.assertEqual([fn for _, fn in scheduler.maintenance], [retention.daily])
         self.assertTrue(cron.is_due(scheduler.maintenance[0][0],
                                     datetime(2026, 1, 1, 3, 30, tzinfo=UTC)))
         with mock.patch.object(jobs.config, "retention_schedule", return_value=None), \
                 mock.patch.object(schedules.QueueScheduler, "start"):
-            plugin._start_queue_scheduler()
-        self.assertEqual(plugin.queue_scheduler.maintenance, [])
+            worker._start_scheduler()
+        self.assertEqual(worker.scheduler.maintenance, [])
+
+    def test_a_worker_that_drains_or_is_told_not_to_does_not_run_it(self):
+        self.schedule(cron_text="* * * * *")
+        self.assertTrue(Worker().schedules)
+        self.assertFalse(Worker(schedules=False).schedules)
+        with mock.patch.object(jobs.config, "worker_schedules", return_value=False):
+            self.assertFalse(Worker().schedules)
+        worker = Worker(drain=True, poll_seconds=0.02)
+        self.assertFalse(worker.schedules)
+        worker.run()
+        self.assertIsNone(worker.scheduler)
+        self.assertEqual(self.job_count(), 0)
+
+    def test_the_worker_of_mastd_runs_it_and_the_cron_plugin_does_not(self):
+        self.assertTrue(WorkerPlugin().worker.schedules)
+        plugin = cron.Plugin(crontab=os.path.join(self.tmp, "crontab"))
+        self.assertFalse(hasattr(plugin, "queue_scheduler"))
 
 
 class TestPassive(SqliteCase):
