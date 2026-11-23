@@ -116,6 +116,48 @@ mast-jobs schedule-remove -n lab-domains -y
 # then Jobs (filtered by the schedule)
 mast-jobs prune --dry-run
 
+# Phase A: from a fresh home to a stored credential
+
+A fresh home, one DataPower (the container of the integration tests is
+enough), the web UI in a browser. On Windows, use the `.bat` launchers.
+
+    # 1. A fresh home: unzip, make the certificate, add the admin (asks
+    #    for a password), start the web UI and a worker
+    ./mast contrib/gen-cert.py
+    ./mast-users add -u alice -r admin
+    ./mast-web          # and, in a second terminal: ./mast-worker
+    # Open https://127.0.0.1:5000/: log in as alice, choose a new password.
+    # /classic/ still works, behind the same login.
+
+    # 2. The appliances: Admin -> Appliances, add dp1 (or
+    #    ./mast-appliances import from the files of MAST 3.15.2), then Pin.
+    #    The dialog shows the certificate and the SSH host key: compare the
+    #    SHA-256 with what the appliance itself shows, and pin.
+    ./mast-appliances list                       # TLS pin, SSH key pinned
+
+    # 3. A collect credential: make the DataPower user that may only read
+    #    (Operator's Guide, "A DataPower user that may only read"), then
+    #    Admin -> Credentials: add "collector", purpose collect, bound to
+    #    dp1, and Test: works yes, can change no.
+
+    # 4. Admin -> Users: add olga as an operator. In another browser (or a
+    #    private window) log in as olga. Commands -> system.get-status:
+    #    dp1 and the credential collector in the target bar, a provider,
+    #    Run. The Jobs page shows the job live, then its result.
+
+    # 5. The use is recorded, without the password:
+    ./mast-credentials uses -n collector          # the job, olga, collect
+    # Admin -> Credentials -> collector: the same uses, and the audit.
+
+    # 6. A new key: every credential is encrypted again, and works.
+    ./mast-credentials rotate-key -y
+    # As olga, run get-status again: it works.
+
+    # 7. As olga, Commands -> accounts.add-group with the credential
+    #    collector: refused ("for collecting ... can change the
+    #    appliances"), and no job runs. The same with -c and the password
+    #    of the read-only user: DataPower answers "Authorization failure".
+
 # The job queue
 
 These use the `lab` environment and `%MAST_CREDS%` from above. Run them

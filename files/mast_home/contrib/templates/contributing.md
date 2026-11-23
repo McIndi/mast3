@@ -230,8 +230,10 @@ and that the two maps are the same. A new widget needs a control in
 
 # Adding a web plugin (classic GUI)
 
-The classic GUI, under `/classic/`, goes away when the web UI can do
-all that it does. A web plugin is a class with a `route`, `html`,
+The classic GUI, under `/classic/`, goes away when the web UI has a page
+for each of its tabs (after the Terminal page). Do not add a new web
+plugin: add a command (it gets a form on the Commands page) or a page
+(see "Adding a page to the web UI"). A web plugin is a class with a `route`, `html`,
 `css` and `js`, listed under `mast_web_plugin` in `pyproject.toml`. The DataPower plugins use
 `mast.plugin_utils.plugin_functions`, which makes the forms from the
 `Params` models, so a new command of an existing plugin needs nothing

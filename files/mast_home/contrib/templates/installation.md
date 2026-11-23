@@ -27,13 +27,13 @@ The one exception is `git-deploy`, which needs the `git` program on the `PATH`.
 
 ## Security concerns
 
-It is important to place a key and cert in `$MAST_HOME/etc/crypto`.
-
-For those with serious concerns over security, it may be a good idea to configure
-the appliance's management interface to listen only to the IP Address of the MAST
-server. This is a good idea if you really need to restrict access to the DataPower,
-but if your organization embraces a more distributed or agile management strategy
-there is the option to install MAST on your team's workstation.
+* Run MAST under an account of its own, on a server for MAST alone. Whoever can read
+the files of that account can read the stored passwords of the appliances: the
+database and the key files are there. The Operator's Guide says what MAST protects,
+and what it does not, under "What MAST protects".
+* The web GUI needs a TLS certificate. It does not start without one, see "First run".
+* If you can, let the management interfaces of the appliances accept connections only
+from the MAST server.
 
 # Installing MAST
 
@@ -90,6 +90,45 @@ for the password:
 
 The users are in the job database, so every MAST server that shares a PostgreSQL
 database has the same users. The Operator's Guide explains the roles.
+
+# First run
+
+In `$MAST_HOME` (on Windows, the `.bat` launchers, and `mast.bat` for `./mast`):
+
+1. Make a TLS certificate for the web GUI, or set `cert` and `key` in
+`etc/local/server.conf` to the files of one from your certificate authority:
+
+        :::bash
+        ./mast contrib/gen-cert.py --altName mast.example.com
+
+2. Add the first admin. It asks for the password:
+
+        :::bash
+        ./mast-users add -u NAME -r admin
+
+3. Add the appliances and the environments, or import them from MAST 3.15.2 or
+older:
+
+        :::bash
+        ./mast-appliances add -n prod-dp1 -A 10.0.0.1
+        ./mast-appliances env-add -n prod -p -m prod-dp1
+        ./mast-appliances import --dry-run      # from etc/local/hosts.conf ...
+
+4. Pin each appliance whose certificate is self-signed. MAST shows the certificate
+and the SSH host key; compare them with the appliance before you confirm:
+
+        :::bash
+        ./mast-appliances pin -n prod-dp1 --both
+
+5. Store a credential for a DataPower user that may only read (the Operator's Guide
+shows how to make that user), and test it:
+
+        :::bash
+        ./mast-credentials add -n collector -u mastread -p collect -b prod
+        ./mast-credentials test -n collector -a prod-dp1
+
+6. Start `mastd` (see "Installing mastd"), or `mast-web` and `mast-worker`, and log
+in to `https://<server>:5000/`. The Operator's Guide has a short tour of the web UI.
 
 # Installing mastd
 

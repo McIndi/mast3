@@ -104,7 +104,9 @@ An admin can also store a credential once, for operators to use by name; the pas
 
 ## The web GUI
 
-`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances and the stored credentials. The classic GUI is at `/classic/`. The Operator's Guide explains the roles and the other `mast-users` commands.
+`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances (with their pinned certificates and SSH host keys), the stored credentials and the schedules. The Installation Guide has the steps of a first run, and the Operator's Guide a short tour, the roles, and what MAST protects and what it does not.
+
+The classic GUI is still at `/classic/`, behind the same login, until the new web UI has a page for each of its tabs. It cannot use stored credentials, and its `ssh` tab is not recorded as jobs; the Operator's Guide lists its limits.
 
 ## The job queue
 

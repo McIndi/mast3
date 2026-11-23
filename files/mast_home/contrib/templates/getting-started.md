@@ -52,7 +52,9 @@ Every page of the web GUI needs a login. Add the first admin in
     ./mast-users add -u NAME -r admin
 
 Then open the web GUI and log in. The Operator's Guide explains the
-roles and the other `mast-users` commands.
+roles and the other `mast-users` commands, and has a short tour of the
+web UI. The Installation Guide lists the steps of a first run, from the
+certificate to a stored credential.
 
 # Your appliances and environments
 

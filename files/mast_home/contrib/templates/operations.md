@@ -432,15 +432,37 @@ place as the backup of the database: whoever has both has the
 passwords. Without the key file, the stored passwords cannot be read;
 store them again.
 
-What this protects against, and what it does not:
+What this protects against, and what it does not, is in "What MAST
+protects" below.
 
-* A copy of the database, or of a backup of it, without the key file
-does not give the passwords.
-* A user of the web UI who is not an admin cannot get a password, and
-cannot point a stored credential at a host of their own.
-* Someone who can read the files of the account that runs MAST has the
-database and the key file, and so the passwords. So does someone who
-can read the memory of a worker while a job runs.
+## A DataPower user that may only read
+
+A `collect` credential should be for a DataPower user that cannot change
+anything, so that a mistake or a stolen credential cannot change an
+appliance either. On DataPower, that is a user group whose only access
+policy is `*/*/*?Access=r` (read everything, in every domain), and a
+user in that group. It needs no other policy: with only this one, every
+command that only reads works, including the status of the appliance,
+the configuration, the file stores and the content of files, and
+DataPower answers every change with "Authorization failure". This was
+tested on DataPower 11.0.0.3.
+
+With MAST, as an admin, with a credential that may change the
+appliances (`--credential admin-cred` here, or `-c`):
+
+    :::bash
+    ./mast-accounts add-group -a prod --credential admin-cred \
+        -N mast-read -A '*/*/*?Access=r' -s
+    ./mast-accounts add-user -a prod --credential admin-cred \
+        -u mastread -p 'A-long-password' -g mast-read -S -s
+    ./mast-credentials add -n collector -u mastread -p collect -b prod
+    ./mast-credentials test -n collector -a prod-dp1
+
+`-S` spares the user the change of password at the first login, which
+DataPower otherwise asks for before it gives the user any data. `-s`
+saves the configuration. `test` should say `works: yes` and
+`can change: no`. Give the same password to `mast-credentials add` when
+it asks.
 
 # The web GUI
 
@@ -471,12 +493,51 @@ command opens its job.
 change a role, disable, enable, set a new temporary password, and
 delete. An admin cannot change their own role, disable or delete
 themselves there; `mast-users` can.
+* **Admin → Appliances** (admin): the appliances and the environments
+(see "Appliances and environments"), and the **Pin** button, which
+shows the certificate and the SSH host key of an appliance before it
+pins them.
+* **Admin → Credentials** (admin): the stored credentials, their test,
+their uses and the audit of their changes. No page shows a password.
+* **Admin → Schedules** (admin): the schedules, with the form of their
+command, the next runs and **Run now** (see "Scheduled jobs").
 
 The web UI has a JSON API under `/api/v1` that its pages use. It needs
 the same login and the CSRF token, so it is not yet meant for scripts.
 
-What only the classic GUI has for now: the `ssh` tab, and the status
-tab with its charts. The `ssh` tab gets a page of its own later.
+## A short tour
+
+1. Log in. Until there is a user, the page says how to add the first
+admin on the MAST server.
+2. As an admin, add or import the appliances (Admin → Appliances), pin
+each one, and store a credential (Admin → Credentials). Test it there.
+3. As an operator, open **Commands**. Choose the appliances or an
+environment in the target bar at the top, and a stored credential (or
+type a user name and a password). Find a command by name or by its
+plugin; its form shows its options. **Run** opens its job.
+4. **Jobs** shows the job as it runs, then its result as a table that
+you can sort and filter, and its downloads. The filters find the jobs
+of an appliance, a command, a schedule or your own.
+5. As an admin, turn a command that you run often into a schedule
+(Admin → Schedules). Its jobs run while a worker runs, without
+anybody logged in.
+
+## The classic GUI
+
+The classic GUI is still at `/classic/`, behind the same login, while
+the new web UI takes over its tabs. The status tab (with its charts),
+the `ssh` tab and the tabs of the plugins work as before. It goes in a
+later release, when the new web UI has a page for each of them. Its
+limits, which the new web UI and the command line do not have:
+
+* You type the user name and the password in the browser. The browser
+keeps them, xor-encoded with a key from a cookie, which is not
+encryption, and sends them with each request. The classic GUI cannot
+use a stored credential.
+* The sessions of the `ssh` tab are not tied to your login and are not
+recorded as jobs. An appliance with a pinned SSH host key must show
+that key; without a pin, any host key is accepted, with a warning. For
+work that must be recorded, use `mast-ssh` on the command line.
 
 ## Users and roles
 
@@ -559,8 +620,11 @@ the page and send the token back, see the release notes.
 
 # Credentials
 
-MAST does not store appliance credentials. Each command gets them on
-its command line, or in the form of the web GUI.
+A command gets the credentials for the appliances in one of two ways:
+the name of a stored credential (`--credential`, see "Stored
+credentials"), whose password never leaves the MAST server, or a user
+name and a password on its command line (`-c`) or in the form of the
+web GUI.
 
 * The credentials of a job that waits in the queue are encrypted with
 `etc/local/jobs.key`, and they are removed when the job ends.
@@ -575,6 +639,38 @@ the password.
 On a shared server, the command line of a process can be seen by other
 users. Prefer the web GUI, or the form of `mast-system xor` in a file
 that only you can read.
+
+# What MAST protects
+
+MAST protects against:
+
+* A copy of the database, or of a backup of it, without the key file:
+it does not give the stored passwords.
+* A user of the web UI who is not an admin and wants a password of an
+appliance: no page and no answer of the API shows one, and an operator
+can use a stored credential only for commands that only read, on the
+appliances that it is bound to.
+* A user who points a stored credential at a host of their own: it is
+sent only to the registered appliances that it is bound to.
+* Someone in between MAST and an appliance: a stored credential is
+sent only after the certificate (or the SSH host key) is checked, and
+a pinned one is always checked.
+* A stolen session cookie, after a logout, a new password or a disable.
+* A password in a log, a job, its result, its files or an answer of the
+API: a test runs a job with a stored credential in every way and
+searches each of them for the password.
+
+MAST does not protect against:
+
+* Someone who can read the files of the account that runs MAST. They
+have the database and the key files, and so the passwords. Keep the
+account and the server for MAST alone.
+* Someone who can read the memory of a worker while a job runs.
+* What the classic GUI does with a password, see "The classic GUI".
+
+An external key store (Vault, the key service of a cloud, the key ring
+of the system) would close part of the first gap. MAST is ready for one
+(`[credentials] key_provider`), but only `file` exists so far.
 
 # Logs
 
