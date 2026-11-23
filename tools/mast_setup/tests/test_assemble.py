@@ -104,6 +104,19 @@ class TestLayout(FakeRepoTestCase):
         self.assertTrue((home / "etc/local/.empty").is_file())
         self.assertFalse((home / "var/log/flask.log").exists())
 
+    def test_a_file_of_etc_local_is_refused(self):
+        self.write_home_file("etc/local/server.key", "a key of one home\n")
+        git(self.repo, "add", "-A")
+        with self.assertRaises(assemble.HomeFilesError) as found:
+            assemble.copy_home_files(self.repo, self.tmp / "home")
+        self.assertIn("etc/local/server.key", str(found.exception))
+
+    def test_the_checkout_ships_nothing_of_etc_local(self):
+        repo = Path(__file__).resolve().parents[3]
+        local = [p for p in assemble.tracked_home_files(repo)
+                 if p.startswith("etc/local/")]
+        self.assertEqual(local, ["etc/local/.empty"])
+
     def test_file_at_the_top_is_refused(self):
         self.write_home_file("README", "")
         git(self.repo, "add", "-A")

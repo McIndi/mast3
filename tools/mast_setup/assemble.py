@@ -139,6 +139,13 @@ def install_mast(python, source, editable=False):
     run(command)
 
 
+# The folder of each installation's own files: MAST writes its keys
+# there (server.key, jobs.key, credentials.key). Only the placeholder is
+# shipped.
+LOCAL_DIR = "etc/local"
+PLACEHOLDER = ".empty"
+
+
 def tracked_home_files(repo):
     """
     Return the paths, relative to `files/mast_home`, of the files that
@@ -157,13 +164,23 @@ def copy_home_files(repo, home):
     Copy the files of `files/mast_home` that git tracks into the home.
     Files that are not tracked (logs and caches of a local run) are not
     shipped. A file at the top of `files/mast_home` is an error: the top
-    of a home has only folders and the launchers.
+    of a home has only folders and the launchers. So is a file in
+    `etc/local` other than its placeholder: every installation would
+    get it, a key of the web GUI for example.
     """
     tracked = tracked_home_files(repo)
     top_files = [p for p in tracked if "/" not in p]
     if top_files:
         raise HomeFilesError(
             f"Non-directory item in files/mast_home: {', '.join(top_files)}")
+    local = [p for p in tracked if p.startswith(LOCAL_DIR + "/")
+             and p != LOCAL_DIR + "/" + PLACEHOLDER]
+    if local:
+        raise HomeFilesError(
+            "These files of files/mast_home/{} are tracked, and would be in "
+            "every installation: {}. etc/local holds the keys and the "
+            "settings of one installation, which MAST makes when it runs. "
+            "Remove them from git.".format(LOCAL_DIR, ", ".join(local)))
     source = Path(repo) / "files" / "mast_home"
     for relative in tracked:
         destination = Path(home) / relative
