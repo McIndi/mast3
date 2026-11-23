@@ -85,6 +85,10 @@ def ssh():
     _run("mast.datapower.ssh")
 
 
+def status():
+    _run("mast.datapower.status")
+
+
 def system():
     _run("mast.datapower.system")
 

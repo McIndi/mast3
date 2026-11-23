@@ -437,6 +437,36 @@ class TestPassive(SqliteCase):
         exclusive = jobs.submit("test.work", {"appliances": ["dp1"]})
         self.assertEqual(jobs.claim("w1"), exclusive)
 
+    def test_a_passive_slot_takes_only_passive_jobs(self):
+        exclusive = jobs.submit("test.work", {"appliances": ["dp1"]})
+        normal = jobs.submit("test.look", {"appliances": ["dp2"]})
+        self.assertIsNone(jobs.claim("w1/p1", passive_only=True))
+        passive = jobs.submit("test.look", {"appliances": ["dp1"]}, passive=True)
+        self.assertEqual(jobs.claim("w1/p1", passive_only=True), passive)
+        self.assertEqual(jobs.claim("w1/1"), exclusive)
+        self.assertEqual(jobs.claim("w1/2"), normal)
+
+    def test_a_long_job_does_not_stop_the_polls(self):
+        """A worker that runs one job at a time still runs a passive
+        job while a long one runs."""
+        long_job = jobs.submit("test.steps", {"steps": 40, "appliances": ["dp1"]})
+        worker = Worker(concurrency=1, passive_slots=1, poll_seconds=0.02,
+                        schedules=False)
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(worker.abort)
+        self.assertTrue(wait_for(lambda: jobs.get(long_job).status == jobs.RUNNING))
+        poll = jobs.submit("test.look", {"appliances": ["dp1"]}, passive=True)
+        self.assertTrue(wait_for(lambda: jobs.get(poll).status == jobs.SUCCEEDED))
+        self.assertEqual(jobs.get(long_job).status, jobs.RUNNING)
+        self.assertTrue(jobs.get(poll).worker_id.endswith("/p1"))
+        worker.stop()
+        thread.join(30)
+        self.assertEqual(Worker(passive_slots=0).passive_slots, 0)
+        with mock.patch.object(jobs.config, "passive_slots", return_value=2):
+            self.assertEqual(Worker().passive_slots, 2)
+
     def test_only_a_command_that_only_reads(self):
         with self.assertRaises(queue.NotPassive):
             jobs.submit("test.work", {"appliances": ["dp1"]}, passive=True)

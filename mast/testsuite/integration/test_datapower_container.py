@@ -202,6 +202,33 @@ class TestDomains(ContainerTestCase):
         self.assertIn("listed", names)
         self.assertIn("default", names)
 
+    def test_a_status_poll(self):
+        """The status providers of mast-status collect, on this
+        firmware."""
+        from mast.datapower.status import collector
+        self.fresh_domain("polled")
+        values = collector.poll(self.dp, delay=0.1)
+        detail = values.pop("detail")
+        self.assertTrue(values["firmware"].startswith("IDG."), values)
+        for name in ("serial", "uptime_seconds", "appliance_time",
+                     "mem_used_pct", "load_pct", "fs_free_temporary_mb",
+                     "fs_total_temporary_mb", "domains_total", "objects_down"):
+            self.assertIsNotNone(values[name], name)
+        # DataPower answers CPUUsage only while Statistics is enabled in
+        # default, which it is not out of the box: the CPU is then
+        # unknown, not an error
+        self.assertIn(detail["statistics"], ("enabled", "disabled"))
+        if detail["statistics"] == "enabled":
+            self.assertIsNotNone(values["cpu_1m"])
+        else:
+            self.assertIsNone(values["cpu_1m"])
+        names = [d["name"] for d in detail["domains"]]
+        self.assertIn("default", names)
+        self.assertIn("polled", names)
+        # Both domains were asked for their objects
+        self.assertEqual(set(detail["objects_checked_at"]),
+                         {"default", "polled"})
+
     def test_invalid_action_parameter(self):
         with self.assertRaises(ValueError):
             self.dp.SaveConfig(not_a_parameter="x")

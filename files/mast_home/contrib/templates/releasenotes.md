@@ -53,7 +53,8 @@ them for longer. `mast-jobs prune --dry-run` shows what would go.
 `jobs.conf`, which can hold keys and the password of the database.
 * The job database gets new tables, `users`, `appliances`,
 `environments`, `environment_members`, `credentials`,
-`credential_bindings`, `credential_uses` and `audit_events`, and new
+`credential_bindings`, `credential_uses`, `audit_events`,
+`status_latest`, `status_samples` and `status_rollups`, and new
 columns: `job_results.data` (the result of a job as a table, for the
 web UI), four in `appliances` for a pin that did not match, and the
 table `schedules` with two columns of `jobs` (`passive`,
@@ -111,6 +112,15 @@ it does not, and shows how to make a DataPower user that may only read,
 for a `collect` credential (one access policy, `*/*/*?Access=r`).
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.
+* **The Appliances page** is the first page of the web UI: the status
+of every appliance (reachable, firmware, CPU, memory, temporary space,
+domains and objects that are down, pins that changed), with charts of
+the last 24 hours. `mast-status collect` polls the appliances for it;
+an admin starts the schedule `status-poll` on the page, with a stored
+credential for collecting. Its jobs are passive, and each worker has a
+slot for passive jobs (`[worker] passive_slots = 1`), so a long job
+does not hold up the polls. The status is kept for a while
+(`status_*_days` in `[retention]`).
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists

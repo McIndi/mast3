@@ -1,0 +1,10 @@
+/* The Appliances page (mast.datapower.status.page) */
+.mast-meter { width: 4.5rem; height: 0.8rem; }
+.mast-spark { width: 160px; height: 36px; display: block; }
+.mast-status-table > tbody > tr > td { white-space: nowrap; }
+.mast-status-table > tbody > tr > td:last-child,
+.mast-status-table > tbody > tr > td:nth-last-child(3) { white-space: normal; }
+.mast-status-table > tbody > tr > td.mast-status-detail { white-space: normal; }
+/* The opened row spans the whole table, which scrolls sideways on a
+   phone: keep its content in view, at the width of the screen */
+.mast-status-detail > * { position: sticky; left: 0.5rem; max-width: calc(100vw - 3rem); }

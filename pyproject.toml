@@ -79,6 +79,7 @@ mast-developer = "mast._entry:developer"
 mast-jobs = "mast._entry:jobs"
 mast-network = "mast._entry:network"
 mast-ssh = "mast._entry:ssh"
+mast-status = "mast._entry:status"
 mast-system = "mast._entry:system"
 mast-users = "mast._entry:users"
 mast-version = "mast._entry:version"
@@ -103,6 +104,7 @@ system = "mast.datapower.system:WebPlugin"
 jobs = "mast.web.pages.jobs:page"
 commands = "mast.web.pages.commands:page"
 admin = "mast.web.pages.admin:page"
+appliances = "mast.datapower.status.page:page"
 
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.web:Plugin"
@@ -141,5 +143,5 @@ include-package-data = false
 "mast.datapower.developer" = ["docroot/*"]
 "mast.datapower.network" = ["docroot/*"]
 "mast.datapower.ssh" = ["docroot/*"]
-"mast.datapower.status" = ["docroot/*"]
+"mast.datapower.status" = ["docroot/*", "templates/*", "static/*"]
 "mast.datapower.system" = ["docroot/*"]

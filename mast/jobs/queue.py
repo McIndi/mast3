@@ -359,7 +359,9 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     appliances nor holds them up. Only for a command that only reads
     (`exclusive=False`); otherwise `NotPassive`. The status polls are
     passive, so that a deployment does not delay them, nor they it.
-    Its appliances are still recorded.
+    Its appliances are still recorded. The jobs of a command declared
+    `passive` (`mast.cli.Command`) are passive anyway, unless
+    `exclusive` is True.
     * `schedule_id`: The id of the schedule that submits the job.
 
     A job with a stored credential (the parameter with the widget
@@ -385,6 +387,8 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             command=command, exclusive=getattr(cmd, "exclusive", True))
     if exclusive is None:
         exclusive = getattr(cmd, "exclusive", True)
+    # A command can make all of its jobs passive (Command.passive)
+    passive = passive or (getattr(cmd, "passive", False) and not exclusive)
     if passive and (exclusive or getattr(cmd, "exclusive", True)):
         raise NotPassive(
             "{} can change the appliances, so its jobs cannot be "
@@ -691,10 +695,10 @@ def _next_job(worker_id, workers_alive):
         .limit(1))
 
 
-def claim(worker_id, lease_seconds=None, job_id=None):
+def claim(worker_id, lease_seconds=None, job_id=None, passive_only=False):
     """
     _function_: `mast.jobs.queue.claim(worker_id, lease_seconds=None,
-    job_id=None)`
+    job_id=None, passive_only=False)`
 
     Take the oldest job that can start now. Return its id, or `None`
     if there is no such job. The job is `running` and belongs to
@@ -708,6 +712,8 @@ def claim(worker_id, lease_seconds=None, job_id=None):
     is in `jobs.conf`.
     * `job_id`: Take only this job. It still waits for its turn: the
     result is `None` while the job cannot start.
+    * `passive_only`: Take only a passive job (see `submit`), for the
+    slot of a worker that keeps the polls going while long jobs run.
 
     While no worker is alive, the queued jobs that were submitted
     without `attached` do not hold up the other jobs, see the rules at
@@ -726,6 +732,8 @@ def claim(worker_id, lease_seconds=None, job_id=None):
         query = _next_job(worker_id, workers_alive)
         if job_id is not None:
             query = query.where(Job.id == job_id)
+        if passive_only:
+            query = query.where(Job.passive.is_(True))
         while True:
             found = session.scalar(query)
             if found is None:

@@ -293,8 +293,8 @@ class ScheduleAdd(ScheduleName):
 
 @cli.command("schedule-add")
 def schedule_add(params: ScheduleAdd):
-    """Add a schedule: a command that mastd puts in the job queue when
-    its cron expression is due. A command that talks to appliances needs
+    """Add a schedule: a command that the workers put in the job queue
+    when its cron expression is due. A command that talks to appliances needs
     a stored credential (credential), not credentials. Its jobs run as
     schedule:NAME with the role of who made it."""
     info = _schedule_do(
@@ -396,15 +396,18 @@ class Prune(Params):
 
 @cli.command("prune")
 def prune(params: Prune):
-    """Delete the jobs, uses of credentials, audit events, uploads and
-    log files that are older than [retention] of jobs.conf says. mastd
-    does this each day."""
+    """Delete the jobs, uses of credentials, audit events, uploads, log
+    files and status of the appliances that are older than [retention]
+    of jobs.conf says. The workers do this each day."""
     counts = retention.prune(dry_run=params.dry_run)
     what = {
         "jobs_days": "jobs", "scheduled_jobs_days": "succeeded scheduled jobs",
         "scheduled_failed_days": "other scheduled jobs",
         "credential_uses_days": "uses of credentials",
         "audit_events_days": "audit events", "uploads_days": "uploads",
-        "logs_days": "log files"}
+        "logs_days": "log files",
+        "status_samples_days": "status samples",
+        "status_hourly_days": "hourly status",
+        "status_daily_days": "daily status"}
     return Table(("What", "Would delete" if params.dry_run else "Deleted"),
                  [(what[rule], count) for rule, count in counts.items()])

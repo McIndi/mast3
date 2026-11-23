@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Appliances · MAST{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('appliances_status.static', filename='appliances.css') }}">
+<script type="module" src="{{ url_for('appliances_status.static', filename='appliances.js') }}"></script>{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+    <h1 class="h4 mb-0 me-auto">Appliances</h1>
+    <span class="small text-body-secondary" data-updated aria-live="polite"></span>
+</div>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+<div class="alert alert-info d-none" data-polling>
+    <div data-polling-text></div>
+    <form class="row g-2 align-items-end mt-1 d-none" data-polling-form>
+        <div class="col-12 col-sm-5">
+            <label class="form-label small mb-0" for="p-credential">Stored credential for collecting</label>
+            <select class="form-select form-select-sm" id="p-credential" name="credential" required></select>
+        </div>
+        <div class="col-6 col-sm-3">
+            <label class="form-label small mb-0" for="p-minutes">Every</label>
+            <select class="form-select form-select-sm" id="p-minutes" name="minutes">
+                <option value="1">minute</option><option value="5" selected>5 minutes</option>
+                <option value="10">10 minutes</option><option value="15">15 minutes</option>
+                <option value="30">30 minutes</option><option value="60">hour</option>
+            </select>
+        </div>
+        <div class="col-6 col-sm-4">
+            <button class="btn btn-sm btn-primary" type="submit">Start polling</button>
+        </div>
+    </form>
+</div>
+<div class="table-responsive">
+    <table class="table table-sm align-middle mast-status-table">
+        <thead><tr>
+            <th>Appliance</th><th>Reachable</th><th>Firmware</th>
+            <th>CPU</th><th>Memory</th><th>Temporary space</th>
+            <th>Domains up</th><th>Objects down</th><th>Warnings</th>
+            <th title="Filled in by the crypto inventory">Nearest expiry</th>
+            <th title="Filled in by the crypto inventory">Crypto posture</th>
+        </tr></thead>
+        <tbody data-rows><tr><td colspan="11" class="text-body-secondary">Loading…</td></tr></tbody>
+    </table>
+</div>
+<p class="small text-body-secondary">The status comes from <code>mast-status collect</code>, which the schedule <code>status-poll</code> runs. An appliance is polled if <em>Collect status</em> is on for it (Admin → Appliances). An object is counted as down when it is enabled but not up. The page refreshes every 30 seconds.</p>
+{% endblock %}

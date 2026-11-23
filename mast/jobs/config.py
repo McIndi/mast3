@@ -27,6 +27,9 @@ its job is declared lost.
 * `[worker] concurrency`: How many jobs a worker runs at the same time.
 * `[worker] poll_seconds`: How long a worker waits before it looks
 again when there was no job to take.
+* `[worker] passive_slots`: How many more jobs a worker runs at the
+same time, if they are passive (the polls of the status, for example),
+so that they do not wait behind long jobs.
 * `[worker] mastd`: Whether `mastd` hosts a worker.
 * `[worker] schedules`: Whether a worker also queues the jobs of the
 schedules and runs the daily retention.
@@ -44,7 +47,8 @@ import os
 
 from mast.config import MAST_HOME, get_config
 
-__all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
+__all__ = ["database_url", "lease_seconds", "concurrency", "passive_slots",
+           "poll_seconds",
            "cancel_poll_seconds", "mastd_worker", "worker_schedules", "key_file",
            "credentials_key_file", "credentials_key_provider",
            "retention_days", "retention_schedule", "RETENTION_RULES"]
@@ -53,6 +57,7 @@ _DEFAULTS = {
     ("database", "url"): "sqlite:///var/jobs/jobs.db",
     ("worker", "lease_seconds"): "60",
     ("worker", "concurrency"): "1",
+    ("worker", "passive_slots"): "1",
     ("worker", "poll_seconds"): "2",
     ("worker", "cancel_poll_seconds"): "1",
     ("worker", "mastd"): "true",
@@ -68,11 +73,15 @@ _DEFAULTS = {
     ("retention", "audit_events_days"): "400",
     ("retention", "uploads_days"): "1",
     ("retention", "logs_days"): "30",
+    ("retention", "status_samples_days"): "2",
+    ("retention", "status_hourly_days"): "31",
+    ("retention", "status_daily_days"): "400",
 }
 
 RETENTION_RULES = (
     "jobs_days", "scheduled_jobs_days", "scheduled_failed_days",
-    "credential_uses_days", "audit_events_days", "uploads_days", "logs_days")
+    "credential_uses_days", "audit_events_days", "uploads_days", "logs_days",
+    "status_samples_days", "status_hourly_days", "status_daily_days")
 
 
 def _get(section, option):
@@ -117,6 +126,19 @@ def concurrency():
     Return the number of jobs that a worker runs at the same time.
     """
     return int(_get("worker", "concurrency"))
+
+
+def passive_slots():
+    """
+    _function_: `mast.jobs.config.passive_slots()`
+
+    Return how many more jobs a worker runs at the same time if they
+    are passive. 0 turns this off.
+    """
+    try:
+        return max(0, int(_get("worker", "passive_slots")))
+    except ValueError:
+        return 1
 
 
 def poll_seconds():

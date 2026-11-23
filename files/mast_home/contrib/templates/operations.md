@@ -293,11 +293,53 @@ first one deletes and the others find little left. `mast-jobs prune` does it now
 | The uses of stored credentials, and the audit events of the credentials | 400 | `credential_uses_days`, `audit_events_days` |
 | Files uploaded in the web UI | 1 | `uploads_days` |
 | Log files in `var/log` (by the time they were last written), and the folders that they leave empty | 30 | `logs_days` |
+| The status of the appliances: each poll, then summed up by hour, then by day | 2, 31, 400 | `status_samples_days`, `status_hourly_days`, `status_daily_days` |
 
 A child job goes with its parent, and a parent stays while one of its
 children has not finished. `0` keeps that kind of thing for ever, and
 an empty `schedule` turns the daily run off. The deletes go in batches
 of 1000 rows, so that the queue is never held up for long.
+
+## The status of the appliances
+
+`mast-status collect` asks the appliances for their status and keeps it
+for the Appliances page: whether they answer, the firmware, the CPU,
+the memory, the load, the free space, the domains and the objects that
+are down. It keeps no configuration. With no `-a`, it polls every
+appliance whose status is collected (`mast-appliances update -n NAME
+--poll yes`, or "Collect status" in Admin → Appliances).
+
+    :::bash
+    ./mast-status collect --credential collector     # now, once
+    ./mast-status collect -a dp1 -c user:password
+
+Poll on a schedule with a stored credential of a user that may only
+read (see "A DataPower user that may only read"). An admin starts it on
+the Appliances page, which makes the schedule `status-poll` (every 5
+minutes by default), or on the command line:
+
+    :::bash
+    ./mast-jobs schedule-add -n status-poll -c status.collect \
+        -t "*/5 * * * *" -s credential=collector
+
+* One job polls all its appliances, 8 at a time (`--workers`). The
+requests to one appliance are one after the other, with a short pause
+(`--request-delay`, 0.1 s), because DataPower answers a quick series of
+requests with "Authentication failure".
+* An appliance that does not answer is marked so, with the reason, and
+keeps the values of its last good poll. The job is then `partial`.
+* An object is down when it is enabled but not up; the objects that an
+admin disabled do not count.
+* DataPower measures the CPU only while **Statistics** is enabled in
+the `default` domain, and it is disabled out of the box. Without it the
+CPU is empty and the page says "Statistics off: no CPU". Enable the
+`Statistics` object of the `default` domain on the appliance; the CPU
+shows from the next poll. The domains other than `default` are
+asked for their objects every 15 minutes (`--object-status-minutes`).
+* The jobs of `mast-status collect` are passive: they neither wait for
+nor hold up other jobs. Each worker also has a slot for passive jobs
+only (`passive_slots` in the `[worker]` section of `jobs.conf`), so a
+long backup or deployment does not stop the status from updating.
 
 # Appliances and environments
 
@@ -477,6 +519,16 @@ address that other hosts can reach, and say why.
 The web UI is at `/`, and the classic GUI at `/classic/`. Both need
 the same login. The web UI has these pages, each for a role and up:
 
+* **Appliances** (viewer), the first page after the login: one row for
+each appliance, the ones with a problem first. It shows whether the
+appliance answered and when, its firmware, its CPU, memory and
+temporary space, its domains and the objects that are down, and
+warnings: a certificate or a host key that changed, a credential of the
+poll that could change the appliance, a status that is old. A row opens
+to show the domains, the objects that are down, the charts of the last
+24 hours, and links to its jobs and to run a command on it. The page
+refreshes every 30 seconds. With no schedule that polls, it says how to
+start one (see "The status of the appliances").
 * **Jobs** (viewer): every job, newest first, with filters (status,
 mine, command, appliance), and the workers. A job shows its
 parameters (secrets as `********`), its progress as it runs, its
@@ -513,7 +565,10 @@ the same login and the CSRF token, so it is not yet meant for scripts.
 1. Log in. Until there is a user, the page says how to add the first
 admin on the MAST server.
 2. As an admin, add or import the appliances (Admin → Appliances), pin
-each one, and store a credential (Admin → Credentials). Test it there.
+each one, turn on "Collect status", and store a credential for
+collecting (Admin → Credentials). Test it there. Then start the polling
+on the **Appliances** page, which shows the status of each appliance
+from then on.
 3. As an operator, open **Commands**. Choose the appliances or an
 environment in the target bar at the top, and a stored credential (or
 type a user name and a password). Find a command by name or by its
@@ -528,8 +583,9 @@ anybody logged in.
 ## The classic GUI
 
 The classic GUI is still at `/classic/`, behind the same login, while
-the new web UI takes over its tabs. The status tab (with its charts),
-the `ssh` tab and the tabs of the plugins work as before. It goes in a
+the new web UI takes over its tabs. The status tab (with its live
+charts; the Appliances page now shows the status), the `ssh` tab and
+the tabs of the plugins work as before. It goes in a
 later release, when the new web UI has a page for each of them. Its
 limits, which the new web UI and the command line do not have:
 

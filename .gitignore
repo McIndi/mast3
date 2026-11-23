@@ -161,3 +161,8 @@ cython_debug/
 # mast-setup
 build-cache/
 .dev/
+
+# What a run of MAST writes into etc/local of a home (keys, local settings)
+# belongs to that installation, never to the checkout or an installer
+files/mast_home/etc/local/*
+!files/mast_home/etc/local/.empty

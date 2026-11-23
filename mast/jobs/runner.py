@@ -267,13 +267,13 @@ def _with_stored_credential(job_id, command, values):
 
 
 @contextlib.contextmanager
-def _stored_credential(stored):
-    """With a stored credential, every connection of the job must check
-    the certificate or the host key of the appliance."""
-    if not stored:
+def _stored_credential(name):
+    """With a stored credential (`name`), every connection of the job
+    must check the certificate or the host key of the appliance."""
+    if not name:
         yield
         return
-    with stored_credential():
+    with stored_credential(name):
         yield
 
 
@@ -285,10 +285,11 @@ def _call(job_id, worker_id, store, guard, redact):
     redacted."""
     try:
         command, values = queue.load(job_id, worker_id)
+        _, name = queue.stored_credential(command.model, values)
         values, found = _with_stored_credential(job_id, command, values)
         redact[0] = secrets.redactor(command.model, values, extra=found)
         with listening(store), guarded(guard), \
-                _stored_credential(bool(found)):
+                _stored_credential(name if found else None):
             result = command.fn(command.model(**values))
     except JobCancelled:
         return {"status": CANCELLED,
