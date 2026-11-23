@@ -76,12 +76,14 @@ _DEFAULTS = {
     ("retention", "status_samples_days"): "2",
     ("retention", "status_hourly_days"): "31",
     ("retention", "status_daily_days"): "400",
+    ("retention", "crypto_snapshots_days"): "400",
 }
 
 RETENTION_RULES = (
     "jobs_days", "scheduled_jobs_days", "scheduled_failed_days",
     "credential_uses_days", "audit_events_days", "uploads_days", "logs_days",
-    "status_samples_days", "status_hourly_days", "status_daily_days")
+    "status_samples_days", "status_hourly_days", "status_daily_days",
+    "crypto_snapshots_days")
 
 
 def _get(section, option):

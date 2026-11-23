@@ -173,6 +173,17 @@ from the model. Add a test for it (see "Tests" below), and, if
 it changes an appliance, an integration test that checks the change on
 the DataPower container.
 
+## A job that runs other jobs
+
+A command can run a job for each of its parts, as `mast-crypto
+inventory` does for each appliance: `mast.jobs.runner.run_children(
+command, params_list)` submits them as children of the running job, as
+its principal (the queue checks them as any job), runs them in the same
+worker a few at a time, and waits for them. Cancelling the parent
+cancels them. A stored credential goes to a child by its name
+(`mast.cli.results.stored_credential_name()`): the parent's own
+parameters only have the password that the worker decrypted.
+
 # Adding a page to the web UI
 
 A page of the web UI is a `mast.web.page.Page`, listed under

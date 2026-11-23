@@ -17,7 +17,7 @@
 No secret leaks: a stored credential whose password is a unique marker
 is used in every way that MAST offers (a job of the web UI, a list of
 the objects on the appliances for a form, a poll of the status of the
-appliances, a job of a worker, a job that
+appliances, the crypto inventory and its export, a job of a worker, a job that
 fails, a command that repeats the password, a test
 of the credential, a schedule, a new password, a new key). Then the
 marker, in any of its encodings, must be nowhere:
@@ -53,6 +53,7 @@ from mast.credentials import store
 from mast.datapower.datapower import tls
 from mast.jobs import db
 from mast.jobs import registry as commands
+from mast.jobs.auth import Principal
 from mast.jobs.models import FINISHED
 from mast.testsuite.integration.fake_soma import FakeSoma
 from mast.testsuite.unit.test_mast_credentials import (
@@ -187,6 +188,23 @@ class TestNoSecretLeaks(WebCase):
         jobs.run_next("w-leak")
         self.assertEqual(jobs.get(job_ids[-1]).status, jobs.SUCCEEDED,
                          jobs.get(job_ids[-1]).error)
+
+        # The crypto inventory (a parent and a child job) and its export
+        # (as the user operator of the web UI: the parent checks its
+        # children as the user who submitted it, who must exist)
+        job_ids.append(jobs.submit("crypto.inventory", {
+            "appliances": ["dp-fake"], "credential": "leaky",
+            "request_delay": 0}, principal=Principal("operator", "operator")))
+        jobs.run_next("w-leak")
+        self.assertEqual(jobs.get(job_ids[-1]).status, jobs.SUCCEEDED,
+                         jobs.get(job_ids[-1]).error)
+        job_ids += [c.id for c in jobs.list_jobs(parent_id=job_ids[-1])]
+        export = jobs.submit("crypto.export", {"format": "cbom", "out_file": os.path.join(
+            MAST_HOME, job_dir(job_ids[-1]), "inventory")}, principal=OPERATOR)
+        jobs.run_next("w-leak")
+        self.assertEqual(jobs.get(export).status, jobs.SUCCEEDED,
+                         jobs.get(export).error)
+        job_ids.append(export)
 
         # A job of a worker that fails before it sends anything
         job_ids.append(jobs.submit("system.list-domains", {
@@ -339,15 +357,15 @@ class TestNoSecretLeaks(WebCase):
         for path in ("/api/v1/jobs", "/api/v1/credentials",
                      "/api/v1/schedules", "/api/v1/appliances",
                      "/api/v1/jobs/{}/result".format(job_ids[0]),
-                     "/api/v1/jobs/{}/events".format(job_ids[4]),
-                     "/api/v1/jobs/{}/history".format(job_ids[4]),
+                     "/api/v1/jobs/{}/events".format(job_ids[7]),
+                     "/api/v1/jobs/{}/history".format(job_ids[7]),
                      "/api/v1/appliances-status",
                      "/api/v1/appliances-status/dp-fake",
                      "/api/v1/credentials/leaky/uses",
                      "/api/v1/credentials/leaky/audit"):
             self.assertIn(path, checked)
         # And the credential was really used, with the second password
-        self.assertGreaterEqual(len(store.uses("leaky")), 6)
+        self.assertGreaterEqual(len(store.uses("leaky")), 7)
 
 
 class TestNoSecretLeaksPostgres(PostgresMixin, TestNoSecretLeaks):

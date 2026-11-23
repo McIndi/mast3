@@ -60,7 +60,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "jsonschema>=4.26.0",
+    "pytest",
+]
 
 [project.urls]
 Homepage = "http://github.com/mcindi/mast"
@@ -144,4 +147,6 @@ include-package-data = false
 "mast.datapower.network" = ["docroot/*"]
 "mast.datapower.ssh" = ["docroot/*"]
 "mast.datapower.status" = ["docroot/*", "templates/*", "static/*"]
+# The responses of a DataPower and the CycloneDX schemas, for the tests
+"mast.testsuite" = ["data/*/*"]
 "mast.datapower.system" = ["docroot/*"]
