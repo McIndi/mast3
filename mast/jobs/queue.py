@@ -31,6 +31,9 @@ one process at a time can be in it.
 * A job waits while another job that started before it, or that was
 submitted before it, uses one of the same appliances. Two jobs that
 are both not exclusive can share an appliance.
+* A passive job (`submit(..., passive=True)`, only for a command that
+only reads) neither waits for other jobs nor holds them up. The status
+polls are passive.
 * One exception: while no worker is alive, a job that nobody waits
 for (submitted without `attached`) does not hold up the jobs behind
 it. Only a worker runs such a job, so it would hold them up until a
@@ -71,6 +74,7 @@ __all__ = [
     "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "appliance_names", "stored_credential", "STORED_CREDENTIAL_WIDGET",
+    "NotPassive",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner", "NotQueued",
 ]
@@ -123,6 +127,8 @@ class JobInfo(BaseModel):
     lease_expires_at: datetime | None
     cancel_requested: bool
     error: str | None
+    passive: bool = False
+    schedule_id: int | None = None
     targets: list[str] = []
 
     @property
@@ -314,12 +320,18 @@ def new_job_id():
     return uuid.uuid4().hex
 
 
+class NotPassive(ValueError):
+    """A job of a command that can change an appliance cannot be
+    passive."""
+
+
 def submit(command, params=None, principal=LOCAL, exclusive=None,
-           parent_id=None, reserved_for=None, attached=False, job_id=None):
+           parent_id=None, reserved_for=None, attached=False, job_id=None,
+           passive=False, schedule_id=None):
     """
     _function_: `mast.jobs.queue.submit(command, params=None,
     principal=LOCAL, exclusive=None, parent_id=None, reserved_for=None,
-    attached=False, job_id=None)`
+    attached=False, job_id=None, passive=False, schedule_id=None)`
 
     Put a job in the queue and return its id.
 
@@ -343,6 +355,12 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
     queued job whose caller is silent is cancelled.
     * `job_id`: The id for the job, from `new_job_id`. The default is
     a new id.
+    * `passive`: If True, the job neither waits for other jobs on its
+    appliances nor holds them up. Only for a command that only reads
+    (`exclusive=False`); otherwise `NotPassive`. The status polls are
+    passive, so that a deployment does not delay them, nor they it.
+    Its appliances are still recorded.
+    * `schedule_id`: The id of the schedule that submits the job.
 
     A job with a stored credential (the parameter with the widget
     `stored_credential`) is queued only if `principal` may use that
@@ -367,6 +385,10 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             command=command, exclusive=getattr(cmd, "exclusive", True))
     if exclusive is None:
         exclusive = getattr(cmd, "exclusive", True)
+    if passive and (exclusive or getattr(cmd, "exclusive", True)):
+        raise NotPassive(
+            "{} can change the appliances, so its jobs cannot be "
+            "passive".format(command))
     locked = targets + _resources(cmd, params)
     now = _now()
     job_id = job_id or new_job_id()
@@ -382,7 +404,9 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             created_at=now,
             cancel_requested=False,
             reserved_for=reserved_for,
-            attached_until=_lease(now, None) if attached else None))
+            attached_until=_lease(now, None) if attached else None,
+            passive=bool(passive),
+            schedule_id=schedule_id))
         session.flush()
         for target in locked:
             session.add(JobTarget(job_id=job_id, appliance=target))
@@ -445,11 +469,12 @@ def find(prefix, principal=LOCAL):
 
 
 def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
-              command=None, appliance=None, before=None, parent_id=None):
+              command=None, appliance=None, before=None, parent_id=None,
+              schedule_id=None):
     """
     _function_: `mast.jobs.queue.list_jobs(status=None, limit=50,
     principal=LOCAL, submitted_by=None, command=None, appliance=None,
-    before=None, parent_id=None)`
+    before=None, parent_id=None, schedule_id=None)`
 
     Return the newest jobs first, as a list of `JobInfo`. `status`
     can be one status or a sequence of them. The other filters:
@@ -460,6 +485,7 @@ def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
     * `before`: Only jobs made before this time (a `datetime`), to
     page through older jobs.
     * `parent_id`: Only the child jobs of this job.
+    * `schedule_id`: Only the jobs of this schedule.
     """
     authorize(principal, "read")
     query = select(Job).order_by(Job.created_at.desc(), Job.id).limit(limit)
@@ -477,6 +503,8 @@ def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
         query = query.where(Job.created_at < before)
     if parent_id is not None:
         query = query.where(Job.parent_id == parent_id)
+    if schedule_id is not None:
+        query = query.where(Job.schedule_id == schedule_id)
     with db.session(write=False) as session:
         return [_info(session, job) for job in session.scalars(query)]
 
@@ -639,6 +667,8 @@ def _next_job(worker_id, workers_alive):
         .where(
             mine.job_id == Job.id,
             other.id != Job.id,
+            # A passive job holds up nobody
+            other.passive.is_(False),
             # Two jobs can share an appliance only if neither is exclusive
             or_(other.exclusive, Job.exclusive),
             # A job that waits also blocks the jobs behind it, so that
@@ -653,7 +683,8 @@ def _next_job(worker_id, workers_alive):
         .exists())
     return (
         select(Job.id)
-        .where(Job.status == QUEUED, ~blocked,
+        # A passive job waits for nobody
+        .where(Job.status == QUEUED, or_(Job.passive, ~blocked),
                or_(Job.reserved_for.is_(None),
                    Job.reserved_for == worker_id))
         .order_by(Job.created_at, Job.id)

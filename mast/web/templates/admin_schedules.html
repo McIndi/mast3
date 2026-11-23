@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Schedules · Admin · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/admin-schedules.js') }}"></script>{% endblock %}
+{% block targetbar %}{% include "targetbar.html" %}{% endblock %}
+{% block content %}
+<h1 class="h4">Schedules</h1>
+<p class="small text-body-secondary">mastd puts the job of a schedule in the queue when its cron expression is due (times in UTC). A job of a schedule runs as <code>schedule:NAME</code> with the role of the admin who made it, and is skipped while the job of its last run still waits or runs. A command that talks to appliances needs a stored credential: choose the appliances and the credential in the bar above.</p>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+<div class="alert alert-success d-none" role="status" data-notice></div>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Command</th><th>When (UTC)</th><th>Next run</th><th>Last run</th><th>State</th><th></th></tr></thead>
+        <tbody data-schedule-rows><tr><td colspan="7" class="text-body-secondary">Loading…</td></tr></tbody>
+    </table>
+</div>
+
+<h2 class="h5 mt-4" data-editor-title>Add a schedule</h2>
+<form class="row g-2" data-schedule-form autocomplete="off" novalidate>
+    <input type="hidden" name="original">
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="s-name">Name</label>
+        <input class="form-control form-control-sm" id="s-name" name="name" required maxlength="64">
+    </div>
+    <div class="col-12 col-sm-6 col-lg-4">
+        <label class="form-label small" for="s-command">Command</label>
+        <select class="form-select form-select-sm" id="s-command" name="command" required></select>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="s-cron">When (cron, UTC)</label>
+        <input class="form-control form-control-sm font-monospace" id="s-cron" name="cron" required placeholder="0 2 * * *">
+        <div class="form-text">minute hour day month weekday, or @daily, @hourly…</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-2 d-flex align-items-end">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="s-enabled" name="enabled" checked>
+            <label class="form-check-label small" for="s-enabled">Enabled</label>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="small" data-preview aria-live="polite"></div>
+    </div>
+    <div class="col-12">
+        <label class="form-label small" for="s-description">Description</label>
+        <input class="form-control form-control-sm" id="s-description" name="description">
+    </div>
+    <div class="col-12">
+        <div class="border rounded p-2 mt-1" data-params>
+            <span class="small text-body-secondary">Choose a command.</span>
+        </div>
+    </div>
+    <div class="col-12">
+        <button class="btn btn-sm btn-primary" type="submit" data-save>Add</button>
+        <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-cancel-edit>Cancel</button>
+    </div>
+</form>
+{% endblock %}

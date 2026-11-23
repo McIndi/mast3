@@ -1,0 +1,242 @@
+# This file is part of McIndi's Automated Solutions Tool (MAST).
+#
+# MAST is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 3
+# as published by the Free Software Foundation.
+#
+# MAST is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with MAST.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Copyright 2015-2026, McIndi Solutions, All rights reserved.
+"""
+_module_: `mast.jobs.retention`
+
+Delete what is older than `[retention]` of `jobs.conf` says:
+
+* finished jobs, with their progress, results, appliances and files
+(`tmp/web/jobs/<id>`). Jobs of schedules have rules of their own. A
+child job goes with its parent, and a parent waits while one of its
+children has not finished;
+* the uses of stored credentials and the audit events;
+* the uploads of the web UI (`var/www/uploads`);
+* the log files in `var/log`, and the folders that they leave empty.
+
+`prune` deletes in batches of `BATCH` rows, each in its own
+transaction, so that it never holds the SQLite lock for long. mastd
+runs it each day (`[retention] schedule`); `mast-jobs prune` runs it
+now, and with `--dry-run` only counts.
+"""
+import os
+import shutil
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import and_, delete, func, or_, select
+
+from mast.config import MAST_HOME
+from mast.jobs import config, db
+from mast.jobs.models import FINISHED, SUCCEEDED, Job
+from mast.logging import make_logger
+
+__all__ = ["prune", "BATCH"]
+
+BATCH = 1000
+
+_SCHEDULED = or_(Job.schedule_id.is_not(None),
+                 Job.submitted_by.startswith("schedule:"))
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _cutoff(now, rule):
+    days = config.retention_days(rule)
+    return None if days is None else now - timedelta(days=days)
+
+
+def _job_rules(now):
+    """The conditions on the finished jobs that are old enough."""
+    ended = func.coalesce(Job.finished_at, Job.created_at)
+    rules = []
+    for rule, condition in (
+            ("jobs_days", ~_SCHEDULED),
+            ("scheduled_jobs_days", and_(_SCHEDULED, Job.status == SUCCEEDED)),
+            ("scheduled_failed_days", and_(_SCHEDULED, Job.status != SUCCEEDED))):
+        cutoff = _cutoff(now, rule)
+        if cutoff is not None:
+            rules.append((rule, and_(condition, ended < cutoff)))
+    return rules
+
+
+def _family(session, ids):
+    """`ids` and all their descendants, or None if one of the
+    descendants has not finished."""
+    family = list(ids)
+    level = list(ids)
+    while level:
+        rows = session.execute(
+            select(Job.id, Job.status).where(Job.parent_id.in_(level))).all()
+        if any(status not in FINISHED for _, status in rows):
+            return None
+        level = [job_id for job_id, _ in rows if job_id not in family]
+        family += level
+    return family
+
+
+def _remove_job_files(job_ids):
+    # Imported here: the directory of the files is the web UI's
+    from mast.web.catalog import job_dir
+    for job_id in job_ids:
+        path = os.path.join(MAST_HOME, job_dir(job_id))
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def _prune_jobs(now, dry_run, counts):
+    for rule, condition in _job_rules(now):
+        counted = 0
+        skipped = set()
+        while True:
+            with db.session() as session:
+                query = (select(Job.id)
+                         .where(Job.status.in_(FINISHED), Job.parent_id.is_(None),
+                                condition)
+                         .order_by(Job.created_at, Job.id))
+                if skipped:
+                    query = query.where(Job.id.not_in(skipped))
+                ids = list(session.scalars(query.limit(BATCH)))
+                if not ids:
+                    break
+                doomed = []
+                for job_id in ids:
+                    family = _family(session, [job_id])
+                    if family is None:
+                        skipped.add(job_id)
+                    else:
+                        doomed += family
+                if dry_run:
+                    counted += len(doomed)
+                    skipped.update(ids)
+                    continue
+                if doomed:
+                    # One statement: the children go with their parents
+                    session.execute(delete(Job).where(Job.id.in_(doomed)))
+                counted += len(doomed)
+            if not dry_run:
+                _remove_job_files(doomed)
+        counts[rule] = counted
+
+
+def _prune_rows(now, dry_run, counts):
+    # Imported here: the credential store is needed only for this
+    from mast.credentials.models import AuditEvent, CredentialUse
+    for rule, model, column in (
+            ("credential_uses_days", CredentialUse, CredentialUse.used_at),
+            ("audit_events_days", AuditEvent, AuditEvent.at)):
+        cutoff = _cutoff(now, rule)
+        if cutoff is None:
+            continue
+        counted = 0
+        while True:
+            with db.session() as session:
+                ids = list(session.scalars(
+                    select(model.id).where(column < cutoff)
+                    .order_by(model.id).limit(BATCH)
+                    .offset(counted if dry_run else 0)))
+                if not ids:
+                    break
+                if not dry_run:
+                    session.execute(delete(model).where(model.id.in_(ids)))
+                counted += len(ids)
+            if len(ids) < BATCH:
+                break
+        counts[rule] = counted
+
+
+def _old(path, cutoff):
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < cutoff
+    except OSError:
+        return False
+
+
+def _prune_uploads(now, dry_run, counts, root):
+    cutoff = _cutoff(now, "uploads_days")
+    if cutoff is None:
+        return
+    # Imported here: the uploads are the web UI's
+    from mast.web.uploads import UPLOADS_DIR
+    directory = os.path.join(root, UPLOADS_DIR)
+    counted = 0
+    if os.path.isdir(directory):
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            if os.path.isdir(path) and _old(path, cutoff):
+                counted += 1
+                if not dry_run:
+                    shutil.rmtree(path, ignore_errors=True)
+    counts["uploads_days"] = counted
+
+
+def _prune_logs(now, dry_run, counts, root):
+    cutoff = _cutoff(now, "logs_days")
+    if cutoff is None:
+        return
+    directory = os.path.join(root, "var", "log")
+    counted = 0
+    if not os.path.isdir(directory):
+        counts["logs_days"] = 0
+        return
+    for parent, folders, names in os.walk(directory, topdown=False):
+        for name in names:
+            path = os.path.join(parent, name)
+            if os.path.islink(path) or not _old(path, cutoff):
+                continue
+            counted += 1
+            if not dry_run:
+                try:
+                    os.remove(path)
+                except OSError:
+                    counted -= 1
+        if not dry_run and parent != directory:
+            try:
+                # Only an empty folder goes
+                os.rmdir(parent)
+            except OSError:
+                pass
+    counts["logs_days"] = counted
+
+
+def prune(now=None, dry_run=False, root=None):
+    """
+    _function_: `mast.jobs.retention.prune(now=None, dry_run=False, root=None)`
+
+    Delete what is older than `[retention]` says, and return
+    `{rule: how many}`: jobs (with their children) for `jobs_days`,
+    `scheduled_jobs_days` and `scheduled_failed_days`, rows for
+    `credential_uses_days` and `audit_events_days`, upload folders for
+    `uploads_days` and log files for `logs_days`. A rule that keeps for
+    ever is not in it. With `dry_run`, nothing is deleted. `root` is
+    the MAST home (for the tests).
+    """
+    now = now or _now()
+    root = root or MAST_HOME
+    counts = {}
+    _prune_jobs(now, dry_run, counts)
+    _prune_rows(now, dry_run, counts)
+    _prune_uploads(now, dry_run, counts, root)
+    _prune_logs(now, dry_run, counts, root)
+    if not dry_run:
+        make_logger("mast.retention").info("Deleted what is old: {}".format(
+            ", ".join("{} {}".format(n, rule) for rule, n in counts.items())))
+    return counts
+
+
+def daily():
+    """The built-in task of the scheduler of mastd."""
+    prune()

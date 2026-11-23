@@ -34,6 +34,9 @@ parameters of queued jobs.
 credential store (`mast.credentials`).
 * `[credentials] key_provider`: Where the keys of the credential store
 come from. Only `file` (the key file) is supported.
+* `[retention]`: How many days old jobs, uses of credentials, audit
+events, uploads and logs are kept, and when mastd deletes the older
+ones (see `mast.jobs.retention`).
 """
 import os
 
@@ -41,7 +44,8 @@ from mast.config import MAST_HOME, get_config
 
 __all__ = ["database_url", "lease_seconds", "concurrency", "poll_seconds",
            "cancel_poll_seconds", "mastd_worker", "key_file",
-           "credentials_key_file", "credentials_key_provider"]
+           "credentials_key_file", "credentials_key_provider",
+           "retention_days", "retention_schedule", "RETENTION_RULES"]
 
 _DEFAULTS = {
     ("database", "url"): "sqlite:///var/jobs/jobs.db",
@@ -53,7 +57,19 @@ _DEFAULTS = {
     ("secrets", "key_file"): "etc/local/jobs.key",
     ("credentials", "key_file"): "etc/local/credentials.key",
     ("credentials", "key_provider"): "file",
+    ("retention", "schedule"): "30 3 * * *",
+    ("retention", "jobs_days"): "90",
+    ("retention", "scheduled_jobs_days"): "7",
+    ("retention", "scheduled_failed_days"): "30",
+    ("retention", "credential_uses_days"): "400",
+    ("retention", "audit_events_days"): "400",
+    ("retention", "uploads_days"): "1",
+    ("retention", "logs_days"): "30",
 }
+
+RETENTION_RULES = (
+    "jobs_days", "scheduled_jobs_days", "scheduled_failed_days",
+    "credential_uses_days", "audit_events_days", "uploads_days", "logs_days")
 
 
 def _get(section, option):
@@ -161,3 +177,30 @@ def credentials_key_provider():
     (`file`).
     """
     return _get("credentials", "key_provider").lower()
+
+
+def retention_days(rule):
+    """
+    _function_: `mast.jobs.config.retention_days(rule)`
+
+    Return how many days `[retention] <rule>` keeps things (one of
+    `RETENTION_RULES`), or None to keep them for ever (0 or less).
+    """
+    if rule not in RETENTION_RULES:
+        raise KeyError(rule)
+    try:
+        days = float(_get("retention", rule))
+    except ValueError:
+        days = float(_DEFAULTS[("retention", rule)])
+    return days if days > 0 else None
+
+
+def retention_schedule():
+    """
+    _function_: `mast.jobs.config.retention_schedule()`
+
+    Return the cron expression (UTC) at which mastd prunes old jobs and
+    files, or None if `[retention] schedule` is empty (prune only with
+    mast-jobs prune).
+    """
+    return _get("retention", "schedule") or None

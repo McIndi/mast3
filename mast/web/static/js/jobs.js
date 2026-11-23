@@ -64,10 +64,28 @@ async function refreshWorkers() {
     }
 }
 
+// The schedules, for the filter. ?schedule=NAME (the Jobs link of
+// Admin -> Schedules) chooses one.
+async function loadSchedules() {
+    const select = filters.querySelector("[data-schedule-filter]");
+    const wanted = new URLSearchParams(window.location.search).get("schedule") || "";
+    try {
+        const found = (await api.get("/schedules")).schedules;
+        for (const schedule of found) {
+            select.append(el("option", {value: schedule.name, selected: schedule.name === wanted}, schedule.name));
+        }
+    } catch (error) {
+        // The filter is a help; the page works without it
+    }
+    if (!select.querySelector("option[value='" + CSS.escape(wanted) + "']") && wanted) {
+        select.append(el("option", {value: wanted, selected: true}, wanted));
+    }
+}
+
 filters.addEventListener("change", () => { limit = PAGE; refresh(); });
 filters.addEventListener("submit", (event) => { event.preventDefault(); refresh(); });
 more.addEventListener("click", () => { limit += PAGE; refresh(); });
-refresh();
+loadSchedules().then(refresh);
 refreshWorkers();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);
 setInterval(() => { if (!document.hidden) refreshWorkers(); }, 15000);

@@ -43,7 +43,7 @@ SUPPORTED = ("sqlite", "postgresql")
 # The newest revision in mast/jobs/migrations/versions. Alembic is only
 # imported if the database is at another revision, because every MAST
 # command opens the database and Alembic is slow to import.
-HEAD = "0006"
+HEAD = "0007"
 
 # An arbitrary number. Every process that changes the schema or claims
 # a job takes the PostgreSQL advisory lock with this key.
@@ -191,11 +191,34 @@ def _migrate(target, direction, revision):
     from alembic.config import Config
     cfg = Config()
     cfg.set_main_option("script_location", "mast.jobs:migrations")
-    with target.begin() as connection:
-        lock_queue(connection)
-        # The migration reads the revision again, inside the lock
-        cfg.attributes["connection"] = connection
-        getattr(alembic_command, direction)(cfg, revision)
+    with target.connect() as connection:
+        sqlite = connection.dialect.name == "sqlite"
+        if sqlite:
+            # SQLite changes a table that it cannot alter in place by
+            # making a new one and dropping the old one. With foreign
+            # keys on, dropping it would delete the rows of the tables
+            # that refer to it (ON DELETE CASCADE): the results of the
+            # jobs, the members of the environments... So the keys are
+            # off during a migration, as the SQLite documentation says,
+            # and checked after it. This can only be changed outside a
+            # transaction.
+            connection.connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            with connection.begin():
+                lock_queue(connection)
+                # The migration reads the revision again, inside the lock
+                cfg.attributes["connection"] = connection
+                getattr(alembic_command, direction)(cfg, revision)
+                if sqlite:
+                    broken = connection.exec_driver_sql(
+                        "PRAGMA foreign_key_check").fetchall()
+                    if broken:
+                        raise RuntimeError(
+                            "The migration left rows whose foreign keys "
+                            "point nowhere: {}".format(broken[:5]))
+        finally:
+            if sqlite:
+                connection.connection.execute("PRAGMA foreign_keys=ON")
 
 
 def revision(target=None):

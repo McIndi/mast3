@@ -41,13 +41,20 @@ it behaves as before (`auto_add_keys` of `ssh.conf`), with a warning.
 it did before, except for a pinned certificate, which is always
 checked. Its help now says so.
 * SOMA requests are sent with `Content-Type: text/xml`.
+* **MAST now deletes old things** each day at 03:30 UTC: finished jobs
+after 90 days (jobs of schedules sooner), uploads after a day, and log
+files in `var/log` after 30 days. Change or turn this off in
+`[retention]` of `etc/local/jobs.conf` before you upgrade if you need
+them for longer. `mast-jobs prune --dry-run` shows what would go.
 * `/classic/config/<file>` no longer serves `server.conf` and
 `jobs.conf`, which can hold keys and the password of the database.
 * The job database gets new tables, `users`, `appliances`,
 `environments`, `environment_members`, `credentials`,
 `credential_bindings`, `credential_uses` and `audit_events`, and new
 columns: `job_results.data` (the result of a job as a table, for the
-web UI) and four in `appliances` for a pin that did not match.
+web UI), four in `appliances` for a pin that did not match, and the
+table `schedules` with two columns of `jobs` (`passive`,
+`schedule_id`).
 MAST adds them when it starts. To go back to MAST 3.15.2.x, stop every
 MAST process of the home, run `./mast-appliances export` (it writes
 `hosts.conf`, `environments.conf` and `appliances.conf` again), then
@@ -85,6 +92,13 @@ appliance is checked too; `unpin` removes them. Admin → Appliances has
 a **Pin** button. A certificate or a host key that changed fails the
 job before any password is sent, and marks the appliance. `mast-appliances
 update --ca-bundle-file` sets the authorities for the TLS check `ca`.
+* **Scheduled jobs**: `mast-jobs schedule-add` (and Admin → Schedules)
+puts a command in the job queue on a cron schedule, with a stored
+credential. A run is skipped while the last one still runs, a schedule
+whose admin may no longer submit jobs is paused, and two `mastd` on one
+database do not run it twice. The Jobs page can show the jobs of one
+schedule. `etc/crontab` still works.
+* `mast-jobs prune` deletes old jobs, uploads and logs now.
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,

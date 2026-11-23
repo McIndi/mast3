@@ -20,8 +20,10 @@ _module_: `mast.web.pages.admin`
 The Admin pages, for admins only: Users (list the users, add one with
 a temporary password, change a role, disable and enable, set a new
 temporary password, and delete), Appliances (the appliance registry,
-whose JSON routes are in `mast.web.api`) and Credentials (the
-credential store, whose JSON routes are in `mast.web.credentials`).
+whose JSON routes are in `mast.web.api`), Credentials (the
+credential store, whose JSON routes are in `mast.web.credentials`) and
+Schedules (the scheduled jobs, whose JSON routes are in
+`mast.web.schedules`).
 
 The JSON routes:
 
@@ -228,7 +230,21 @@ def appliances_page():
                                  tls_modes=registry.TLS_MODES)
 
 
+@blueprint.get("/admin/schedules")
+def schedules_page():
+    """
+    _function_: `mast.web.pages.admin.schedules_page()`
+
+    Admin → Schedules: the scheduled jobs (`/api/v1/schedules`, see
+    `mast.web.schedules`), with the form of each command.
+
+    Exposed at: `/admin/schedules` via GET
+    """
+    return flask.render_template("admin_schedules.html")
+
+
 page = Page(name="admin", title="Admin", order=90, min_role="admin",
             blueprint=blueprint, nav=(("Users", "/admin/users"),
                                       ("Appliances", "/admin/appliances"),
-                                      ("Credentials", "/admin/credentials")))
+                                      ("Credentials", "/admin/credentials"),
+                                      ("Schedules", "/admin/schedules")))

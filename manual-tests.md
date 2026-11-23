@@ -106,6 +106,16 @@ mast-developer import -n -a lab -c %MAST_CREDS% -D new_domain -f ~/Downloads/exp
 # Save a domain
 mast-system save -n -a lab -c %MAST_CREDS% -D new_domain
 
+# Schedules (mastd running, or mast-worker)
+mast-jobs schedule-add -n lab-domains -c system.list-domains -t "*/2 * * * *" -s 'appliances=["lab"]' -s credential=lab-read
+mast-jobs schedule-list                       # next run in two minutes
+# Wait: a job by schedule:lab-domains every two minutes (mast-jobs list)
+mast-jobs schedule-run -n lab-domains         # now; again at once: skipped
+mast-jobs schedule-remove -n lab-domains -y
+# In the web UI: Admin -> Schedules, add one with the form, Run now,
+# then Jobs (filtered by the schedule)
+mast-jobs prune --dry-run
+
 # The job queue
 
 These use the `lab` environment and `%MAST_CREDS%` from above. Run them

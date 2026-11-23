@@ -38,6 +38,7 @@ from sqlalchemy.types import TypeDecorator
 
 __all__ = [
     "Base", "Job", "JobTarget", "JobEvent", "JobResult", "Worker",
+    "Schedule",
     "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",
     "LOST", "FINISHED",
 ]
@@ -126,6 +127,12 @@ class Job(Base):
     attached_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # One line that says why the job failed
     error: Mapped[str | None] = mapped_column(Text)
+    # A passive job only reads, and neither waits for nor holds up
+    # other jobs on its appliances (the status polls)
+    passive: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The schedule that submitted the job
+    schedule_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("schedules.id", ondelete="SET NULL"), index=True)
 
 
 class JobTarget(Base):
@@ -184,3 +191,32 @@ class Worker(Base):
     started_at: Mapped[datetime] = mapped_column(UTCDateTime)
     # The worker writes this time again and again while it is alive
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class Schedule(Base):
+    """A command that the scheduler of mastd puts in the queue when its
+    cron expression is due (see mast.jobs.schedules)."""
+    __tablename__ = "schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    # The id of the command, for example "system.list-domains"
+    command: Mapped[str] = mapped_column(String(200))
+    # The parameters as JSON. Never a secret: a schedule uses a stored
+    # credential
+    params: Mapped[dict] = mapped_column(JSON)
+    # Five fields, in UTC
+    cron: Mapped[str] = mapped_column(String(100))
+    enabled: Mapped[bool] = mapped_column(Boolean)
+    description: Mapped[str] = mapped_column(Text)
+    # The principal that made it. Its jobs run with the role of this
+    # principal, as long as it may submit jobs.
+    created_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    # The last time the schedule was due and handled: a job was
+    # submitted, or it was skipped (see last_skip_reason)
+    last_fired_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Not a foreign key: retention can delete the job
+    last_job_id: Mapped[str | None] = mapped_column(String(32))
+    last_skip_reason: Mapped[str | None] = mapped_column(Text)

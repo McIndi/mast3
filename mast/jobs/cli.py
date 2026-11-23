@@ -27,15 +27,22 @@ it does.
 * `workers`: The workers that are alive.
 * `downgrade-db`: Take the tables of the job database back to an older
 revision, to go back to an older MAST.
+* `schedule-add`, `schedule-update`, `schedule-enable`,
+`schedule-disable`, `schedule-remove`, `schedule-list`, `schedule-run`:
+The scheduled jobs (see `mast.jobs.schedules`).
+* `prune`: Delete old jobs, uses of credentials, audit events, uploads
+and logs now (see `mast.jobs.retention`).
 
 Where a command takes the id of a job, the first characters of the id
 are enough.
 """
+import json
 import sys
 from typing import Literal
 
 from mast.cli import Cli, Option, Params, Table, Text
-from mast.jobs import client, db, queue
+from mast.jobs import client, db, queue, retention, schedules
+from mast.jobs.auth import Forbidden
 from mast.jobs.models import (
     CANCELLED, FAILED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 
@@ -197,3 +204,207 @@ def downgrade_db(params: DowngradeDb):
     db.downgrade(params.revision)
     return Text("The job database is now at revision {} (it was {}).".format(
         db.revision(), current))
+
+
+# Schedules
+# =========
+
+
+def _schedule_do(change, *args, **kwargs):
+    try:
+        return change(*args, **kwargs)
+    except (schedules.ScheduleError, Forbidden) as exc:
+        print("mast-jobs: {}".format(exc), file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_params(text, pairs):
+    values = {}
+    if text:
+        try:
+            values = json.loads(text)
+        except ValueError as exc:
+            print("mast-jobs: --params is not JSON: {}".format(exc),
+                  file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(values, dict):
+            print("mast-jobs: --params is a JSON object", file=sys.stderr)
+            sys.exit(1)
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key.strip():
+            print("mast-jobs: --set is NAME=VALUE: {!r}".format(pair),
+                  file=sys.stderr)
+            sys.exit(1)
+        try:
+            values[key.strip()] = json.loads(value)
+        except ValueError:
+            values[key.strip()] = value
+    return values
+
+
+def _show_schedule(info):
+    lines = [
+        "Schedule:  {}{}".format(info.name, "" if info.enabled else " (paused)"),
+        "Command:   {}".format(info.command),
+        "Cron:      {} (UTC)".format(info.cron),
+        "Next runs: {}".format(", ".join(
+            _when(t) for t in schedules.next_runs(info.cron, count=3))),
+        "Made by:   {} at {}".format(info.created_by, _when(info.created_at)),
+    ]
+    if info.description:
+        lines.append("About:     {}".format(info.description))
+    if info.last_fired_at:
+        lines.append("Last run:  {}{}".format(
+            _when(info.last_fired_at),
+            " job {}".format(info.last_job_id) if info.last_job_id else ""))
+    if info.last_skip_reason:
+        lines.append("Note:      {}".format(info.last_skip_reason))
+    lines.append("Parameters:")
+    for name, value in info.params.items():
+        if value not in (None, "", [], False):
+            lines.append("  {}: {}".format(name, value))
+    return "\n".join(lines)
+
+
+class ScheduleName(Params):
+    name: str = Option(short="n", help="The name of the schedule.")
+
+
+class ScheduleAdd(ScheduleName):
+    command: str = Option(
+        short="c", help="The id of the command, for example "
+                        "system.list-domains (see the Commands page).")
+    cron: str = Option(
+        short="t", help="When it runs: five cron fields in UTC (minute hour "
+                        "day-of-month month day-of-week), for example "
+                        "'0 2 * * *', or @daily, @hourly...")
+    params: str | None = Option(
+        None, short="p", help="The parameters of the command as a JSON "
+                              "object, for example '{\"appliances\": "
+                              "[\"prod\"], \"credential\": \"collector\"}'.")
+    set: list[str] = Option(
+        default_factory=list, short="s",
+        help="One parameter, NAME=VALUE. A VALUE that is JSON is read as "
+             "JSON (appliances='[\"dp1\"]').")
+    description: str = Option("", short="d", help="What it is for.")
+    disabled: bool = Option(False, help="Add it paused.")
+
+
+@cli.command("schedule-add")
+def schedule_add(params: ScheduleAdd):
+    """Add a schedule: a command that mastd puts in the job queue when
+    its cron expression is due. A command that talks to appliances needs
+    a stored credential (credential), not credentials. Its jobs run as
+    schedule:NAME with the role of who made it."""
+    info = _schedule_do(
+        schedules.add, params.name, params.command,
+        _parse_params(params.params, params.set), params.cron,
+        description=params.description, enabled=not params.disabled)
+    return Text("Added\n" + _show_schedule(info))
+
+
+class ScheduleUpdate(ScheduleName):
+    cron: str | None = Option(None, short="t", help="A new cron expression.")
+    params: str | None = Option(
+        None, short="p", help="New parameters, as a JSON object. They "
+                              "replace the old ones.")
+    set: list[str] = Option(
+        default_factory=list, short="s",
+        help="Change one parameter, NAME=VALUE; the others stay.")
+    description: str | None = Option(None, short="d", help="A new description.")
+
+
+@cli.command("schedule-update")
+def schedule_update(params: ScheduleUpdate):
+    """Change the cron expression, the parameters or the description of
+    a schedule."""
+    new = None
+    if params.params is not None or params.set:
+        base = schedules.get(params.name).params if params.params is None else {}
+        new = dict(base, **_parse_params(params.params, params.set))
+    info = _schedule_do(schedules.update, params.name, cron_text=params.cron,
+                        params=new, description=params.description)
+    return Text("Updated\n" + _show_schedule(info))
+
+
+@cli.command("schedule-enable")
+def schedule_enable(params: ScheduleName):
+    """Enable a paused schedule. It is checked again first."""
+    info = _schedule_do(schedules.update, params.name, enabled=True)
+    return Text("Enabled\n" + _show_schedule(info))
+
+
+@cli.command("schedule-disable")
+def schedule_disable(params: ScheduleName):
+    """Pause a schedule. Its jobs that are queued or running go on."""
+    info = _schedule_do(schedules.update, params.name, enabled=False)
+    return Text("Paused\n" + _show_schedule(info))
+
+
+class ScheduleRemove(ScheduleName):
+    yes: bool = Option(False, short="y", help="Do not ask to confirm.")
+
+
+@cli.command("schedule-remove")
+def schedule_remove(params: ScheduleRemove):
+    """Remove a schedule. Its jobs stay."""
+    if not params.yes:
+        answer = input("Remove the schedule {}? [y/N] ".format(params.name))
+        if answer.strip().lower() not in ("y", "yes"):
+            return Text("Nothing was removed.")
+    _schedule_do(schedules.remove, params.name)
+    return Text("Removed the schedule {}.".format(params.name))
+
+
+@cli.command("schedule-list")
+def schedule_list(params: Params):
+    """List the schedules."""
+    found = schedules.list_schedules()
+    if not found:
+        return Text("There are no schedules. Add one with mast-jobs "
+                    "schedule-add, or in the web UI under Admin -> Schedules.")
+    rows = []
+    for info in found:
+        upcoming = schedules.next_runs(info.cron, count=1)
+        rows.append((info.name, "yes" if info.enabled else "paused",
+                     info.cron, info.command,
+                     _when(upcoming[0]) if upcoming else "",
+                     _when(info.last_fired_at), info.last_job_id or "",
+                     info.last_skip_reason or ""))
+    return Table(("Name", "Enabled", "Cron (UTC)", "Command", "Next run",
+                  "Last run", "Last job", "Note"), rows)
+
+
+@cli.command("schedule-run")
+def schedule_run(params: ScheduleName):
+    """Queue the job of a schedule now, whatever its cron expression
+    says. Use mast-jobs follow to see it."""
+    job_id = _schedule_do(schedules.run_now, params.name)
+    return Text("Queued the job {} of the schedule {}.".format(
+        job_id, params.name))
+
+
+# Retention
+# =========
+
+
+class Prune(Params):
+    dry_run: bool = Option(
+        False, short="d", help="Only count what would be deleted.")
+
+
+@cli.command("prune")
+def prune(params: Prune):
+    """Delete the jobs, uses of credentials, audit events, uploads and
+    log files that are older than [retention] of jobs.conf says. mastd
+    does this each day."""
+    counts = retention.prune(dry_run=params.dry_run)
+    what = {
+        "jobs_days": "jobs", "scheduled_jobs_days": "succeeded scheduled jobs",
+        "scheduled_failed_days": "other scheduled jobs",
+        "credential_uses_days": "uses of credentials",
+        "audit_events_days": "audit events", "uploads_days": "uploads",
+        "logs_days": "log files"}
+    return Table(("What", "Would delete" if params.dry_run else "Deleted"),
+                 [(what[rule], count) for rule, count in counts.items()])
