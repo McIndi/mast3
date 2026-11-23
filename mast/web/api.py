@@ -30,7 +30,8 @@ problem.
 options (`mast.web.catalog`).
 * `POST /choices/<widget>`: The values for a choice widget
 (`status_provider`, `object_class`, `configured:<Class>`). The body
-has the appliances and credentials that `configured:` asks.
+has the appliances and the credentials, or the name of a stored
+credential, that `configured:` asks.
 * `POST /jobs`: `{command, params}`. Validates the parameters with the
 model of the command and puts the job in the queue.
 * `POST /uploads`: A file for an `upload` option. Returns a token.
@@ -54,6 +55,7 @@ queue.
 """
 import io
 import os
+import time
 import zipfile
 from datetime import datetime, timezone
 
@@ -66,6 +68,7 @@ from mast.cli import params as cli_params
 from mast.jobs import auth as jobs_auth
 from mast.jobs import client as jobs_client
 from mast.jobs import queue, secrets
+from mast.jobs.models import FINISHED, SUCCEEDED
 from mast.logging import make_logger
 from mast.web import catalog, security, uploads
 from mast.web.auth import principal
@@ -191,6 +194,12 @@ def choices(widget):
     for the objects of that class that all of them have. That needs a
     role that may run commands.
 
+    With `credential` (the name of a stored credential) in place of
+    `credentials`, the appliances are asked by a passive job of
+    `system.list-objects`, which this waits for. The queue checks the
+    credential as for any job and records its use, and the job is on
+    the Jobs page. The answer then also has its `job_id`.
+
     It is a POST, not a GET, so that the credentials are never in a
     URL (and so never in a log of a proxy or in the history of the
     browser).
@@ -208,6 +217,8 @@ def choices(widget):
         appliances = [str(a) for a in body.get("appliances") or []]
         if not appliances:
             return flask.jsonify({"choices": []})
+        if body.get("credential"):
+            return _lookup(widget, appliances, body)
         from mast.datapower.datapower import Environment
         try:
             env = Environment(
@@ -224,6 +235,50 @@ def choices(widget):
                                               type(exc).__name__))
         return flask.jsonify({"choices": found})
     return flask.jsonify({"choices": dp_choices.choices(widget)})
+
+
+# How long a lookup with a stored credential may take, on top of the
+# timeout of its requests, before the answer says to look at its job
+LOOKUP_GRACE_SECONDS = 15
+
+
+def _lookup(widget, appliances, body):
+    """The objects of a `configured:<Class>` widget, asked by a
+    passive job with a stored credential."""
+    from mast.plugin_utils import choices as dp_choices
+    who = principal()
+    timeout = int(body.get("timeout") or 30)
+    params = dp_choices.lookup_params(
+        widget, appliances, str(body["credential"]),
+        no_check_hostname=body.get("no_check_hostname"), timeout=timeout)
+    _, found = catalog.find(dp_choices.LOOKUP_COMMAND)
+    jobs_auth.authorize(who, "submit", command=dp_choices.LOOKUP_COMMAND)
+    try:
+        model = found.model(**params)
+    except ValidationError as exc:
+        return error(422, "; ".join(cli_params.error_messages(
+            found.model, exc, flags=False)))
+    # Refusals of the credential (Forbidden) are answered with 403
+    job_id = jobs_client.start(dp_choices.LOOKUP_COMMAND, model,
+                               principal=who, passive=True)
+    deadline = time.monotonic() + timeout + LOOKUP_GRACE_SECONDS
+    info = queue.get(job_id, who)
+    while info.status not in FINISHED and time.monotonic() < deadline:
+        time.sleep(0.1)
+        info = queue.get(job_id, who)
+    what = widget.split(":", 1)[1]
+    if info.status not in FINISHED:
+        return error(504, "The appliances did not answer in time for {}. "
+                          "See the job {}.".format(what, job_id))
+    if info.status != SUCCEEDED:
+        return error(502, "The appliances could not be asked for {}: {} "
+                          "(job {})".format(what, (info.error or info.status)
+                                            .splitlines()[0][:200], job_id))
+    found_result = queue.result(job_id, who)
+    return flask.jsonify({
+        "choices": dp_choices.from_result(
+            found_result.data if found_result else None),
+        "job_id": job_id})
 
 
 def _upload_path(token):

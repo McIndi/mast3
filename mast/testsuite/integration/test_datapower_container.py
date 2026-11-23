@@ -183,6 +183,25 @@ class TestDomains(ContainerTestCase):
         names = [x.text for x in status.xml.findall(".//Domain")]
         self.assertNotIn("lifecycle", names)
 
+    def test_list_objects(self):
+        """The command that fills the lists of objects in the web UI
+        finds a domain that was just made, on the appliance."""
+        from unittest import mock
+        from mast.datapower import system
+        from mast.plugin_utils import choices
+        self.fresh_domain("listed")
+
+        class Env(object):
+            def __init__(env, *args, **kwargs):
+                env.appliances = [self.dp]
+
+        with mock.patch("mast.plugin_utils.params.Environment", Env):
+            result = system.list_objects(
+                appliances=["dp"], credentials=["x:y"], ObjectClass="Domain")
+        names = choices.from_result(result.data())
+        self.assertIn("listed", names)
+        self.assertIn("default", names)
+
     def test_invalid_action_parameter(self):
         with self.assertRaises(ValueError):
             self.dp.SaveConfig(not_a_parameter="x")

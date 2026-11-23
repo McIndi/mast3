@@ -208,10 +208,11 @@ def _show_end(info, result, interrupted):
     return 1
 
 
-def start(command, params, principal=queue.LOCAL, job_id=None):
+def start(command, params, principal=queue.LOCAL, job_id=None,
+          passive=False):
     """
     _function_: `mast.jobs.client.start(command, params,
-    principal=LOCAL, job_id=None)`
+    principal=LOCAL, job_id=None, passive=False)`
 
     Put a job in the queue, make sure that it will be done, and return
     its id at once. The web GUI uses this. The caller then asks the
@@ -227,11 +228,14 @@ def start(command, params, principal=queue.LOCAL, job_id=None):
     stops before that, the job is cancelled. The browser that shows
     the job does not have to stay open.
 
-    `job_id` is the id for the job, see `mast.jobs.queue.submit`.
+    `job_id` is the id for the job, and `passive` makes a job that
+    neither waits for nor holds up the other jobs of its appliances; see
+    `mast.jobs.queue.submit`.
     """
     worker_id = runner.new_worker_id()
     job_id = queue.submit(
-        command, params, principal=principal, attached=True, job_id=job_id)
+        command, params, principal=principal, attached=True, job_id=job_id,
+        passive=passive)
     monitor = _Monitor(job_id, worker_id)
     threading.Thread(
         target=monitor.run, name="mast-job-{}".format(job_id[:8]),

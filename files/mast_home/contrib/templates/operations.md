@@ -485,7 +485,10 @@ and its downloads. An operator can cancel their own jobs, an admin
 any job.
 * **Commands** (operator): every command, with a form made from its
 options. The target bar at the top holds the appliances and the
-credentials for the next command. The browser keeps only the names
+credentials for the next command. A list of what is configured on the
+appliances (the domains, for example) is asked from them with those
+credentials; with a stored credential, that is a short job of
+`system.list-objects`, which the Jobs page shows like any other. The browser keeps only the names
 of the appliances (in the tab, until it is closed); a password stays
 in the page and is sent only when you run a command. Running a
 command opens its job.

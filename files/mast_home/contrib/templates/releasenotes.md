@@ -111,6 +111,10 @@ it does not, and shows how to make a DataPower user that may only read,
 for a `collect` credential (one access policy, `*/*/*?Access=r`).
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.
+* `mast-system list-objects -O CLASS` lists the objects of a class on
+the appliances, and whether every appliance has each one. With a
+stored credential in the target bar, the Commands page fills its lists
+of domains and other objects with it, as a job.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the

@@ -1728,6 +1728,45 @@ domain on the specified appliances."""
             domain=params.Domain),
         params.ObjectClass, t.timestamp)
     return _deliver(result, params.out_file, env)
+
+
+class ListObjects(ApplianceParams):
+    ObjectClass: str = Option(
+        short="O", widget=OBJECT_CLASS,
+        help="The class of the objects, for example Domain or "
+             "XMLFirewallService")
+    Domain: str = Option(
+        'default', short="D", widget=configured("Domain"),
+        help="The domain whose objects to list")
+
+
+# The columns of the result of list-objects. The web UI reads the first
+# two to fill its lists (mast.web.api.choices).
+OBJECTS_HEADER = ("Name", "On every appliance", "Appliances")
+
+
+@cli.command('list-objects', category='auditing', exclusive=False)
+def list_objects(params: ListObjects):
+    """Lists the objects of one class on the specified appliances, and
+whether every appliance has each one. The web UI fills its lists of
+objects (the domains, for example) with this command."""
+    env = params.environment()
+    found = {}
+    for appliance in env.appliances:
+        response = appliance.get_status("ObjectStatus", domain=params.Domain)
+        names = set()
+        for node in response.xml.findall(
+                datapower.STATUS_XPATH + "ObjectStatus"):
+            _class, name = node.find("Class"), node.find("Name")
+            if _class is not None and name is not None \
+                    and _class.text == params.ObjectClass:
+                names.add(name.text)
+        found[appliance.hostname] = names
+    every = set.intersection(*found.values()) if found else set()
+    rows = [(name, "yes" if name in every else "no",
+             ", ".join(host for host in found if name in found[host]))
+            for name in sorted(set().union(*found.values()))]
+    return Table(OBJECTS_HEADER, rows, history=history(env))
 #
 # ~#~#~#~#~#~#~#
 

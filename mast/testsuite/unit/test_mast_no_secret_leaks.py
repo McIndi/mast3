@@ -15,8 +15,9 @@
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
 No secret leaks: a stored credential whose password is a unique marker
-is used in every way that MAST offers (a job of the web UI, a job of a
-worker, a job that fails, a command that repeats the password, a test
+is used in every way that MAST offers (a job of the web UI, a list of
+the objects on the appliances for a form, a job of a worker, a job that
+fails, a command that repeats the password, a test
 of the credential, a schedule, a new password, a new key). Then the
 marker, in any of its encodings, must be nowhere:
 
@@ -172,6 +173,12 @@ class TestNoSecretLeaks(WebCase):
                          jobs.get(job_ids[-1]).error)
         self.assertGreater(self.soma.requests, 0)
 
+        # A list of the objects on the appliances, for a form
+        answer = self.call("POST", "/choices/configured:Domain", {
+            "appliances": ["dp-fake"], "credential": "leaky"}, client=operator)
+        self.assertEqual(answer.status_code, 200, answer.get_data(as_text=True))
+        job_ids.append(answer.get_json()["job_id"])
+
         # A job of a worker that fails before it sends anything
         job_ids.append(jobs.submit("system.list-domains", {
             "appliances": ["dp-changed"], "credential": "leaky"},
@@ -318,13 +325,13 @@ class TestNoSecretLeaks(WebCase):
         for path in ("/api/v1/jobs", "/api/v1/credentials",
                      "/api/v1/schedules", "/api/v1/appliances",
                      "/api/v1/jobs/{}/result".format(job_ids[0]),
-                     "/api/v1/jobs/{}/events".format(job_ids[2]),
-                     "/api/v1/jobs/{}/history".format(job_ids[2]),
+                     "/api/v1/jobs/{}/events".format(job_ids[3]),
+                     "/api/v1/jobs/{}/history".format(job_ids[3]),
                      "/api/v1/credentials/leaky/uses",
                      "/api/v1/credentials/leaky/audit"):
             self.assertIn(path, checked)
         # And the credential was really used, with the second password
-        self.assertGreaterEqual(len(store.uses("leaky")), 4)
+        self.assertGreaterEqual(len(store.uses("leaky")), 5)
 
 
 class TestNoSecretLeaksPostgres(PostgresMixin, TestNoSecretLeaks):

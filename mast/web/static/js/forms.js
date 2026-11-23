@@ -105,8 +105,9 @@ function control(option, id, context) {
 
 // A select whose values come from POST /api/v1/choices/<widget>. A choice
 // from what is configured on the appliances needs the appliances and the
-// credentials of the target bar; if they cannot be asked, the user types the
-// value.
+// credentials (or the stored credential) of the target bar; with a stored
+// credential the server asks the appliances in a job. If they cannot be
+// asked, the user types the value.
 function choicesControl(option, id, context) {
     const many = option.kind === "list";
     const select = el("select", {className: "form-select form-select-sm", id: id, multiple: many});
@@ -117,20 +118,28 @@ function choicesControl(option, id, context) {
     const refresh = el("button", {type: "button", className: "btn btn-sm btn-link p-0 ms-2"}, "Reload");
     const configured = option.widget.startsWith("configured:");
     let typed = false;
+    // Only the answer of the last request counts: the target bar can change
+    // while a slower one is on its way
+    let asked = 0;
 
     async function fill() {
-        note.textContent = "Loading…";
-        if (configured && (!targets.appliances().length || !targets.credentials().length)) {
-            note.textContent = targets.storedCredential()
-                ? "With a stored credential, type a value. A list from the appliances needs a typed user name and password."
-                : "Add appliances and credentials to the target bar to choose from what is configured on them, or type a value.";
+        const stored = configured ? targets.storedCredential() : null;
+        const mine = ++asked;
+        note.textContent = stored ? "Asking the appliances with the stored credential…" : "Loading…";
+        if (configured && (!targets.appliances().length || (!stored && !targets.credentials().length))) {
+            note.textContent = "Add appliances and credentials to the target bar to choose from what is configured on them, or type a value.";
             useText(true);
             return;
         }
+        const body = {appliances: targets.appliances(), no_check_hostname: targets.noCheckHostname()};
+        if (stored) {
+            body.credential = stored;
+        } else {
+            body.credentials = targets.credentials();
+        }
         try {
-            const answer = await api.post("/choices/" + encodeURIComponent(option.widget), {
-                appliances: targets.appliances(), credentials: targets.credentials(),
-                no_check_hostname: targets.noCheckHostname()});
+            const answer = await api.post("/choices/" + encodeURIComponent(option.widget), body);
+            if (mine !== asked) return;
             select.replaceChildren();
             if (!many && !option.required) select.append(el("option", {value: ""}, ""));
             for (const value of answer.choices) {
@@ -139,6 +148,7 @@ function choicesControl(option, id, context) {
             note.textContent = configured ? "What every selected appliance has." : "";
             useText(false);
         } catch (error) {
+            if (mine !== asked) return;
             note.textContent = error.message + " Type a value instead.";
             useText(true);
         }
