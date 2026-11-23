@@ -360,25 +360,27 @@ class Request(object):
                 self._pointers[child.tag.split('}')[-1]] = new_node
                 self.__build_template(new_node, child)
 
-    def send(self, secure=True):
+    def send(self, secure=True, policy=None):
         """
         send: public function
             This function sends self.request_xml to self._url using self._creds
             for authentication and authorization. Currently only basic auth is
             supported.
+
+            `policy` (a `mast.datapower.datapower.tls.Policy`) says how
+            the certificate is checked, before the request is sent.
+            Without it, `secure` False is the policy "none" and True
+            is "ca".
         """
-        import ssl
-        context = ssl.create_default_context()
-        if not secure:
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
+        from mast.datapower.datapower import tls
+        if policy is None:
+            policy = tls.Policy(mode="ca" if secure else "none")
         xml = etree.tostring(self.request_xml.getroot(), encoding="UTF-8")
-        req = urllib.request.Request(url=self._url, data=xml)
         creds = _s(self._credentials.strip())
-        req.add_header('Authorization', 'Basic %s' % (creds))
-        response_xml = urllib.request.urlopen(req, timeout=self._timeout, context=context)
-        response_xml = response_xml.read()
-        return response_xml
+        return tls.post(policy, self._url, xml,
+                        headers={'Authorization': 'Basic %s' % (creds),
+                                 'Content-Type': 'text/xml'},
+                        timeout=self._timeout)
 
     ## Magic Methods
 

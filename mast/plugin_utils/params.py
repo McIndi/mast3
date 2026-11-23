@@ -120,9 +120,11 @@ class ApplianceOptions(Params):
     timeout: int = timeout_option()
     no_check_hostname: bool = Option(
         False, short="n",
-        help="If specified SSL verification will be turned off when "
-             "sending commands to the appliances. Not with a stored "
-             "credential (`--credential`).")
+        help="Turn off all checks of the TLS certificates of the "
+             "appliances, not only of the hostname, so that anyone "
+             "between MAST and an appliance can read the password. A "
+             "pinned certificate (mast-appliances pin) is still "
+             "checked. Not with a stored credential (`--credential`).")
 
     @model_validator(mode="after")
     def _one_kind_of_credentials(self):

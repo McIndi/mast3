@@ -22,13 +22,25 @@ mast-appliances env-add -n lab -m dp1 -m dp2
 set MAST_CREDS=username:password
 set XOR_MAST_CREDS=<from mast-system xor>
 
+# Pin the certificate and the SSH host key of dp1 (shows them and asks;
+# compare them with the appliance's console). A self-signed appliance
+# needs this before a stored credential works with it.
+mast-appliances pin -n dp1 --both
+mast-appliances list                          # dp1: pin, pinned
+
 # Or store a credential (asks for the password), test it, and use it.
-# The appliance's certificate must be one that the MAST host trusts.
+# The appliance's certificate must be pinned, or one that the MAST host trusts.
 mast-credentials add -n lab-read -u <a user that may only read> -p collect -b lab
 mast-credentials test -n lab-read -a dp1      # works; can change: no
 mast-system list-domains -a lab --credential lab-read
 mast-system save -a lab --credential lab-read # refused: only reads
 mast-credentials uses -n lab-read
+# Pin a wrong fingerprint: the job fails with "The certificate of dp1
+# changed" and sends nothing; list shows CHANGED. Then pin again.
+mast-appliances pin -n dp1 -f 0000000000000000000000000000000000000000000000000000000000000000
+mast-system list-domains -a dp1 --credential lab-read
+mast-appliances list
+mast-appliances pin -n dp1
 
 # Try ssh (choose one)
 mast-ssh -a lab -c %MAST_CREDS% -d default

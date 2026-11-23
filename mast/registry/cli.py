@@ -21,6 +21,8 @@ _module_: `mast.registry.cli`
 knows (see `mast.registry`).
 
 * `add`, `update`, `remove`, `list`: The appliances.
+* `pin`, `unpin`: The pinned TLS certificate and SSH host key of an
+appliance (see `mast.datapower.datapower.tls`).
 * `env-add`, `env-update`, `env-set-members`, `env-remove`, `env-list`:
 The environments.
 * `import`: Move `hosts.conf`, `environments.conf` and the sections of
@@ -82,6 +84,10 @@ class Settings(Params):
                    "ca (a trusted certificate authority), pin (the "
                    "certificate that mast-appliances pin stored) or none "
                    "(not at all; stored credentials are refused).")
+    ca_bundle_file: str | None = Option(
+        None, help="A PEM file with the certificate authorities that sign "
+                   "the certificate of the appliance, for the TLS check "
+                   "ca. The default is the trust store of the system.")
     poll: YesNo | None = Option(
         None, help="Collect the status of the appliance.")
     notes: str | None = Option(None, help="Notes about the appliance.")
@@ -89,6 +95,12 @@ class Settings(Params):
 
 def _fields(params, clear=()):
     values = {}
+    if getattr(params, "ca_bundle_file", None):
+        try:
+            with open(params.ca_bundle_file, encoding="utf-8") as fin:
+                values["ca_bundle"] = fin.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            _fail("Cannot read {}: {}".format(params.ca_bundle_file, exc))
     for field in registry.FIELDS:
         value = getattr(params, field, None)
         if value is None:
@@ -115,8 +127,11 @@ class Update(NameParams, Settings):
 
 def _show(appliance):
     lines = ["{} ({})".format(appliance.name, appliance.address)]
-    for field in registry.FIELDS + ("environments",):
+    for field in registry.FIELDS + ("pin_sha256", "ssh_host_key", "environments"):
         value = getattr(appliance, field)
+        if field == "ca_bundle" and value:
+            value = "{} certificate(s)".format(
+                value.count("-----BEGIN CERTIFICATE-----"))
         if value not in (None, "", []) and field != "address":
             lines.append("  {}: {}".format(
                 field, " ".join(value) if isinstance(value, list) else value))
@@ -150,17 +165,153 @@ def remove(params: NameParams):
 
 @cli.command("list")
 def list_appliances(params: Params):
-    """List the appliances."""
+    """List the appliances. CHANGED: the last connection found another
+    certificate or SSH host key than the pinned one."""
     found = registry.list_appliances()
     if not found:
         return Text("There are no appliances. Add one with "
                     "mast-appliances add, or import hosts.conf and "
                     "environments.conf with mast-appliances import.")
+    def check(mode, mismatch):
+        return mode + (" CHANGED" if mismatch else "")
+
     return Table(
-        ("Name", "Address", "SOMA port", "TLS", "Poll", "Environments"),
-        [(a.name, a.address, a.soma_port or "", a.tls_mode,
+        ("Name", "Address", "SOMA port", "TLS", "SSH key", "Poll",
+         "Environments"),
+        [(a.name, a.address, a.soma_port or "",
+          check(a.tls_mode, a.tls_mismatch),
+          check("pinned" if a.ssh_host_key else "", a.ssh_mismatch).strip(),
           "yes" if a.poll else "", " ".join(a.environments))
          for a in found])
+
+
+class Pin(NameParams):
+    ssh: bool = Option(
+        False, help="Pin the SSH host key, not the TLS certificate.")
+    both: bool = Option(
+        False, help="Pin the TLS certificate and the SSH host key.")
+    fingerprint: str | None = Option(
+        None, short="f",
+        help="Pin this fingerprint, which you checked on the appliance, "
+             "without connecting: the SHA-256 of the certificate (hex), "
+             "or with --ssh the SHA256:... of the host key, as "
+             "ssh-keygen -l shows it.")
+    yes: bool = Option(False, short="y", help="Do not ask to confirm.")
+
+
+def _confirm(question, yes):
+    if yes:
+        return True
+    try:
+        answer = input(question + " [y/N] ")
+    except EOFError:
+        answer = ""
+    return answer.strip().lower() in ("y", "yes")
+
+
+@cli.command("pin")
+def pin(params: Pin):
+    """Pin the TLS certificate of the SOMA port of an appliance, and so
+    check its TLS by that pin (the TLS check pin), or with --ssh its SSH
+    host key. This is how a stored credential can be used with an
+    appliance that has a self-signed certificate.
+
+    It connects to the appliance (without a credential), shows the
+    certificate or the host key and asks to confirm. Check what it
+    shows on the appliance itself, for example on its console (show
+    crypto ... or the SSH banner), before you confirm. With
+    --fingerprint it pins the fingerprint that you give and does not
+    connect."""
+    # Imported here: reading a certificate is of the DataPower code
+    from mast.datapower.datapower import tls
+    from mast.jobs.auth import LOCAL
+    if params.both and params.fingerprint:
+        _fail("--fingerprint is for one pin: give it with or without "
+              "--ssh, not with --both.")
+    record = _do(registry.get, params.name)
+    kinds = ["tls", "ssh"] if params.both else (
+        ["ssh"] if params.ssh else ["tls"])
+    lines = []
+    if params.fingerprint:
+        try:
+            if kinds == ["ssh"]:
+                value = tls.normalize_ssh_pin(params.fingerprint)
+                if not value.startswith("SHA256:"):
+                    raise ValueError("give the SHA256:... fingerprint")
+            else:
+                value = tls.normalize_fingerprint(params.fingerprint)
+        except ValueError as exc:
+            _fail(exc)
+        if kinds == ["ssh"]:
+            _do(registry.pin_ssh, params.name, value, LOCAL.name)
+            return Text("Pinned the SSH host key {} of {}.".format(
+                value, params.name))
+        _do(registry.pin_tls, params.name, value, LOCAL.name)
+        return Text("Pinned the certificate {} of {}. Its TLS check is "
+                    "pin.".format(value, params.name))
+    found = tls.preview(record, tls="tls" in kinds, ssh="ssh" in kinds)
+    failed = False
+    if "tls" in found:
+        cert = found["tls"]
+        if "error" in cert:
+            print(cert["error"])
+            failed = True
+        else:
+            print("The certificate of {} ({}:{}):".format(
+                params.name, record.address, cert["port"]))
+            for label, key in (("Subject", "subject"), ("Issuer", "issuer"),
+                               ("Valid from", "not_before"),
+                               ("Valid until", "not_after"),
+                               ("SHA-256", "sha256")):
+                print("  {:12} {}".format(label + ":", cert[key]))
+            if _confirm("Pin this certificate?", params.yes):
+                _do(registry.pin_tls, params.name, cert["sha256"], LOCAL.name)
+                lines.append("Pinned the certificate of {}. Its TLS check "
+                             "is pin.".format(params.name))
+            else:
+                lines.append("The certificate of {} was not pinned.".format(
+                    params.name))
+    if "ssh" in found:
+        key = found["ssh"]
+        if "error" in key:
+            print(key["error"])
+            failed = True
+        else:
+            print("The SSH host key of {} ({}:{}):".format(
+                params.name, record.address, key["port"]))
+            print("  {:12} {}".format("Type:", key["type"]))
+            print("  {:12} {}".format("Fingerprint:", key["fingerprint"]))
+            if _confirm("Pin this host key?", params.yes):
+                _do(registry.pin_ssh, params.name, key["key"], LOCAL.name)
+                lines.append("Pinned the SSH host key of {}.".format(
+                    params.name))
+            else:
+                lines.append("The SSH host key of {} was not pinned.".format(
+                    params.name))
+    if failed:
+        if lines:
+            print("\n".join(lines))
+        sys.exit(1)
+    return Text("\n".join(lines))
+
+
+class Unpin(NameParams):
+    ssh: bool = Option(False, help="Remove the pinned SSH host key.")
+    both: bool = Option(
+        False, help="Remove the pinned certificate and SSH host key.")
+
+
+@cli.command("unpin")
+def unpin(params: Unpin):
+    """Remove the pinned certificate of an appliance (its TLS check
+    becomes ca), or with --ssh its pinned SSH host key."""
+    tls = params.both or not params.ssh
+    ssh = params.both or params.ssh
+    _do(registry.unpin, params.name, tls=tls, ssh=ssh)
+    return Text("Removed the {} of {}.".format(
+        " and the ".join(
+            ([] if not tls else ["pinned certificate"]) +
+            ([] if not ssh else ["pinned SSH host key"])), params.name))
 
 
 class EnvParams(Params):

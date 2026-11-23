@@ -56,6 +56,8 @@ VIEWER = Principal("victor", "viewer")
 
 # What the commands of the test namespace got as credentials
 seen = []
+# Whether they ran inside mast.cli.results.stored_credential
+strict = []
 
 
 class Look(ApplianceOptions):
@@ -68,7 +70,9 @@ def make_cli():
     @cli.command("look", exclusive=False)
     def look(params: Look):
         """Only read; repeat the password in every form."""
+        from mast.cli.results import using_stored_credential
         seen[:] = params.credentials
+        strict[:] = [using_stored_credential()]
         password = params.credentials[0].partition(":")[2] \
             if params.credentials else ""
         forms = "{} {} {}".format(
@@ -467,6 +471,18 @@ class TestUse(CredentialsCase):
                          ["dp1", "dp2"])
         self.assertEqual({u.job_id for u in store.uses("ro")}, {job_id})
         self.assertEqual({u.principal for u in store.uses("ro")}, {"olga"})
+
+    def test_a_job_with_it_checks_every_connection(self):
+        # mast.datapower.datapower.tls refuses unchecked connections
+        # inside stored_credential
+        self.add()
+        self.submit()
+        jobs.run_next("w1")
+        self.assertEqual(strict, [True])
+        jobs.submit("credtest.look", {"appliances": ["dp1"],
+                                      "credentials": ["u:p"]})
+        jobs.run_next("w1")
+        self.assertEqual(strict, [False])
 
     def test_the_runner_checks_the_binding_again(self):
         self.add()

@@ -52,6 +52,7 @@ from mast.registry.models import (
 __all__ = [
     "Appliance", "EnvironmentRec", "RegistryError", "UnknownName",
     "NameTaken", "InvalidValue", "add", "update", "rename", "set_pin",
+    "pin_tls", "pin_ssh", "unpin", "flag_mismatch",
     "remove", "get", "by_name", "by_address", "is_address",
     "list_appliances", "env_add", "env_update", "env_remove",
     "env_set_members", "env_get", "env_by_name", "env_list",
@@ -124,6 +125,10 @@ class Appliance(BaseModel):
     ssh_host_key: str | None = None
     ssh_pinned_at: datetime | None = None
     ssh_pinned_by: str | None = None
+    tls_mismatch: str | None = None
+    tls_mismatch_at: datetime | None = None
+    ssh_mismatch: str | None = None
+    ssh_mismatch_at: datetime | None = None
     poll: bool = False
     notes: str = ""
     environments: list[str] = []
@@ -209,11 +214,33 @@ def _check_fields(fields):
     for text in ("soma_uri", "soma_spec_file", "ca_bundle"):
         if values.get(text) == "":
             values[text] = None
+    if values.get("ca_bundle") is not None:
+        _check_ca_bundle(values["ca_bundle"])
     if "notes" in values and values["notes"] is None:
         values["notes"] = ""
     if "poll" in values:
         values["poll"] = bool(values["poll"])
     return values
+
+
+def _check_ca_bundle(text):
+    import ssl
+    if not isinstance(text, str) or "-----BEGIN CERTIFICATE-----" not in text:
+        raise InvalidValue("ca_bundle is one or more PEM certificates "
+                           "(-----BEGIN CERTIFICATE-----).")
+    try:
+        ssl.create_default_context(cadata=text)
+    except (ssl.SSLError, ValueError) as exc:
+        raise InvalidValue("ca_bundle has no certificate that can be "
+                           "read: {}".format(exc))
+
+
+def _check_pin_mode(record):
+    if record.tls_mode == "pin" and not record.pin_sha256:
+        raise InvalidValue(
+            "The TLS check of {} cannot be pin before a certificate is "
+            "pinned. Pin it with mast-appliances pin -n {}.".format(
+                record.name, record.name))
 
 
 def _view(session, record):
@@ -293,6 +320,7 @@ def add(name, address=None, **fields):
             name=name, tls_mode=values.pop("tls_mode", "ca"),
             poll=values.pop("poll", False), notes=values.pop("notes", ""),
             created_at=now, updated_at=now, **values)
+        _check_pin_mode(record)
         session.add(record)
         session.flush()
         return _view(session, record)
@@ -312,6 +340,7 @@ def update(name, **fields):
             if field == "tls_mode" and value is None:
                 value = "ca"
             setattr(record, field, value)
+        _check_pin_mode(record)
         record.updated_at = _now()
         session.flush()
         return _view(session, record)
@@ -355,6 +384,98 @@ def set_pin(name, **fields):
         record.updated_at = _now()
         session.flush()
         return _view(session, record)
+
+
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def pin_tls(name, sha256, principal):
+    """
+    _function_: `mast.registry.pin_tls(name, sha256, principal)`
+
+    Pin the certificate with the SHA-256 `sha256` (64 lowercase hex
+    digits) for the appliance `name`, and check its TLS by that pin
+    from now on (`tls_mode` `pin`). `principal` pinned it. A flag of an
+    earlier mismatch is cleared.
+    """
+    if not isinstance(sha256, str) or not _SHA256.match(sha256):
+        raise InvalidValue("A pin is the SHA-256 of the certificate, 64 "
+                           "lowercase hex digits.")
+    with db.session() as session:
+        record = _require(session, name)
+        record.pin_sha256 = sha256
+        record.pinned_at = _now()
+        record.pinned_by = principal
+        record.tls_mode = "pin"
+        record.tls_mismatch = None
+        record.tls_mismatch_at = None
+        record.updated_at = record.pinned_at
+        session.flush()
+        return _view(session, record)
+
+
+def pin_ssh(name, host_key, principal):
+    """
+    _function_: `mast.registry.pin_ssh(name, host_key, principal)`
+
+    Pin the SSH host key `host_key` (`"<type> <base64>"`, or the
+    OpenSSH fingerprint `SHA256:...`) for the appliance `name`.
+    `principal` pinned it. A flag of an earlier mismatch is cleared.
+    """
+    if not isinstance(host_key, str) or not host_key.strip() \
+            or len(host_key) > 16384:
+        raise InvalidValue("A host key is '<type> <base64>' or SHA256:...")
+    with db.session() as session:
+        record = _require(session, name)
+        record.ssh_host_key = host_key.strip()
+        record.ssh_pinned_at = _now()
+        record.ssh_pinned_by = principal
+        record.ssh_mismatch = None
+        record.ssh_mismatch_at = None
+        record.updated_at = record.ssh_pinned_at
+        session.flush()
+        return _view(session, record)
+
+
+def unpin(name, tls=False, ssh=False):
+    """
+    _function_: `mast.registry.unpin(name, tls=False, ssh=False)`
+
+    Remove the pinned certificate (`tls`; the TLS check becomes `ca`)
+    and/or the pinned SSH host key (`ssh`) of the appliance `name`.
+    """
+    with db.session() as session:
+        record = _require(session, name)
+        if tls:
+            record.pin_sha256 = record.pinned_at = record.pinned_by = None
+            record.tls_mismatch = record.tls_mismatch_at = None
+            if record.tls_mode == "pin":
+                record.tls_mode = "ca"
+        if ssh:
+            record.ssh_host_key = None
+            record.ssh_pinned_at = record.ssh_pinned_by = None
+            record.ssh_mismatch = record.ssh_mismatch_at = None
+        record.updated_at = _now()
+        session.flush()
+        return _view(session, record)
+
+
+def flag_mismatch(name, kind, got):
+    """
+    _function_: `mast.registry.flag_mismatch(name, kind, got)`
+
+    Remember that the appliance `name` showed `got` (the SHA-256 of a
+    certificate for `kind` `"tls"`, the fingerprint of a host key for
+    `"ssh"`), which is not what was pinned. An unknown name is ignored.
+    """
+    if kind not in ("tls", "ssh"):
+        raise ValueError("kind is tls or ssh")
+    with db.session() as session:
+        record = _appliance(session, name)
+        if record is None:
+            return
+        setattr(record, kind + "_mismatch", str(got)[:100])
+        setattr(record, kind + "_mismatch_at", _now())
 
 
 def remove(name):

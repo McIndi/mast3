@@ -25,8 +25,9 @@ Management Interface (ssh).
 from mast.util import _s, _b
 from .dpSOMALib import SomaRequest as Request
 from .WSClientLib import etree
+from . import tls as _tls
 from mast.logging import make_logger, logged
-from mast.cli.results import checkpoint
+from mast.cli.results import checkpoint, say
 # from lxml import etree
 from functools import partial, wraps
 from mast.timestamp import Timestamp
@@ -579,9 +580,10 @@ class DataPower(object):
                  ssh_port=global_config.getint("global", "ssh_port"),
                  environment=None,
                  check_hostname=True,
-                 retry_interval=global_config.getint("global", "retry_interval")):
+                 retry_interval=global_config.getint("global", "retry_interval"),
+                 tls=None):
         """
-        _method_: `mast.datapower.datapower.DataPower.__init__(self, hostname, credentials, domain='default', scheme='https', port='5550', uri='/service/mgmt/current', test_case='etc/v7000-xi52.xml', web_port='9090', ssh_port=22, environment=None, check_hostname=True)`
+        _method_: `mast.datapower.datapower.DataPower.__init__(self, hostname, credentials, domain='default', scheme='https', port='5550', uri='/service/mgmt/current', test_case='etc/v7000-xi52.xml', web_port='9090', ssh_port=22, environment=None, check_hostname=True, retry_interval=..., tls=None)`
 
         Description:
 
@@ -612,15 +614,21 @@ class DataPower(object):
         * `ssh_port`: the port (as an int) of the CLI Management Interface (SSH)
         * `environment`: The environment you want this instance to be associated
         with in the logs.
-        * `check_hostname`: If `False` hostname verification will be disabled
-        for TLS. Defaults to `True`
+        * `check_hostname`: `False` is the same as `tls="none"`.
+        * `tls`: How the TLS certificate is checked (see
+        `mast.datapower.datapower.tls`): None (what the registry says;
+        `ca` for an unregistered address), `"ca"`, `"pin"` or `"none"`
+        (not at all; a pinned certificate is still checked).
         """
         # Imported here: mast.registry uses the job database, which a
         # program that only imports this module does not need
         from mast import registry
         self.session_id = random.randint(1000000, 9999999)
         self.correlation_id = None
-        self.check_hostname = check_hostname
+        if tls is None and not check_hostname:
+            tls = "none"
+        self.tls = tls
+        self.check_hostname = tls != "none"
         self._history = []
         self.hostname = _s(hostname)
         # A name in the appliance registry has its own address and
@@ -628,6 +636,7 @@ class DataPower(object):
         from mast.registry.files import warn_legacy
         warn_legacy()
         record = registry.by_name(self.hostname)
+        self._record = record
         self.registered = record is not None
         self._hostname = _s(record.address) if record else _s(hostname)
 
@@ -682,6 +691,16 @@ class DataPower(object):
 
         # Compatability
         self.list_dir = self.get_filestore
+
+    @property
+    def tls_policy(self):
+        """
+        _method_: `mast.datapower.datapower.DataPower.tls_policy`
+
+        The `mast.datapower.datapower.tls.Policy` for the SOMA port of
+        this appliance.
+        """
+        return _tls.policy_for(self.hostname, self._record, self.tls)
 
     def __str__(self):
         """
@@ -804,9 +823,16 @@ class DataPower(object):
             self._ssh = paramiko.SSHClient()
             username, password = _s(self.credentials).split(':', 1)
 
+            # The host key is checked after the key exchange and before
+            # the login, see mast.datapower.datapower.tls.host_key_policy
             ssh_config = get_config("ssh.conf")
-            if ssh_config.getboolean("ssh", "auto_add_keys"):
-                self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            record = self._record
+            self._ssh.set_missing_host_key_policy(_tls.host_key_policy(
+                self.hostname,
+                pinned=record.ssh_host_key if record is not None else None,
+                registered=record is not None,
+                auto_add=ssh_config.getboolean("ssh", "auto_add_keys"),
+                warn=self._warn_host_key))
             try:
                 self.log_debug("Attempting to initialize SSH subsystem")
                 self._ssh.connect(
@@ -843,6 +869,10 @@ class DataPower(object):
             self.log_error('SSH connection failed: %s' % (e))
             raise
         return resp
+
+    def _warn_host_key(self, message):
+        self.log_warn(message)
+        say("Warning:", message)
 
     @correlate
     @logged("audit")
@@ -1138,9 +1168,15 @@ class DataPower(object):
         self.log_debug("Sending the request to the appliance.")
         # print(self.request)
         try:
-            self.last_response = self.request.send(secure=self.check_hostname)
+            self.last_response = self.request.send(policy=self.tls_policy)
             if "Authentication failure" in self.last_response.decode():
                 raise AuthenticationFailure(self.last_response)
+        except _tls.TLSError as e:
+            # Nothing was sent: trying again cannot help
+            _hist["response"] = str(e)
+            self._history.append(_hist)
+            self.log_error(str(e))
+            raise
         except Exception as e:
             _hist["response"] = str(e).replace("\n", "").replace("\r", "")
             if hasattr(e, "read"):
@@ -1154,7 +1190,7 @@ class DataPower(object):
                     self.log_info("Retrying in {} seconds".format(self.retry_interval))
                     sleep(self.retry_interval)
                     checkpoint()
-                    self.last_response = self.request.send(secure=self.check_hostname)
+                    self.last_response = self.request.send(policy=self.tls_policy)
                     if b"Authentication failure" in self.last_response:
                         raise AuthenticationFailure(self.last_response)
                 except Exception as retry_error:
@@ -1469,11 +1505,13 @@ class DataPower(object):
         This method accepts no arguments
         """
         import urllib.request, urllib.error, urllib.parse
-        import ssl
-        context = ssl.create_default_context()
-        if not self.check_hostname:
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
+        # Only a page is asked for, without a credential. The WebGUI can
+        # have another certificate than SOMA, so a pin of SOMA is not
+        # checked here; a trusted authority is.
+        policy = self.tls_policy
+        if policy.mode != "ca":
+            policy = _tls.Policy(mode="none", name=self.hostname)
+        context = _tls.context_for(policy)
         url = 'https://' + self._hostname + ':' + str(self.web_port)
         try:
             test = urllib.request.urlopen(url, context=context)
@@ -4011,11 +4049,6 @@ xmlns:dp="http://www.datapower.com/schemas/appliance/management/3.0">
       </dp:SetFirmwareRequest>
    </soapenv:Body>
 </soapenv:Envelope>"""
-        import ssl
-        context = ssl.create_default_context()
-        if not self.check_hostname:
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
         if AcceptLicense:
             self.log_info("AcceptLicense is set to True")
             tpl = tpl.replace("%AcceptLicense%", "<dp:AcceptLicense />")
@@ -4026,15 +4059,13 @@ xmlns:dp="http://www.datapower.com/schemas/appliance/management/3.0">
         url = "https://{}:{}/service/mgmt/amp/3.0".format(
             self._hostname, self.port)
         creds = self.request._credentials.strip()
-        req = urllib.request.Request(
-            url=url,
-            data=tpl.encode(),
+        checkpoint()
+        response_xml = _tls.post(
+            self.tls_policy, url, tpl.encode(),
             headers={
                 'Content-Type': 'text/xml',
-                'Authorization': 'Basic {}'.format(creds)})
-        checkpoint()
-        response_xml = urllib.request.urlopen(req, timeout=timeout, context=context)
-        response_xml = response_xml.read()
+                'Authorization': 'Basic {}'.format(_s(creds))},
+            timeout=timeout)
         return AMPBooleanResponse(response_xml)
 
 

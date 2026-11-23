@@ -34,12 +34,20 @@ are gone.
 * A job records the registered name of each appliance it talks to (an
 address of a registered appliance counts as that appliance), where it
 recorded the address before.
+* **MAST checks the SSH host key of a registered appliance that has a
+pinned one**, and refuses another key before it logs in. Without a pin
+it behaves as before (`auto_add_keys` of `ssh.conf`), with a warning.
+* `--no-check-hostname` turns off every check of the certificate, as
+it did before, except for a pinned certificate, which is always
+checked. Its help now says so.
+* SOMA requests are sent with `Content-Type: text/xml`.
 * `/classic/config/<file>` no longer serves `server.conf` and
 `jobs.conf`, which can hold keys and the password of the database.
 * The job database gets new tables, `users`, `appliances`,
 `environments`, `environment_members`, `credentials`,
-`credential_bindings`, `credential_uses` and `audit_events`, and a new column,
-`job_results.data` (the result of a job as a table, for the web UI).
+`credential_bindings`, `credential_uses` and `audit_events`, and new
+columns: `job_results.data` (the result of a job as a table, for the
+web UI) and four in `appliances` for a pin that did not match.
 MAST adds them when it starts. To go back to MAST 3.15.2.x, stop every
 MAST process of the home, run `./mast-appliances export` (it writes
 `hosts.conf`, `environments.conf` and `appliances.conf` again), then
@@ -71,6 +79,12 @@ Operators may use credentials for collecting with commands that only
 read; only admins use credentials for changing. Every use and every
 change is recorded. The target bar of the Commands page offers the
 credentials that fit its appliances.
+* **Pinning**: `mast-appliances pin` shows the certificate and the SSH
+host key of an appliance and pins them, so that a self-signed
+appliance is checked too; `unpin` removes them. Admin → Appliances has
+a **Pin** button. A certificate or a host key that changed fails the
+job before any password is sent, and marks the appliance. `mast-appliances
+update --ca-bundle-file` sets the authorities for the TLS check `ca`.
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,

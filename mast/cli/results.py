@@ -44,7 +44,8 @@ import contextvars
 import html
 
 __all__ = ["Result", "Text", "Table", "say", "captured", "listening",
-           "checkpoint", "guarded",
+           "checkpoint", "guarded", "stored_credential",
+           "using_stored_credential",
            "SUCCEEDED", "PARTIAL", "FAILED"]
 
 # The values of Result.outcome. The job queue uses the same words for
@@ -55,6 +56,7 @@ FAILED = "failed"
 
 _sink = contextvars.ContextVar("mast_cli_sink", default=None)
 _guard = contextvars.ContextVar("mast_cli_guard", default=None)
+_stored = contextvars.ContextVar("mast_cli_stored_credential", default=False)
 
 
 def say(*parts):
@@ -118,6 +120,32 @@ def guarded(callback):
         yield
     finally:
         _guard.reset(token)
+
+
+@contextlib.contextmanager
+def stored_credential():
+    """
+    _function_: `mast.cli.results.stored_credential()`
+
+    A context manager in which the command runs with a stored
+    credential (see `mast.jobs.runner`). The code that connects to an
+    appliance then refuses every connection that does not check who
+    the appliance is (see `mast.datapower.datapower.tls`).
+    """
+    token = _stored.set(True)
+    try:
+        yield
+    finally:
+        _stored.reset(token)
+
+
+def using_stored_credential():
+    """
+    _function_: `mast.cli.results.using_stored_credential()`
+
+    True inside `stored_credential`.
+    """
+    return _stored.get()
 
 
 @contextlib.contextmanager

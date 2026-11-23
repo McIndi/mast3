@@ -61,13 +61,20 @@ def get_environment(name, credentials=None):
 class Environment(object):
     """Represents an arbitrary grouping of DataPower appliances"""
     def __init__(self, hostnames, credentials=None, timeout=120,
-        check_hostname=True):
+        check_hostname=True, tls=None):
         """Initializes the Environment with hostnames. If credentials are
         provided then initialize will be called to initialize the DataPower
-        appliances."""
+        appliances.
+
+        `tls` says how the TLS certificates are checked, see
+        `mast.datapower.datapower.DataPower`. `check_hostname` False is
+        the same as `tls="none"`."""
         self.hostnames = hostnames
         self.timeout = timeout
-        self.check_hostname = check_hostname
+        if tls is None and not check_hostname:
+            tls = "none"
+        self.tls = tls
+        self.check_hostname = tls != "none"
         if credentials is not None:
             self.credentials = credentials
             self.initialize()
@@ -96,12 +103,11 @@ class Environment(object):
                 for _appliance in _appliances:
                     self.appliances.append(
                         DataPower(_appliance, self.credentials[index],
-                            environment=hostname,
-                            check_hostname=self.check_hostname))
+                            environment=hostname, tls=self.tls))
             else:
                 self.appliances.append(
                     DataPower(hostname, self.credentials[index],
-                              check_hostname=self.check_hostname))
+                              tls=self.tls))
         for appliance in self.appliances:
             appliance.request.set_timeout(self.timeout)
 

@@ -60,10 +60,18 @@ class ApplianceRecord(Base):
     pin_sha256: Mapped[str | None] = mapped_column(String(64))
     pinned_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     pinned_by: Mapped[str | None] = mapped_column(String(200))
-    # "<type> <base64>" of the pinned SSH host key
+    # The pinned SSH host key: "<type> <base64>", or the OpenSSH
+    # fingerprint "SHA256:..." when it was pinned by fingerprint
     ssh_host_key: Mapped[str | None] = mapped_column(Text)
     ssh_pinned_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     ssh_pinned_by: Mapped[str | None] = mapped_column(String(200))
+    # What the appliance showed the last time a pin did not match (the
+    # SHA-256 of the certificate, the fingerprint of the host key). A
+    # new pin clears it.
+    tls_mismatch: Mapped[str | None] = mapped_column(String(64))
+    tls_mismatch_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    ssh_mismatch: Mapped[str | None] = mapped_column(String(100))
+    ssh_mismatch_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Collect the status of this appliance (see step B1)
     poll: Mapped[bool] = mapped_column(Boolean)
     notes: Mapped[str] = mapped_column(Text)
