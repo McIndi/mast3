@@ -35,7 +35,9 @@ are asked every `object_status_minutes`, and their objects that are
 down are kept in between.
 
 An object is down when it is enabled but not up. The objects that an
-admin disabled are not counted.
+admin disabled are not counted. A value that the appliance does not
+give is None: right after it starts, DataPower answers `CPUUsage` with
+an empty status.
 """
 import contextvars
 import re
