@@ -130,6 +130,11 @@ shows how to make that user), and test it:
 6. Start `mastd` (see "Installing mastd"), or `mast-web` and `mast-worker`, and log
 in to `https://<server>:5000/`. The Operator's Guide has a short tour of the web UI.
 
+7. Turn on "Collect status" for the appliances (Admin → Appliances, or
+`./mast-appliances update -n prod-dp1 --poll yes`), and start the polling with the
+stored credential on the Appliances page. From then on it shows the status of each
+appliance, as long as a worker runs.
+
 # Installing mastd
 
 The process of installing mastd as a service will vary depending on your target

@@ -140,13 +140,14 @@ class TestApiAccess(ApiCase):
         self.assertEqual(me["role"], "operator")
         self.assertEqual(me["csrf_token"], self.token())
         self.assertEqual([page["name"] for page in me["pages"]],
-                         ["jobs", "commands"])
+                         ["appliances", "jobs", "commands"])
         self.assertTrue(me["may"]["submit"])
         self.assertFalse(me["may"]["cancel-any"])
 
     def test_the_pages_of_each_role(self):
-        expected = {"viewer": ["jobs"], "operator": ["jobs", "commands"],
-                    "admin": ["jobs", "commands", "admin"]}
+        expected = {"viewer": ["appliances", "jobs"],
+                    "operator": ["appliances", "jobs", "commands"],
+                    "admin": ["appliances", "jobs", "commands", "admin"]}
         for role, pages in expected.items():
             with self.subTest(role=role):
                 client = self.app.test_client()
@@ -178,7 +179,8 @@ class TestPages(ApiCase):
 
     def test_home_goes_to_the_first_page(self):
         self.login("viewer")
-        self.assertEqual(self.client.get("/").location, "/jobs")
+        # The Appliances page of the DataPower plugin comes first
+        self.assertEqual(self.client.get("/").location, "/appliances")
 
     def test_the_navigation_shows_only_allowed_pages(self):
         self.login("operator")

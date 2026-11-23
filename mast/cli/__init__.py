@@ -102,9 +102,16 @@ class Command(object):
     * `queued`: False if the command must never go through the job
     queue. Such a command talks to no appliance, and its parameters
     or its result must not be stored.
+    * `passive`: True if its jobs neither wait for nor hold up other
+    jobs (see `mast.jobs.queue.submit`): a poll that only reads, such
+    as `mast-status collect`. Only with `exclusive=False`.
     """
     def __init__(self, name, fn, category, model, parser, exclusive=True,
-                 resources=None, queued=True):
+                 resources=None, queued=True, passive=False):
+        if passive and exclusive:
+            raise ValueError(
+                "{}: a passive command only reads (exclusive=False)".format(
+                    name))
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -114,6 +121,7 @@ class Command(object):
         self.exclusive = exclusive
         self.resources = resources
         self.queued = queued
+        self.passive = passive
 
     @property
     def doc(self):
@@ -263,7 +271,8 @@ class Cli(object):
         raise KeyError(key)
 
     def create_subparser(self, fn, name=None, category=None,
-                         exclusive=True, resources=None, queued=True):
+                         exclusive=True, resources=None, queued=True,
+                         passive=False):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -281,7 +290,7 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
-        * `exclusive`, `resources`, `queued`: See `Command`.
+        * `exclusive`, `resources`, `queued`, `passive`: See `Command`.
         """
         if not name:
             name = fn.__name__
@@ -308,7 +317,7 @@ class Cli(object):
             if not _parser.description:
                 _parser.description = desc
         command = Command(name, fn, category, model, _parser, exclusive,
-                          resources, queued)
+                          resources, queued, passive)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
@@ -329,7 +338,7 @@ class Cli(object):
         return fn
 
     def command(self, name=None, category=None, exclusive=True,
-                resources=None, queued=True):
+                resources=None, queued=True, passive=False):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -349,13 +358,15 @@ class Cli(object):
         job, besides its appliances. See `Command`.
         * `queued`: Give False for a command that must never go
         through the job queue. See `Command`.
+        * `passive`: Give True for a poll whose jobs neither wait for
+        nor hold up other jobs. See `Command`.
         """
         def inner(fn):
             if self.main is not None:
                 print("The Cli decorator cannot be used when main is specified")
                 sys.exit(-1)
             return self.create_subparser(
-                fn, name, category, exclusive, resources, queued)
+                fn, name, category, exclusive, resources, queued, passive)
         return inner
 
     def run(self, argv=None):

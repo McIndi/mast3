@@ -13,7 +13,14 @@
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
+"""
+mast status: the status of the appliances. `mast-status collect` keeps
+it in the job database for the Appliances page of the web UI
+(`mast.datapower.status.page`). The classic GUI has a status tab
+(`mast.datapower.status.status`).
+"""
 from .status import *
+from .collector import cli
 import os
 from mast import __version__
 

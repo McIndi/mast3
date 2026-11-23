@@ -16,7 +16,8 @@
 """
 No secret leaks: a stored credential whose password is a unique marker
 is used in every way that MAST offers (a job of the web UI, a list of
-the objects on the appliances for a form, a job of a worker, a job that
+the objects on the appliances for a form, a poll of the status of the
+appliances, a job of a worker, a job that
 fails, a command that repeats the password, a test
 of the credential, a schedule, a new password, a new key). Then the
 marker, in any of its encodings, must be nowhere:
@@ -179,6 +180,14 @@ class TestNoSecretLeaks(WebCase):
         self.assertEqual(answer.status_code, 200, answer.get_data(as_text=True))
         job_ids.append(answer.get_json()["job_id"])
 
+        # The status of the appliance, kept for the Appliances page
+        job_ids.append(jobs.submit("status.collect", {
+            "appliances": ["dp-fake"], "credential": "leaky",
+            "request_delay": 0}, principal=OPERATOR))
+        jobs.run_next("w-leak")
+        self.assertEqual(jobs.get(job_ids[-1]).status, jobs.SUCCEEDED,
+                         jobs.get(job_ids[-1]).error)
+
         # A job of a worker that fails before it sends anything
         job_ids.append(jobs.submit("system.list-domains", {
             "appliances": ["dp-changed"], "credential": "leaky"},
@@ -279,6 +288,8 @@ class TestNoSecretLeaks(WebCase):
         }
         if rule.startswith("/api/v1/credentials/"):
             values["name"] = ["leaky"]
+        elif rule.startswith("/api/v1/appliances-status/"):
+            values["name"] = ["dp-fake", "dp-changed"]
         elif rule.startswith("/api/v1/jobs/"):
             values["name"] = [f["name"] for job_id in job_ids
                               for f in self.client.get(
@@ -291,7 +302,10 @@ class TestNoSecretLeaks(WebCase):
         arguments."""
         checked = []
         for rule in self.app.url_map.iter_rules():
-            if "GET" not in rule.methods or rule.endpoint == "static":
+            # The static files (of the app and of a page's blueprint)
+            # hold no data
+            if "GET" not in rule.methods or rule.endpoint == "static" \
+                    or rule.endpoint.endswith(".static"):
                 continue
             values = self._values(rule.rule, job_ids)
             missing = [a for a in rule.arguments if not values.get(a)]
@@ -325,13 +339,15 @@ class TestNoSecretLeaks(WebCase):
         for path in ("/api/v1/jobs", "/api/v1/credentials",
                      "/api/v1/schedules", "/api/v1/appliances",
                      "/api/v1/jobs/{}/result".format(job_ids[0]),
-                     "/api/v1/jobs/{}/events".format(job_ids[3]),
-                     "/api/v1/jobs/{}/history".format(job_ids[3]),
+                     "/api/v1/jobs/{}/events".format(job_ids[4]),
+                     "/api/v1/jobs/{}/history".format(job_ids[4]),
+                     "/api/v1/appliances-status",
+                     "/api/v1/appliances-status/dp-fake",
                      "/api/v1/credentials/leaky/uses",
                      "/api/v1/credentials/leaky/audit"):
             self.assertIn(path, checked)
         # And the credential was really used, with the second password
-        self.assertGreaterEqual(len(store.uses("leaky")), 5)
+        self.assertGreaterEqual(len(store.uses("leaky")), 6)
 
 
 class TestNoSecretLeaksPostgres(PostgresMixin, TestNoSecretLeaks):

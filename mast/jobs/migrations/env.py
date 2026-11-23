@@ -27,6 +27,7 @@ from mast.jobs.models import Base
 import mast.auth.models  # noqa: F401
 import mast.registry.models  # noqa: F401
 import mast.credentials.models  # noqa: F401
+import mast.datapower.status.models  # noqa: F401
 
 def run():
     context.configure(

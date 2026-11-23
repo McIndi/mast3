@@ -45,7 +45,7 @@ import html
 
 __all__ = ["Result", "Text", "Table", "say", "captured", "listening",
            "checkpoint", "guarded", "stored_credential",
-           "using_stored_credential",
+           "using_stored_credential", "stored_credential_name",
            "SUCCEEDED", "PARTIAL", "FAILED"]
 
 # The values of Result.outcome. The job queue uses the same words for
@@ -123,16 +123,17 @@ def guarded(callback):
 
 
 @contextlib.contextmanager
-def stored_credential():
+def stored_credential(name=None):
     """
-    _function_: `mast.cli.results.stored_credential()`
+    _function_: `mast.cli.results.stored_credential(name=None)`
 
     A context manager in which the command runs with a stored
-    credential (see `mast.jobs.runner`). The code that connects to an
-    appliance then refuses every connection that does not check who
-    the appliance is (see `mast.datapower.datapower.tls`).
+    credential (see `mast.jobs.runner`), whose name is `name`. The code
+    that connects to an appliance then refuses every connection that
+    does not check who the appliance is (see
+    `mast.datapower.datapower.tls`).
     """
-    token = _stored.set(True)
+    token = _stored.set(name or True)
     try:
         yield
     finally:
@@ -145,7 +146,19 @@ def using_stored_credential():
 
     True inside `stored_credential`.
     """
-    return _stored.get()
+    return bool(_stored.get())
+
+
+def stored_credential_name():
+    """
+    _function_: `mast.cli.results.stored_credential_name()`
+
+    The name of the stored credential of the job, inside
+    `stored_credential(name)`; otherwise None. The command gets the
+    user name and the password, not the name, in its parameters.
+    """
+    found = _stored.get()
+    return found if isinstance(found, str) else None
 
 
 @contextlib.contextmanager

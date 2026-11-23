@@ -205,7 +205,12 @@ Bootstrap 5.3 is vendored in `static/vendor`. Use `api.js` to call the
 API (it sends the CSRF token) and `el()` to make elements: text from
 the server goes in as text, never as HTML.
 * The core pages are Jobs, Commands and Admin (`mast/web/pages`). A
-DataPower page belongs in `mast/datapower`.
+DataPower page belongs in `mast/datapower`, with its templates and
+scripts in its package: give the blueprint a `template_folder` and a
+`static_folder`, list them in `package-data`, and import the core
+modules by their path (`import {api, el} from "/static/js/api.js"`). The
+static files of a page need no login, as those of the app do. The
+Appliances page (`mast/datapower/status/page.py`) is an example.
 
 ## Widgets
 

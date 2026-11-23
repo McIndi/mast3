@@ -55,10 +55,12 @@ class Worker(object):
     """
     _class_: `mast.jobs.worker.Worker(concurrency=None,
     poll_seconds=None, lease_seconds=None, drain=False, report=None,
-    schedules=None)`
+    schedules=None, passive_slots=None)`
 
     Takes jobs from the queue and runs them, `concurrency` at a time,
-    each in its own thread.
+    each in its own thread, and up to `passive_slots` more passive jobs
+    (see `mast.jobs.queue.submit`), so that a poll of the status does
+    not wait behind a long job.
 
     Parameters:
 
@@ -71,18 +73,21 @@ class Worker(object):
     something happens (a job starts, a job ends, the worker stops).
     * `schedules`: Whether to run the scheduler of the job queue while
     the worker runs. A worker that drains never runs it.
+    * `passive_slots`: How many threads take only passive jobs.
 
-    The defaults of the first three and of `schedules` are in
-    `jobs.conf`.
+    The defaults of the first three, of `schedules` and of
+    `passive_slots` are in `jobs.conf`.
     """
     def __init__(self, concurrency=None, poll_seconds=None,
                  lease_seconds=None, drain=False, report=None,
-                 schedules=None):
+                 schedules=None, passive_slots=None):
         self.id = runner.new_worker_id()
         self.concurrency = (
             config.concurrency() if concurrency is None else concurrency)
         if self.concurrency < 1:
             raise ValueError("concurrency must be 1 or more")
+        self.passive_slots = (config.passive_slots() if passive_slots is None
+                              else max(0, passive_slots))
         self.poll_seconds = (
             config.poll_seconds() if poll_seconds is None else poll_seconds)
         self.lease_seconds = (
@@ -168,13 +173,14 @@ class Worker(object):
         if scheduler is not None:
             scheduler.stop()
 
-    def _slot(self, slot_id):
+    def _slot(self, slot_id, passive_only=False):
         """The loop of one thread: claim a job, run it, again."""
         while not self._stop.is_set():
             try:
                 # Taken before the claim, see runner.run_job
                 claimed_at = time.monotonic()
-                job_id = queue.claim(slot_id, self.lease_seconds)
+                job_id = queue.claim(slot_id, self.lease_seconds,
+                                     passive_only=passive_only)
                 if job_id is None and self.drain and not queue.list_jobs(
                         status=QUEUED, limit=1):
                     return
@@ -244,6 +250,12 @@ class Worker(object):
                 target=self._slot, args=("{}/{}".format(self.id, number),),
                 name="mast-worker-{}".format(number), daemon=True)
             for number in range(1, self.concurrency + 1)]
+        threads += [
+            threading.Thread(
+                target=self._slot,
+                args=("{}/p{}".format(self.id, number), True),
+                name="mast-worker-p{}".format(number), daemon=True)
+            for number in range(1, self.passive_slots + 1)]
         for thread in threads:
             thread.start()
         told = False

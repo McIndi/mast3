@@ -23,6 +23,9 @@ Delete what is older than `[retention]` of `jobs.conf` says:
 child job goes with its parent, and a parent waits while one of its
 children has not finished;
 * the uses of stored credentials and the audit events;
+* the status of the appliances: the samples of each poll, and the
+hourly and daily rollups (`mast.datapower.status`). The daily rollups
+of the days that ended are made first;
 * the uploads of the web UI (`var/www/uploads`);
 * the log files in `var/log`, and the folders that they leave empty.
 
@@ -160,6 +163,50 @@ def _prune_rows(now, dry_run, counts):
         counts[rule] = counted
 
 
+def _prune_status(now, dry_run, counts):
+    try:
+        # Imported here: the status is the DataPower plugin's
+        from mast.datapower.status import store
+        from mast.datapower.status.models import (
+            DAY, HOUR, StatusRollup, StatusSample)
+    except ImportError:
+        return
+    if not dry_run:
+        store.roll_up_days(now)
+    cutoff = _cutoff(now, "status_samples_days")
+    if cutoff is not None:
+        counted = 0
+        while True:
+            with db.session() as session:
+                ids = list(session.scalars(
+                    select(StatusSample.id)
+                    .where(StatusSample.collected_at < cutoff)
+                    .order_by(StatusSample.id).limit(BATCH)
+                    .offset(counted if dry_run else 0)))
+                if ids and not dry_run:
+                    session.execute(delete(StatusSample).where(
+                        StatusSample.id.in_(ids)))
+                counted += len(ids)
+            if len(ids) < BATCH:
+                break
+        counts["status_samples_days"] = counted
+    # There are few rollups (24 an appliance a day): one statement
+    for rule, period in (("status_hourly_days", HOUR),
+                         ("status_daily_days", DAY)):
+        cutoff = _cutoff(now, rule)
+        if cutoff is None:
+            continue
+        where = (StatusRollup.period == period, StatusRollup.start < cutoff)
+        with db.session() as session:
+            if dry_run:
+                counts[rule] = session.scalar(
+                    select(func.count()).select_from(StatusRollup)
+                    .where(*where))
+            else:
+                counts[rule] = session.execute(
+                    delete(StatusRollup).where(*where)).rowcount
+
+
 def _old(path, cutoff):
     try:
         return datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < cutoff
@@ -221,7 +268,8 @@ def prune(now=None, dry_run=False, root=None):
     Delete what is older than `[retention]` says, and return
     `{rule: how many}`: jobs (with their children) for `jobs_days`,
     `scheduled_jobs_days` and `scheduled_failed_days`, rows for
-    `credential_uses_days` and `audit_events_days`, upload folders for
+    `credential_uses_days`, `audit_events_days` and the `status_*`
+    rules (before which the daily rollups are made), upload folders for
     `uploads_days` and log files for `logs_days`. A rule that keeps for
     ever is not in it. With `dry_run`, nothing is deleted. `root` is
     the MAST home (for the tests).
@@ -231,6 +279,7 @@ def prune(now=None, dry_run=False, root=None):
     counts = {}
     _prune_jobs(now, dry_run, counts)
     _prune_rows(now, dry_run, counts)
+    _prune_status(now, dry_run, counts)
     _prune_uploads(now, dry_run, counts, root)
     _prune_logs(now, dry_run, counts, root)
     if not dry_run:

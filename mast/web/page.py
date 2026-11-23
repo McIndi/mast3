@@ -79,8 +79,11 @@ class Page(object):
 def _guard(page):
     """A before_request for the blueprint of `page`: only a user whose
     role is at least `page.min_role` may use it. The login check of the
-    app comes first."""
+    app comes first. The static files of the page are for everyone, as
+    those of the app are (`mast.web.auth.require_login`)."""
     def check():
+        if (flask.request.endpoint or "").endswith(".static"):
+            return None
         user = flask.g.get("mast_user")
         if user is not None and roles.at_least(user.role, page.min_role):
             return None

@@ -158,6 +158,43 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
     #    appliances"), and no job runs. The same with -c and the password
     #    of the read-only user: DataPower answers "Authorization failure".
 
+# Phase B: the status of the appliances
+
+The home of the Phase A test, with the credential collector and a
+worker running.
+
+    # 1. Collect status for dp1 (Admin -> Appliances: Collect status, or)
+    ./mast-appliances update -n dp1 --poll yes
+    ./mast-status collect --credential collector  # a table: dp1 reachable
+
+    # 2. Log in: the first page is Appliances. dp1 shows firmware, CPU,
+    #    memory, temporary space, domains and objects down. As an admin,
+    #    with no schedule yet, the page offers "Start polling": choose
+    #    collector and every minute. A minute later "Seen just now".
+    ./mast-jobs schedule-list                     # status-poll, */1
+
+    # 3. Open the row of dp1: the domains, the objects that are down
+    #    (enabled but not up), three charts, "Jobs for this appliance"
+    #    (the Jobs page filtered) and "Run a command" (dp1 in the bar).
+
+    # 4. A long job does not stop the polls: start a backup, and see a
+    #    status.collect job start and end while it runs (its worker ends
+    #    in /p1, the passive slot).
+    ./mast-backups normal-backup -a dp1 --credential admin-cred -D all-domains --detach
+    ./mast-jobs list -n 5
+
+    # 5. Stop the appliance (or point dp1 at a wrong address): the row
+    #    goes first, red, "Not reachable, last seen ..." with the reason
+    #    on hover, and the job of the poll is partial. Pin a wrong
+    #    fingerprint: "Certificate or host key changed".
+
+    # 6. As a viewer: the same page, without the name of the credential
+    #    and without "Start polling" or "Run a command".
+
+    # 7. Dark theme and phone width: the bars and charts are readable.
+
+    ./mast-jobs prune --dry-run                   # status samples, hourly, daily
+
 # The job queue
 
 These use the `lab` environment and `%MAST_CREDS%` from above. Run them

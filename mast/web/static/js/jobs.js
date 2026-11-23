@@ -82,6 +82,13 @@ async function loadSchedules() {
     }
 }
 
+// ?appliance=NAME (the Jobs link of the Appliances page), ?command=... and
+// the other filters of the form start with those values
+for (const [name, value] of new URLSearchParams(window.location.search)) {
+    const field = filters.elements.namedItem(name);
+    if (field && field.tagName === "INPUT" && field.type !== "checkbox") field.value = value;
+}
+
 filters.addEventListener("change", () => { limit = PAGE; refresh(); });
 filters.addEventListener("submit", (event) => { event.preventDefault(); refresh(); });
 more.addEventListener("click", () => { limit += PAGE; refresh(); });
