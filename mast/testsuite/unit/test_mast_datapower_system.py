@@ -274,6 +274,33 @@ class TestSystemCommands(SystemTestCase):
         self.assertIsInstance(result, CommonItems)
         self.assertEqual(["app1", "app2", "default"], result.common)
 
+    def test_list_objects(self):
+        objects = {"dp1": [("Domain", "default"), ("Domain", "app1"),
+                           ("XMLManager", "default")],
+                   "dp2": [("Domain", "default"), ("Domain", "app2")]}
+
+        def get_status(appliance, provider, domain="default"):
+            appliance.log.append((appliance.hostname, "get_status", (),
+                                  {"provider": provider, "domain": domain}))
+            body = "".join(
+                "<ObjectStatus><Class>{}</Class><Name>{}</Name></ObjectStatus>"
+                .format(_class, name) for _class, name in objects[appliance.hostname])
+            return FakeResponse(xml=ENVELOPE.format(kind="status", body=body))
+
+        with mock.patch.object(FakeAppliance, "get_status", get_status, create=True):
+            result, _ = self.call(system.list_objects, ObjectClass="Domain")
+        self.assertIsInstance(result, Table)
+        self.assertEqual(result.data(), {
+            "kind": "table", "columns": list(system.OBJECTS_HEADER),
+            "rows": [["app1", "no", "dp1"], ["app2", "no", "dp2"],
+                     ["default", "yes", "dp1, dp2"]]})
+        self.assertEqual({kwargs["domain"] for _, _, kwargs in self.calls("get_status")},
+                         {"default"})
+        # What the web UI offers: the objects that every appliance has
+        from mast.plugin_utils import choices
+        self.assertEqual(choices.from_result(result.data()), ["default"])
+        self.assertEqual(choices.from_result(None), [])
+
     def test_add_and_del_domain(self):
         for command, kwargs, action in (
                 (system.add_domain, {"domain_name": "new"}, "add_domain"),
@@ -822,7 +849,7 @@ class TestSystemCommandLine(SystemTestCase):
         self.assertNotIn("hunter2", repr(params))
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(46, len(cli.commands))
+        self.assertEqual(47, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

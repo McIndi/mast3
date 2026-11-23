@@ -24,14 +24,23 @@ from a list:
 * `object_class`: The classes of objects whose status can be asked
 for (`OBJECT_STATUS_ARGS`).
 * `configured:<Class>`: The objects of that class that exist on every
-selected appliance. Only this one asks the appliances.
+selected appliance. Only this one asks the appliances: with typed
+credentials, here (`choices`); with a stored credential, as a job of
+`LOOKUP_COMMAND` (`lookup_params` and `from_result`), so that the
+queue checks the credential and records its use.
 
 The classic GUI and the JSON API of the web UI both call `choices`.
 """
 from mast.plugin_utils import params as widgets
 
 __all__ = ["choices", "is_choice", "UnknownWidget", "STATUS_PROVIDERS",
-           "OBJECT_STATUS_ARGS"]
+           "OBJECT_STATUS_ARGS", "LOOKUP_COMMAND", "lookup_params",
+           "from_result"]
+
+# The command that lists the objects of a class on appliances, as a
+# table whose first two columns are the name and whether every
+# appliance has it (mast.datapower.system.list_objects)
+LOOKUP_COMMAND = "system.list-objects"
 
 
 class UnknownWidget(ValueError):
@@ -76,6 +85,37 @@ def choices(widget, env=None):
             return []
         return list(env.common_config(widget.split(":", 1)[1]))
     raise UnknownWidget(widget)
+
+
+def lookup_params(widget, appliances, credential, no_check_hostname=False,
+                  timeout=30):
+    """
+    _function_: `mast.plugin_utils.choices.lookup_params(widget,
+    appliances, credential, no_check_hostname=False, timeout=30)`
+
+    The parameters of a job of `LOOKUP_COMMAND` that lists the objects
+    of the class of the widget `configured:<Class>` on `appliances`,
+    with the stored credential `credential`.
+    """
+    if not (is_choice(widget) and widget.startswith("configured:")):
+        raise UnknownWidget(widget)
+    return {"appliances": list(appliances), "credential": credential,
+            "ObjectClass": widget.split(":", 1)[1],
+            "no_check_hostname": bool(no_check_hostname),
+            "timeout": int(timeout)}
+
+
+def from_result(data):
+    """
+    _function_: `mast.plugin_utils.choices.from_result(data)`
+
+    The names that every appliance has, from the `data()` of a result
+    of `LOOKUP_COMMAND`.
+    """
+    if not data or data.get("kind") != "table":
+        return []
+    return [row[0] for row in data.get("rows", [])
+            if len(row) > 1 and row[1] == "yes"]
 
 
 OBJECT_STATUS_ARGS = [

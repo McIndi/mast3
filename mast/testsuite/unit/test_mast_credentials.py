@@ -862,6 +862,59 @@ class TestCredentialsApi(WebCase):
         self.assertEqual(self.call("POST", "/credentials/ro/tests/" + other)
                          .status_code, 409)
 
+    def test_choices_from_the_appliances_with_a_stored_credential(self):
+        from mast.datapower.system.system import OBJECTS_HEADER
+        from mast.plugin_utils import choices
+        self.login("admin")
+        self.add()
+        operator = self.app.test_client()
+        self.login("operator", client=operator)
+        command = commands.resolve(choices.LOOKUP_COMMAND)
+        got = []
+
+        def list_objects(params):
+            got.append((params.ObjectClass, list(params.appliances),
+                        list(params.credentials)))
+            return Table(OBJECTS_HEADER, [["app", "no", "dp1"],
+                                          ["default", "yes", "dp1"]])
+
+        def ask(appliances, credential="ro"):
+            return self.call("POST", "/choices/configured:Domain", {
+                "appliances": appliances, "credential": credential},
+                client=operator)
+
+        with mock.patch.object(command, "fn", list_objects):
+            answer = ask(["dp1"])
+            self.assertEqual(answer.status_code, 200, answer.get_data())
+            self.assertEqual(answer.get_json()["choices"], ["default"])
+            # The queue checked the credential, the command got it, and
+            # the use is recorded as a passive job of the operator
+            self.assertEqual(got, [("Domain", ["dp1"],
+                                    ["reader:" + PASSWORD])])
+            job = jobs.get(answer.get_json()["job_id"])
+            self.assertEqual((job.command, job.submitted_by, job.passive),
+                             (choices.LOOKUP_COMMAND, "operator", True))
+            self.assertEqual([use.job_id for use in store.uses("ro")],
+                             [job.id])
+            self.assertNotIn(PASSWORD, answer.get_data(as_text=True))
+            # The refusals of the queue: an appliance that it is not
+            # bound to, a credential that does not exist
+            refused = ask(["dp3"])
+            self.assertEqual(refused.status_code, 403)
+            self.assertEqual(ask(["dp1"], credential="nothing").status_code, 403)
+            self.assertEqual(len(got), 1)
+        # A lookup that fails says why
+        with mock.patch.object(command, "fn", side_effect=RuntimeError("down")):
+            failed = ask(["dp1"])
+        self.assertEqual(failed.status_code, 502)
+        self.assertIn("down", failed.get_json()["error"])
+        # A viewer may not ask
+        viewer = self.app.test_client()
+        self.login("viewer", client=viewer)
+        self.assertEqual(self.call("POST", "/choices/configured:Domain", {
+            "appliances": ["dp1"], "credential": "ro"}, client=viewer)
+            .status_code, 403)
+
     def test_the_admin_page(self):
         self.login("admin")
         page = self.client.get("/admin/credentials")

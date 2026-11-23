@@ -218,7 +218,7 @@ the same map is in `mast/web/widgets.py`:
 | `appliances`, `credentials` | The target bar of the page |
 | `upload` | A file input; the file is uploaded first, and the job gets the path on the server |
 | `out_dir`, `out_file` | Hidden; the server chooses the path, and the job page offers the download |
-| `status_provider`, `object_class`, `configured:<Class>` | A select, filled from `POST /api/v1/choices/<widget>` |
+| `status_provider`, `object_class`, `configured:<Class>` | A select, filled from `POST /api/v1/choices/<widget>`. For `configured:<Class>` the appliances are asked: with the typed credentials of the target bar, or, with a stored credential, by a passive job of `system.list-objects` |
 
 Without a widget, the type decides: a checkbox for a `bool`, a select
 for choices, a text area for a `list`, a password input for a secret,
@@ -230,8 +230,10 @@ and that the two maps are the same. A new widget needs a control in
 
 # Adding a web plugin (classic GUI)
 
-The classic GUI, under `/classic/`, goes away when the web UI can do
-all that it does. A web plugin is a class with a `route`, `html`,
+The classic GUI, under `/classic/`, goes away when the web UI has a page
+for each of its tabs (after the Terminal page). Do not add a new web
+plugin: add a command (it gets a form on the Commands page) or a page
+(see "Adding a page to the web UI"). A web plugin is a class with a `route`, `html`,
 `css` and `js`, listed under `mast_web_plugin` in `pyproject.toml`. The DataPower plugins use
 `mast.plugin_utils.plugin_functions`, which makes the forms from the
 `Params` models, so a new command of an existing plugin needs nothing

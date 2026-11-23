@@ -18,7 +18,9 @@ first admin on the MAST server, in `$MAST_HOME`:
 `./mast-users add -u NAME -r admin` (`mast-users.bat` on Windows). Until
 there is a user, the web GUI shows only how to do that.
 * The classic GUI moved to `/classic/`. `/` is the new web UI. The
-classic GUI is still there for the `ssh` and status tabs.
+classic GUI stays, behind the same login, until the new web UI has a
+page for each of its tabs. It cannot use stored credentials; the
+Operator's Guide lists its limits.
 * `mast-web` and `mastd` refuse to serve the web GUI without TLS
 (`secure = false`) on any host but `127.0.0.1` or `::1`.
 * Jobs that the command line submits are recorded as `os:<account>`
@@ -103,8 +105,16 @@ false` is in the `[worker]` section of `jobs.conf`. The Jobs page can
 show the jobs of one schedule. `etc/crontab` still works, and only
 `mastd` reads it.
 * `mast-jobs prune` deletes old jobs, uploads and logs now.
+* The Installation Guide has the steps of a first run. The Operator's
+Guide has a short tour of the web UI, says what MAST protects and what
+it does not, and shows how to make a DataPower user that may only read,
+for a `collect` credential (one access policy, `*/*/*?Access=r`).
 * `mast-system check-credentials` checks that credentials log in, and
 whether they can change the appliance.
+* `mast-system list-objects -O CLASS` lists the objects of a class on
+the appliances, and whether every appliance has each one. With a
+stored credential in the target bar, the Commands page fills its lists
+of domains and other objects with it, as a job.
 * The web UI (`/`): the **Jobs** page lists the jobs with filters,
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the
