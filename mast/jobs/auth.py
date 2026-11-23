@@ -40,7 +40,8 @@ from dataclasses import dataclass
 
 from mast.auth import roles
 
-__all__ = ["Principal", "LOCAL", "Forbidden", "authorize", "os_principal"]
+__all__ = ["Principal", "LOCAL", "Forbidden", "authorize", "os_principal",
+           "principal_of"]
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,35 @@ LOCAL = os_principal()
 
 class Forbidden(Exception):
     """The principal may not do what it asked for."""
+
+
+def principal_of(name):
+    """
+    _function_: `mast.jobs.auth.principal_of(name)`
+
+    Return the `Principal` that a job records as `submitted_by`, with
+    its role now: an account of the operating system (`os:...`, and
+    `local` of older MAST) is an admin, `schedule:NAME` has the role of
+    the user who made the schedule, and a user has their role. Raises
+    `Forbidden` if it may no longer submit jobs (a user who was removed
+    or disabled, for example).
+    """
+    # Imported here: these use the job database
+    from mast.jobs import schedules
+    if name == "local" or name.startswith("os:"):
+        return Principal(name, roles.ADMIN)
+    if name.startswith(schedules.PRINCIPAL_PREFIX):
+        try:
+            info = schedules.get(name[len(schedules.PRINCIPAL_PREFIX):],
+                                 principal=LOCAL)
+        except schedules.UnknownSchedule:
+            raise Forbidden("the schedule of {} no longer exists".format(name))
+        role, reason = schedules.principal_for(info.created_by)
+    else:
+        role, reason = schedules.principal_for(name)
+    if role is None:
+        raise Forbidden(reason)
+    return Principal(name, role)
 
 
 def authorize(principal, action, command=None, targets=(), owner=None):

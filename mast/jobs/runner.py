@@ -57,6 +57,7 @@ of what the command did failed, or `failed` if all of it failed. A
 command that raised an exception is `failed` and has no result.
 """
 import contextlib
+import contextvars
 import json
 import os
 import socket
@@ -72,6 +73,7 @@ from mast.jobs.models import CANCELLED, FAILED, PARTIAL, SUCCEEDED
 from mast.logging import make_logger
 
 __all__ = ["new_worker_id", "run_job", "run_next", "JobCancelled",
+           "current_job", "run_children",
            "JobLost"]
 
 
@@ -266,6 +268,91 @@ def _with_stored_credential(job_id, command, values):
     return values, found
 
 
+# The id of the job whose command runs in this context
+_current = contextvars.ContextVar("mast_current_job", default=None)
+
+
+def current_job():
+    """
+    _function_: `mast.jobs.runner.current_job()`
+
+    The id of the job whose command runs now, or None outside a job.
+    """
+    return _current.get()
+
+
+def run_children(command, params_list, workers=4, poll_seconds=0.2):
+    """
+    _function_: `mast.jobs.runner.run_children(command, params_list,
+    workers=4, poll_seconds=0.2)`
+
+    From the command of a job, run `command` once for each dict of
+    `params_list`, each as a child job of this job, and return the ids
+    of the children, in order, when they have all ended.
+
+    The children are submitted as the principal of this job, so the
+    queue checks them as it checks any job (a stored credential, for
+    example). They are reserved for this process and run here,
+    `workers` at a time: they need no free slot of a worker, so a
+    parent that waits for them cannot hold up its own children. Each
+    has its own progress, result and record of credential uses, and
+    the Jobs page shows them under this job.
+
+    A child that uses the appliances of the parent must be passive, or
+    the parent must not hold those appliances, or it waits for ever.
+
+    If this job is cancelled, its children are cancelled and
+    `JobCancelled` is raised. Raises `RuntimeError` outside a job.
+    """
+    from concurrent.futures import ThreadPoolExecutor, wait
+    from mast.cli.results import checkpoint
+    from mast.jobs.auth import principal_of
+    parent = current_job()
+    if parent is None:
+        raise RuntimeError("run_children runs only in the command of a job")
+    who = principal_of(queue.get(parent).submitted_by)
+    children = []
+    for params in params_list:
+        worker_id = "{}/child".format(new_worker_id())
+        children.append((queue.submit(command, params, principal=who,
+                                      parent_id=parent,
+                                      reserved_for=worker_id), worker_id))
+
+    def run(job_id, worker_id):
+        while True:
+            claimed_at = time.monotonic()
+            if queue.claim(worker_id, job_id=job_id):
+                run_job(job_id, worker_id, claimed_at=claimed_at)
+                return
+            if queue.get(job_id).finished:
+                return
+            time.sleep(poll_seconds)
+
+    pool = ThreadPoolExecutor(max_workers=max(1, workers),
+                              thread_name_prefix="mast-child")
+    try:
+        futures = [pool.submit(run, job_id, worker_id)
+                   for job_id, worker_id in children]
+        while True:
+            done, waiting = wait(futures, timeout=poll_seconds)
+            if not waiting:
+                break
+            try:
+                checkpoint()
+            except JobCancelled:
+                for job_id, _ in children:
+                    try:
+                        queue.cancel(job_id, principal=who)
+                    except Exception:
+                        pass
+                raise
+        for future in futures:
+            future.result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [job_id for job_id, _ in children]
+
+
 @contextlib.contextmanager
 def _stored_credential(name):
     """With a stored credential (`name`), every connection of the job
@@ -288,9 +375,13 @@ def _call(job_id, worker_id, store, guard, redact):
         _, name = queue.stored_credential(command.model, values)
         values, found = _with_stored_credential(job_id, command, values)
         redact[0] = secrets.redactor(command.model, values, extra=found)
-        with listening(store), guarded(guard), \
-                _stored_credential(name if found else None):
-            result = command.fn(command.model(**values))
+        token = _current.set(job_id)
+        try:
+            with listening(store), guarded(guard), \
+                    _stored_credential(name if found else None):
+                result = command.fn(command.model(**values))
+        finally:
+            _current.reset(token)
     except JobCancelled:
         return {"status": CANCELLED,
                 "error": "The job was cancelled while it ran. What it "
