@@ -21,3 +21,8 @@
 .mast-score { font-variant-numeric: tabular-nums; min-width: 2.5rem; display: inline-block; }
 /* The object of a finding: a name is not cut in two */
 .mast-subject { min-width: 10rem; }
+/* The TLS probe: the port on one line; the object and the negotiated
+   values get room (a min-width on a table cell is ignored by Firefox,
+   so it is on a block inside it) */
+.mast-probe-table > tbody > tr > td:nth-child(2) { white-space: nowrap; }
+.mast-probe-wide { min-width: 12rem; }

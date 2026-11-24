@@ -198,6 +198,30 @@ The posture rules and the Crypto page (C-2), on the lab domain:
     # columns link to the Crypto page.
     # Firefox and Chromium, light and dark theme, a phone width.
 
+PQC rules and the TLS probe (C-3). On a 10.6.4 to 11.0.0.1 test
+appliance, set an SSL server profile's KEMAlgs to `X25519MLKEM768
+classical` with TLS 1.2 and 1.3 on (set-config says OK; the profile
+goes down), and another to `classical` with TLS 1.3 only:
+
+    ./mast-crypto inventory --credential collector
+    ./mast-crypto posture -a NAME
+    # pqc-profile-down on the first, with "KEM algorithm selection is
+    # only allowed in TLSv1.3"; pqc-no-hybrid on the second;
+    # pqc-firmware on a 10.5 or 10.0 appliance; pqc-classical-certificate
+    # (info) on the certificates.
+    ./mast-crypto probe
+    # With Python 3.15: the XML management of 10.6.4+ accepts
+    # X25519MLKEM768; that of 10.0 or 2018.4 does not. On 2018.4: TLS 1.2
+    # only. An appliance behind a port mapping is probed on the ports of
+    # the registry.
+    # /crypto: the PQC readiness card (firmware, profiles, peers); the
+    # TLS probe tab, where a viewer has no button, an operator has
+    # "Probe now" and an admin also "Probe every Sunday at 03:00".
+    # Inventory: open the down profile: Status down with the error, and
+    # "Key exchange" says the firmware takes it down.
+    # Findings, pack CNSA 2.0: nothing until [packs] disabled: is empty
+    # in etc/local/crypto.conf, then cnsa-key-exchange on each profile.
+
 # Phase B: the status of the appliances
 
 The home of the Phase A test, with the credential collector and a

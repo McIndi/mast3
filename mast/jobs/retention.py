@@ -215,9 +215,19 @@ def _prune_crypto(now, dry_run, counts):
         return
     try:
         # Imported here: the inventory is the DataPower plugin's
-        from mast.datapower.crypto.models import CryptoSnapshot
+        from mast.datapower.crypto.models import (CryptoProbeResult,
+                                                  CryptoSnapshot)
     except ImportError:
         return
+    with db.session() as session:
+        # The probes go by the same rule; the newest of each port stays
+        newest = select(func.max(CryptoProbeResult.id)).group_by(
+            CryptoProbeResult.appliance_id, CryptoProbeResult.host,
+            CryptoProbeResult.port)
+        where = (CryptoProbeResult.probed_at < cutoff,
+                 CryptoProbeResult.id.not_in(newest))
+        if not dry_run:
+            session.execute(delete(CryptoProbeResult).where(*where))
     with db.session() as session:
         newest = select(func.max(CryptoSnapshot.id)).group_by(
             CryptoSnapshot.appliance_id)

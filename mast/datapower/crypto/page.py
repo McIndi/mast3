@@ -17,12 +17,13 @@
 _module_: `mast.datapower.crypto.page`
 
 The Crypto page of the web UI: the crypto inventory and its posture.
-It has four views, which its script (`static/crypto.js`) fills from
+It has five views, which its script (`static/crypto.js`) fills from
 these routes:
 
 * `GET /api/v1/crypto/overview`: the posture of each appliance (score,
 findings by severity, nearest expiry, last snapshot), the
-certificates that expire in the next 12 months, the schedules of the
+certificates that expire in the next 12 months, the PQC readiness of
+each appliance (firmware, profiles, probe), the schedules of the
 inventory, and what the user may do.
 * `GET /api/v1/crypto/inventory`: the certificates, keys, credentials,
 profiles, aliases and files of the newest snapshot of each appliance.
@@ -42,6 +43,10 @@ between two of them.
 inventory now with a stored credential for collecting.
 * `POST /api/v1/crypto/schedule`: `{credential}`, an admin makes (or
 changes) the schedule `crypto-inventory`, which runs it each day.
+* `GET /api/v1/crypto/probes`: the newest TLS probe of each port.
+`POST /api/v1/crypto/probe`: an operator probes every appliance now
+(no credential needed). `POST /api/v1/crypto/probe-schedule`: an admin
+makes the weekly schedule `crypto-probe`.
 
 A snapshot has no secret, so no answer has one. A viewer does not see
 the names of the stored credentials.
@@ -61,10 +66,14 @@ from .models import (CryptoCert, CryptoEdge, CryptoFile, CryptoFinding,
                      CryptoObject, CryptoSnapshot)
 from .rules import RULES, SEVERITIES, _load
 
-__all__ = ["page", "COMMAND", "SCHEDULE"]
+__all__ = ["page", "COMMAND", "SCHEDULE", "PROBE_COMMAND", "PROBE_SCHEDULE"]
 
 COMMAND = "crypto.inventory"
 SCHEDULE = "crypto-inventory"
+PROBE_COMMAND = "crypto.probe"
+PROBE_SCHEDULE = "crypto-probe"
+# Sunday at 03:00
+PROBE_CRON = "0 3 * * 0"
 # The certificates of the expiry timeline: those that end within this
 EXPIRY_DAYS = 365
 MAX_SNAPSHOTS = 200
@@ -196,15 +205,88 @@ def crypto_page():
 # The overview
 # ============
 
-def _schedules():
+def _schedules(command=COMMAND):
     from mast.jobs import db
     from mast.jobs.models import Schedule
     with db.session(write=False) as session:
         rows = session.scalars(select(Schedule).where(
-            Schedule.command == COMMAND).order_by(Schedule.name))
+            Schedule.command == command).order_by(Schedule.name))
         return [{"name": row.name, "enabled": row.enabled, "cron": row.cron,
                  "credential": (row.params or {}).get("credential")
                  if _may("submit") else None} for row in rows]
+
+
+_SUPPORT = {
+    "control": "can choose its PQC groups (10.6.4 or newer)",
+    "preview": "has the ML-KEM preview only (10.6.2, 10.6.3)",
+    "default-only": "negotiates X25519MLKEM768 by default, no control",
+    "none": "classical key exchange only",
+    "unknown": "firmware not known",
+}
+
+
+def _readiness(appliances, latest):
+    """The PQC readiness of each appliance, at three levels: the
+    firmware (can it?), the profiles of its newest snapshot (are they
+    configured?) and the probe (do the peers see it?)."""
+    from mast.jobs import db
+
+    from . import pqc
+    from .probe import latest_results
+    from .rules.pqc import PROFILES
+    ids = list(latest.values()) or [0]
+    profiles = {}
+    with db.session(write=False) as session:
+        snapshots = {i: (a, f) for i, a, f in session.execute(
+            select(CryptoSnapshot.id, CryptoSnapshot.appliance_id,
+                   CryptoSnapshot.firmware)
+            .where(CryptoSnapshot.id.in_(ids)))}
+        for obj in session.scalars(
+                select(CryptoObject)
+                .where(CryptoObject.snapshot_id.in_(ids))
+                .where(CryptoObject.class_.in_(PROFILES))):
+            if not obj.running or obj.admin_state == "disabled":
+                continue
+            appliance_id, firmware = snapshots[obj.snapshot_id]
+            groups = pqc.effective_groups(firmware, pqc.kem_algs_of(obj.attrs),
+                                          (obj.attrs or {}).get("Protocols"))
+            mine = profiles.setdefault(appliance_id, {"total": 0, "hybrid": 0,
+                                                      "down": 0})
+            mine["total"] += 1
+            if groups.down or obj.op_state == "down":
+                mine["down"] += 1
+            elif groups.hybrid:
+                mine["hybrid"] += 1
+    firmware_of = dict(snapshots.values())
+    peers = {}
+    for item in latest_results(list(appliances)):
+        result = item["result"]
+        if not result.get("ok"):
+            continue
+        offers = result.get("offers") or {}
+        mine = peers.setdefault(item["appliance_id"], {
+            "probed": 0, "hybrid": 0, "unknown": 0, "at": None})
+        mine["probed"] += 1
+        seen = [offers.get(g) for g in pqc.HYBRID]
+        if any(v is True for v in seen):
+            mine["hybrid"] += 1
+        elif all(v is None for v in seen):
+            mine["unknown"] += 1
+        at = _iso(item["probed_at"])
+        mine["at"] = max(mine["at"] or at, at)
+    found = []
+    for appliance in appliances.values():
+        if appliance.id not in latest and appliance.id not in peers:
+            continue
+        support = pqc.firmware_support(firmware_of.get(appliance.id))
+        found.append({
+            "appliance": appliance.name,
+            "firmware": firmware_of.get(appliance.id),
+            "support": support, "support_text": _SUPPORT[support],
+            "profiles": profiles.get(appliance.id,
+                                     {"total": 0, "hybrid": 0, "down": 0}),
+            "peers": peers.get(appliance.id)})
+    return found
 
 
 @blueprint.get("/api/v1/crypto/overview")
@@ -258,7 +340,7 @@ def overview():
     return flask.jsonify({
         "now": now.isoformat(), "appliances": rows, "expiring": expiring,
         "self_checks": posture.counts(checks),
-        "schedules": _schedules(), "pqc": None,
+        "schedules": _schedules(), "pqc": _readiness(appliances, latest),
         "may": {"run": _may("submit"), "schedule": _may("manage-schedule"),
                 "exceptions": _may(posture.MANAGE)}})
 
@@ -343,6 +425,20 @@ def _breaks(objects, used_by, start, depth=BREAK_DEPTH):
     return node(start, None, frozenset())["children"]
 
 
+def _groups_json(obj, firmware):
+    """What a server or client profile can negotiate (None for another
+    object)."""
+    from . import pqc
+    from .rules.pqc import PROFILES
+    if obj.class_ not in PROFILES:
+        return None
+    groups = pqc.effective_groups(firmware, pqc.kem_algs_of(obj.attrs),
+                                  (obj.attrs or {}).get("Protocols"))
+    return {"tls13": sorted(groups.tls13), "tls12": groups.tls12,
+            "down": groups.down, "hybrid": list(groups.hybrid),
+            "reason": groups.reason}
+
+
 @blueprint.get("/api/v1/crypto/objects/<int:object_id>")
 def one_object(object_id):
     """
@@ -376,6 +472,8 @@ def one_object(object_id):
         answer = dict(
             _object_json(obj, appliance.name if appliance else None),
             attrs=obj.attrs, has_plaintext_password=obj.has_plaintext_password,
+            op_state=obj.op_state, status_error=obj.status_error,
+            listen=obj.listen, groups=_groups_json(obj, snapshot.firmware),
             snapshot={"id": snapshot.id,
                       "collected_at": _iso(snapshot.collected_at)},
             cert=_cert_json(cert),
@@ -396,10 +494,10 @@ def one_object(object_id):
 def _rules_json():
     _load()
     from .rules import settings
-    disabled = settings().disabled
+    current = settings()
     return [{"id": r.id, "title": r.title, "pack": r.pack,
              "severity": r.severity, "doc": r.doc.replace("`", ""),
-             "on": r.id not in disabled} for r in RULES.values()]
+             "on": current.enabled(r)} for r in RULES.values()]
 
 
 @blueprint.get("/api/v1/crypto/findings")
@@ -690,6 +788,97 @@ def schedule():
         else:
             info = schedules.update(SCHEDULE, principal=who,
                                     cron_text=cron_text, params=params,
+                                    enabled=True)
+    except schedules.ScheduleError as exc:
+        return _error(422, str(exc))
+    except Forbidden as exc:
+        return _error(403, str(exc))
+    return flask.jsonify({"schedule": info.name, "cron": info.cron,
+                          "enabled": info.enabled})
+
+
+# The TLS probe
+# =============
+
+@blueprint.get("/api/v1/crypto/probes")
+def probes():
+    """
+    _function_: `mast.datapower.crypto.page.probes()`
+
+    The newest probe of each port (`mast-crypto probe`), the schedules
+    of the probe, and what the user may do.
+
+    Exposed at: `/api/v1/crypto/probes` via GET
+    """
+    from .probe import latest_results
+    appliances = _names()
+    rows = []
+    for item in latest_results():
+        appliance = appliances.get(item["appliance_id"])
+        result = item["result"]
+        rows.append({
+            "appliance": appliance.name if appliance else "",
+            "host": item["host"], "port": item["port"],
+            "probed_at": _iso(item["probed_at"]), "job_id": item["job_id"],
+            "target": result.get("target") or {}, "ok": result.get("ok"),
+            "error": result.get("error"), "protocol": result.get("protocol"),
+            "cipher": result.get("cipher"), "group": result.get("group"),
+            "offers": result.get("offers") or {},
+            "notes": result.get("notes") or {},
+            "chain": result.get("chain") or [],
+            "python": result.get("python")})
+    rows.sort(key=lambda r: (r["appliance"], r["host"], r["port"]))
+    return flask.jsonify({
+        "results": rows, "schedules": _schedules(PROBE_COMMAND),
+        "may": {"run": _may("submit"), "schedule": _may("manage-schedule")}})
+
+
+@blueprint.post("/api/v1/crypto/probe")
+def probe_now():
+    """
+    _function_: `mast.datapower.crypto.page.probe_now()`
+
+    Probe the TLS ports of every registered appliance now. It needs no
+    credential. Operators and admins.
+
+    Exposed at: `/api/v1/crypto/probe` via POST
+    """
+    from pydantic import ValidationError
+
+    from mast import jobs
+    from mast.web.auth import principal
+    try:
+        job_id = jobs.submit(PROBE_COMMAND, {}, principal=principal())
+    except Forbidden as exc:
+        return _error(403, str(exc))
+    except (ValidationError, ValueError) as exc:
+        return _error(422, _first_error(exc))
+    return flask.jsonify({"job_id": job_id}), 202
+
+
+@blueprint.post("/api/v1/crypto/probe-schedule")
+def probe_schedule():
+    """
+    _function_: `mast.datapower.crypto.page.probe_schedule()`
+
+    Make (or enable) the schedule `crypto-probe`, which probes every
+    registered appliance each Sunday at 03:00. Admins only.
+
+    Exposed at: `/api/v1/crypto/probe-schedule` via POST
+    """
+    from mast.jobs import schedules
+    from mast.web.auth import principal
+    who = principal()
+    try:
+        try:
+            schedules.get(PROBE_SCHEDULE, principal=who)
+        except schedules.UnknownSchedule:
+            info = schedules.add(
+                PROBE_SCHEDULE, PROBE_COMMAND, {}, PROBE_CRON, principal=who,
+                description="The TLS probe of every appliance, for the "
+                            "Crypto page")
+        else:
+            info = schedules.update(PROBE_SCHEDULE, principal=who,
                                     enabled=True)
     except schedules.ScheduleError as exc:
         return _error(422, str(exc))

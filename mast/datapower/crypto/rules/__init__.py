@@ -28,13 +28,14 @@ each time it is shown, because it is about MAST now, not about an
 appliance at the time of a snapshot.
 
 Each rule has an id, a severity, a title and a pack. The packs are
-`baseline` (`rules.baseline`), `mast` (`rules.selfcheck`) and, later,
-`pqc`. The thresholds are in `etc/default/crypto.conf`;
-`etc/local/crypto.conf` overrides them, and its `[rules] disabled`
-turns rules off.
+`baseline` (`rules.baseline`), `mast` (`rules.selfcheck`), `pqc`
+(`rules.pqc`) and `cnsa` (`rules.cnsa`, off by default). The thresholds
+are in `etc/default/crypto.conf`; `etc/local/crypto.conf` overrides
+them, its `[rules] disabled` turns rules off, and its `[packs] disabled`
+turns packs off.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 __all__ = ["Finding", "Rule", "View", "Setup", "Settings", "rule", "check",
            "RULES", "SEVERITIES", "PACKS", "settings", "snapshot_rules",
@@ -42,7 +43,9 @@ __all__ = ["Finding", "Rule", "View", "Setup", "Settings", "rule", "check",
 
 # From the worst
 SEVERITIES = ("critical", "high", "medium", "low", "info")
-PACKS = ("baseline", "mast", "pqc")
+PACKS = ("baseline", "mast", "pqc", "cnsa")
+# The packs that are off unless crypto.conf says otherwise
+DEFAULT_DISABLED_PACKS = frozenset(("cnsa",))
 
 # id -> Rule, in the order the rules were registered
 RULES = {}
@@ -150,6 +153,22 @@ _DEFAULTS = {
     ("score", "medium"): 5,
     ("score", "low"): 1,
     ("score", "info"): 0,
+    # NIST IR 8547: RSA and elliptic-curve signatures of 112-bit
+    # security (RSA under 3072 bits) are deprecated after
+    # deprecated_year, and all of them are disallowed after
+    # disallowed_year. A finding grows in severity as the year comes
+    # nearer: low within 2 * lead_years, medium within lead_years, high
+    # after it.
+    ("pqc", "deprecated_year"): 2030,
+    ("pqc", "disallowed_year"): 2035,
+    ("pqc", "lead_years"): 2,
+    # A probe of a port is compared with a snapshot if it is at most
+    # this many days older than the snapshot (or newer)
+    ("pqc", "probe_max_age_days"): 8,
+    # CNSA 2.0 (NSA): web servers and cloud services prefer it from
+    # prefer_year, and use it only from exclusive_year
+    ("cnsa", "prefer_year"): 2025,
+    ("cnsa", "exclusive_year"): 2033,
 }
 
 
@@ -163,6 +182,11 @@ class Settings(object):
     """
     values: dict = field(default_factory=lambda: dict(_DEFAULTS))
     disabled: frozenset = frozenset()
+    disabled_packs: frozenset = DEFAULT_DISABLED_PACKS
+
+    def enabled(self, rule):
+        return rule.id not in self.disabled and \
+            rule.pack not in self.disabled_packs
 
     def get(self, section, option):
         return self.values[(section, option)]
@@ -203,24 +227,30 @@ def settings():
             part.strip() for part in
             config.get("rules", "disabled", raw=True).split(",")
             if part.strip())
-    return Settings(values, disabled)
+    packs = DEFAULT_DISABLED_PACKS
+    if config.has_option("packs", "disabled"):
+        packs = frozenset(
+            part.strip() for part in
+            config.get("packs", "disabled", raw=True).split(",")
+            if part.strip())
+    return Settings(values, disabled, packs)
 
 
 def _load():
     # The rules register themselves when their modules are imported
-    from . import baseline, selfcheck  # noqa: F401
+    from . import baseline, cnsa, pqc, selfcheck  # noqa: F401
 
 
 def snapshot_rules(settings):
     _load()
     return [r for r in RULES.values()
-            if r.kind == "snapshot" and r.id not in settings.disabled]
+            if r.kind == "snapshot" and settings.enabled(r)]
 
 
 def self_checks(settings):
     _load()
     return [r for r in RULES.values()
-            if r.kind == "mast" and r.id not in settings.disabled]
+            if r.kind == "mast" and settings.enabled(r)]
 
 
 # What the rules look at
@@ -241,11 +271,19 @@ class View(object):
     * `settings`: the `Settings`.
     * `unread_domains`: the domains that could not be read, so what is
     in them is not known.
+    * `firmware`: the firmware of the snapshot.
+    * `probes`: the ports of the newest probe of the appliance (dicts
+    with `host`, `port`, `probed_at` and the `result` of
+    `mast.datapower.crypto.probe`), if it is at most `[pqc]
+    probe_max_age_days` older than the snapshot.
     """
 
     def __init__(self, snapshot, objects, certs, files, edges,
-                 appliance_name="", production=False, settings=None):
+                 appliance_name="", production=False, settings=None,
+                 probes=None):
         self.snapshot = snapshot
+        self.firmware = snapshot.firmware
+        self.probes = list(probes or [])
         self.now = snapshot.collected_at
         if self.now is not None and self.now.tzinfo is None:
             self.now = self.now.replace(tzinfo=timezone.utc)
@@ -271,13 +309,14 @@ class View(object):
     def load(cls, snapshot_id, settings=None):
         """The `View` of the snapshot `snapshot_id` (None if there is
         none)."""
-        from sqlalchemy import select
+        from sqlalchemy import func, select
 
         from mast import registry
         from mast.jobs import db
 
         from ..models import (CryptoCert, CryptoEdge, CryptoFile,
-                              CryptoObject, CryptoSnapshot)
+                              CryptoObject, CryptoProbeResult,
+                              CryptoSnapshot)
         with db.session(write=False) as session:
             snapshot = session.get(CryptoSnapshot, snapshot_id)
             if snapshot is None:
@@ -289,6 +328,23 @@ class View(object):
             objects, certs = rows(CryptoObject), rows(CryptoCert)
             files, edges = rows(CryptoFile), rows(CryptoEdge)
             appliance_id = snapshot.appliance_id
+            probes = {}
+            oldest = _aware(snapshot.collected_at) - timedelta(
+                days=(settings or Settings()).get("pqc", "probe_max_age_days"))
+            newest = session.scalar(
+                select(func.max(CryptoProbeResult.probed_at))
+                .where(CryptoProbeResult.appliance_id == appliance_id))
+            if newest is not None and _aware(newest) >= oldest:
+                # The newest run of the probe of the appliance
+                for row in session.scalars(
+                        select(CryptoProbeResult)
+                        .where(CryptoProbeResult.appliance_id == appliance_id)
+                        .where(CryptoProbeResult.probed_at == newest)
+                        .order_by(CryptoProbeResult.id)):
+                    probes[(row.host, row.port)] = {
+                        "host": row.host, "port": row.port,
+                        "probed_at": _aware(row.probed_at),
+                        "result": row.result or {}}
         name, production = "", False
         for appliance in registry.list_appliances():
             if appliance.id == appliance_id:
@@ -296,7 +352,7 @@ class View(object):
                 production = _in_production(appliance)
                 break
         return cls(snapshot, objects, certs, files, edges, name, production,
-                   settings)
+                   settings, list(probes.values()))
 
     def crypto(self, *classes):
         """The crypto and TLS objects (those with `attrs`) of `classes`
@@ -321,6 +377,12 @@ class View(object):
         if len(users) > limit:
             text += " and {} more".format(len(users) - limit)
         return "used by " + text
+
+
+def _aware(value):
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def _in_production(appliance):

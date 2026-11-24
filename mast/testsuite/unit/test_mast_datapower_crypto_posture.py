@@ -82,10 +82,26 @@ def certificate(name, filename=None, **kwargs):
                 "PasswordAlias": "off"}), ((D, name), cert(**kwargs))
 
 
+def baseline_only(case):
+    """Turn off the pqc pack for the test `case`: the tests here count
+    every finding of the baseline rules, and the pqc pack (tested in
+    test_mast_datapower_crypto_pqc) would add its own."""
+    off = Settings(disabled_packs=frozenset(("pqc", "cnsa")))
+    for target in ("mast.datapower.crypto.posture.settings",
+                   "mast.datapower.crypto.rules.settings"):
+        patcher = mock.patch(target, return_value=off)
+        patcher.start()
+        case.addCleanup(patcher.stop)
+
+
 class PostureCase(SqliteCase):
+    # The tests of the pqc pack set it to True
+    pqc = False
 
     def setUp(self):
         super().setUp()
+        if not self.pqc:
+            baseline_only(self)
         registry.add("dp1", "10.0.0.1")
         registry.add("dp2", "10.0.0.2")
 
@@ -415,7 +431,8 @@ class TestEvaluate(PostureCase):
     def test_a_rule_turned_off(self):
         item, parsed = certificate("old", days=-3)
         with mock.patch.object(posture, "settings", return_value=Settings(
-                disabled=frozenset({"cert-expired"}))):
+                disabled=frozenset({"cert-expired"}),
+                disabled_packs=frozenset({"pqc", "cnsa"}))):
             self.assertEqual(self.findings(snapshot([item], dict([parsed]))),
                              [])
 
@@ -600,7 +617,12 @@ class TestCommands(PostureCase):
         rows = posture.list_rules().data()["rows"]
         self.assertIn(["cert-expired", "baseline", "critical"],
                       [r[:3] for r in rows])
-        self.assertTrue(all(r[4] == "yes" for r in rows))
+        # Here the pqc pack is off (baseline_only); the cnsa pack is off
+        # by default
+        self.assertEqual({r[1] for r in rows if r[4] == "no"},
+                         {"pqc", "cnsa"})
+        self.assertTrue(all(r[4] == "yes" for r in rows
+                            if r[1] in ("baseline", "mast")))
 
     def test_the_inventory_runs_the_rules(self):
         # mast-crypto inventory evaluates each snapshot it keeps
@@ -673,6 +695,7 @@ class TestCryptoPage(WebCase):
 
     def setUp(self):
         super().setUp()
+        baseline_only(self)
         self.key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
                              return_value=self.key_file)
@@ -872,6 +895,67 @@ class TestCryptoPage(WebCase):
         self.assertIsNone(self.call("GET", "/crypto/overview",
                                     client=self.as_role("viewer"))
                           .get_json()["schedules"][0]["credential"])
+
+    def test_the_pqc_readiness_of_the_overview(self):
+        from mast.datapower.crypto import probe
+        dp1 = registry.by_name("dp1").id
+        probe.save(dp1, self.second, "10.0.0.1", 443, {
+            "ok": True, "offers": {"X25519MLKEM768": True}}, T0)
+        probe.save(dp1, self.second, "10.0.0.1", 5550, {
+            "ok": True, "offers": {"X25519MLKEM768": None}}, T0)
+        probe.save(dp1, self.second, "10.0.0.1", 9090, {"ok": False}, T0)
+        found = self.call("GET", "/crypto/overview",
+                          client=self.as_role("viewer")).get_json()["pqc"]
+        self.assertEqual(len(found), 1)
+        item = found[0]
+        self.assertEqual((item["appliance"], item["support"]),
+                         ("dp1", "control"))
+        # The server profile has TLS 1.0 and 1.2 on and no KEMAlgs: the
+        # default of 11.0.0.3 negotiates the hybrid
+        self.assertEqual(item["profiles"], {"total": 1, "hybrid": 1, "down": 0})
+        self.assertEqual({k: item["peers"][k] for k in
+                          ("probed", "hybrid", "unknown")},
+                         {"probed": 2, "hybrid": 1, "unknown": 1})
+
+    def test_the_key_exchange_of_a_profile(self):
+        self.login("viewer")
+        item = self.client.get("/api/v1/crypto/objects/{}".format(
+            self.object_id("server"))).get_json()
+        self.assertEqual(item["groups"]["hybrid"], ["X25519MLKEM768"])
+        self.assertTrue(item["groups"]["tls12"])
+        self.assertIsNone(self.client.get("/api/v1/crypto/objects/{}".format(
+            self.object_id("soon"))).get_json()["groups"])
+
+    def test_probing_and_scheduling_the_probe(self):
+        from mast.datapower.crypto import probe
+        probe.save(registry.by_name("dp1").id, self.second, "10.0.0.1", 443, {
+            "ok": True, "protocol": "TLSv1.3", "group": "X25519MLKEM768",
+            "offers": {"X25519MLKEM768": True}, "notes": {}, "chain": [],
+            "target": {"kind": "management", "name": "XML management"}}, T0)
+        viewer = self.as_role("viewer")
+        answer = self.call("GET", "/crypto/probes", client=viewer).get_json()
+        self.assertEqual([(r["appliance"], r["port"], r["group"])
+                          for r in answer["results"]],
+                         [("dp1", 443, "X25519MLKEM768")])
+        self.assertEqual(answer["may"], {"run": False, "schedule": False})
+        self.assertEqual(self.call("POST", "/crypto/probe", {},
+                                   client=viewer).status_code, 403)
+        operator = self.as_role("operator")
+        answer = self.call("POST", "/crypto/probe", {}, client=operator)
+        self.assertEqual(answer.status_code, 202, answer.get_json())
+        job = jobs.get(answer.get_json()["job_id"])
+        self.assertEqual((job.command, job.params["appliances"]),
+                         ("crypto.probe", ["dp1", "dp2"]))
+        self.assertEqual(self.call("POST", "/crypto/probe-schedule", {},
+                                   client=operator).status_code, 403)
+        answer = self.call("POST", "/crypto/probe-schedule", {},
+                           client=self.as_role("admin"))
+        self.assertEqual(answer.get_json(), {"schedule": "crypto-probe",
+                                             "cron": "0 3 * * 0",
+                                             "enabled": True})
+        self.assertEqual([s["name"] for s in self.call(
+            "GET", "/crypto/probes", client=operator).get_json()["schedules"]],
+            ["crypto-probe"])
 
     def test_the_appliances_page_shows_the_posture(self):
         self.login("viewer")

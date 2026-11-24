@@ -1,0 +1,178 @@
+##### outbound DataPower 10.6.4.0 (soma 38517)
+--- user agent and XML manager
+<dp:result>OK
+  stored: 
+<dp:result>OK
+<dp:result>OK
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519MLKEM768], client protocols [1.2+1.3], client KEMAlgs [classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [X25519MLKEM768], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147) 
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=x25519 
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519], client protocols [1.2+1.3], client KEMAlgs [classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [X25519], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=x25519 
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: FAIL SSLError: [SSL: NO_SUITABLE_KEY_SHARE] no suitable key share (_ssl.c:1147) 
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=x25519 
+=== server groups [X25519], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=x25519 
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [X25519MLKEM768 classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [default], client protocols [1.2+1.3], client KEMAlgs [classical]
+log-event class="ssl-client" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>down <ErrorCode>KEM algorithm selection is only allowed in TLSv1.3 
+  fetch: <dp:result> log-event level="error">File copy failed - Error reading from source</dp:log-event 
+  server: 
+=== server groups [default], client protocols [1.3], client KEMAlgs []
+<dp:result>OK
+  stored: 
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [default], client protocols [1.3], client KEMAlgs [X25519MLKEM768 classical]
+<dp:result>OK
+  stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=X25519MLKEM768 
+=== server groups [default], client protocols [1.3], client KEMAlgs [classical]
+<dp:result>OK
+  stored: <KEMAlgs>classical</KEMAlgs>
+
+  status: <OpState>up 
+  fetch: <dp:result> 
+  server: OK TLSv1.3 group=secp256r1 
+##### end outbound 10.6.4.0

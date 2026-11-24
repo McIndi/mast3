@@ -13,6 +13,7 @@
     <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="overview" aria-controls="v-overview">Overview</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="inventory" aria-controls="v-inventory">Inventory</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="findings" aria-controls="v-findings">Findings</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="probe" aria-controls="v-probe">TLS probe</button></li>
     <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="history" aria-controls="v-history">History</button></li>
 </ul>
 
@@ -52,7 +53,8 @@
             <div class="card mb-3">
                 <div class="card-body">
                     <h2 class="h6">PQC readiness</h2>
-                    <p class="small text-body-secondary mb-0" data-pqc>The post-quantum rules come in a later release. They will show here how much of the TLS can use ML-KEM.</p>
+                    <p class="small text-body-secondary mb-2">Can each appliance use hybrid post-quantum key exchange (X25519MLKEM768 and the like): its firmware, its TLS profiles, and what the TLS probe saw.</p>
+                    <div data-pqc><p class="small mb-0">Loading…</p></div>
                 </div>
             </div>
             <div class="card">
@@ -93,7 +95,7 @@
         <div class="col-6 col-md-3"><select class="form-select form-select-sm" aria-label="Appliance" data-f-appliance><option value="">Every appliance</option></select></div>
         <div class="col-6 col-md-3">
             <select class="form-select form-select-sm" aria-label="Pack" data-f-pack>
-                <option value="">Every pack</option><option value="baseline">Baseline</option><option value="mast">MAST self-checks</option><option value="pqc">PQC</option>
+                <option value="">Every pack</option><option value="baseline">Baseline</option><option value="mast">MAST self-checks</option><option value="pqc">PQC</option><option value="cnsa">CNSA 2.0</option>
             </select>
         </div>
         <div class="col-6 col-md-3">
@@ -107,6 +109,23 @@
         <table class="table table-sm small align-top">
             <thead><tr><th>Rule</th><th>Appliance</th><th>Domain</th><th>Objects</th><th>Until</th><th>Reason</th><th>By</th><th></th></tr></thead>
             <tbody data-exceptions></tbody>
+        </table>
+    </div>
+</section>
+
+<section id="v-probe" role="tabpanel" data-view="probe" class="d-none">
+    <div class="alert alert-info d-none" data-p-run>
+        <div data-p-run-text></div>
+        <div class="d-flex flex-wrap gap-2 mt-2 d-none" data-p-actions>
+            <button class="btn btn-sm btn-primary" type="button" data-p-now>Probe now</button>
+            <button class="btn btn-sm btn-outline-primary d-none" type="button" data-p-weekly>Probe every Sunday at 03:00</button>
+        </div>
+    </div>
+    <p class="small text-body-secondary">The probe connects to the TLS ports of each appliance as a peer would: the listeners of the newest inventory, and the management ports. It logs in to nothing. Each offer is one handshake: <span class="badge text-bg-success">accepted</span>, <span class="badge text-bg-light text-decoration-line-through">refused</span>, <span class="badge text-bg-danger">old TLS accepted</span>, <span class="badge text-bg-secondary">not tried ?</span> (hover for why).</p>
+    <div class="table-responsive">
+        <table class="table table-sm small align-top mast-probe-table">
+            <thead><tr><th>Appliance</th><th>Port</th><th>What</th><th>Negotiated</th><th>Hybrid PQC</th><th>Classical on TLS 1.3</th><th>Old TLS</th><th>Certificate</th><th>Probed</th></tr></thead>
+            <tbody data-p-rows><tr><td colspan="9" class="text-body-secondary">Loading…</td></tr></tbody>
         </table>
     </div>
 </section>

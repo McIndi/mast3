@@ -40,6 +40,13 @@ rules ran points to it.
 * `crypto_exceptions`: an accepted finding, with its reason and an
 expiry date. An exception that has expired no longer applies.
 
+The TLS probe (migration 0011, `mast.datapower.crypto.probe`):
+
+* `crypto_probe_results`: what one port answered: the protocol, cipher
+and group, the certificate chain, and which offers it accepts. The same
+migration adds the operational state of each object (`op_state`,
+`status_error`) and the port of each listener (`listen`).
+
 No password, key or file content is stored. A certificate is public.
 """
 from datetime import datetime
@@ -52,7 +59,7 @@ from mast.jobs.models import Base, UTCDateTime
 
 __all__ = ["CryptoSnapshot", "CryptoObject", "CryptoCert", "CryptoFile",
            "CryptoEdge", "CryptoCertCache", "CryptoFinding",
-           "CryptoException", "DETAILS", "EXPORT"]
+           "CryptoException", "CryptoProbeResult", "DETAILS", "EXPORT"]
 
 # How the certificates were read: do-view-certificate-details, or
 # CryptoExport to a temporary file (older firmware)
@@ -102,6 +109,12 @@ class CryptoObject(Base):
     # for an object that only refers to one (a listener, a service).
     attrs: Mapped[dict | None] = mapped_column(JSON)
     has_plaintext_password: Mapped[bool] = mapped_column(Boolean)
+    # From ObjectStatus (migration 0011): up or down, and why. None if
+    # not known (an older snapshot, or the status could not be read).
+    op_state: Mapped[str | None] = mapped_column(String(16))
+    status_error: Mapped[str | None] = mapped_column(Text)
+    # A listener: its LocalAddress:LocalPort (migration 0011)
+    listen: Mapped[str | None] = mapped_column(String(300))
 
 
 class CryptoCert(Base):
@@ -197,3 +210,24 @@ class CryptoFinding(Base):
     remediation: Mapped[str] = mapped_column(Text)
     exception_id: Mapped[int | None] = mapped_column(
         ForeignKey("crypto_exceptions.id", ondelete="SET NULL"))
+
+
+class CryptoProbeResult(Base):
+    __tablename__ = "crypto_probe_results"
+    __table_args__ = (
+        Index("ix_crypto_probe_results_appliance_at", "appliance_id",
+              "probed_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # The snapshot whose listeners were probed (None for a port given
+    # by hand, or once the snapshot is gone)
+    snapshot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("crypto_snapshots.id", ondelete="SET NULL"))
+    appliance_id: Mapped[int | None] = mapped_column(
+        ForeignKey("appliances.id", ondelete="CASCADE"))
+    job_id: Mapped[str | None] = mapped_column(String(32))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer)
+    probed_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    # What was probed and what it answered (mast.datapower.crypto.probe)
+    result: Mapped[dict] = mapped_column(JSON)

@@ -57,7 +57,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 |---|---|
 | `appliances.conf` | The defaults for every appliance (`[global]`): ports, the SOMA spec file and so on. The appliances themselves, their own settings and the environments are in the database (`mast-appliances`). |
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
-| `crypto.conf` | The posture rules of the crypto inventory: their thresholds, the weights of the score, how long an exception may last, and the rules turned off. |
+| `crypto.conf` | The posture rules of the crypto inventory: their thresholds, the weights of the score, how long an exception may last, the rules and packs turned off, and the dates of the PQC and CNSA 2.0 rules. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
 | `ssh.conf` | `mast-ssh`: the timeout, and whether host keys that are not pinned are accepted. |
@@ -442,6 +442,83 @@ count again. Only an admin can add or remove one (the action
 The object is a name or a shell pattern (`old-*`); the appliance and
 the domain are optional (every one by default). An exception lasts at
 most 365 days (`[exceptions] max_days`).
+
+## Post-quantum readiness
+
+The `pqc` pack of rules checks whether the TLS of the appliances can
+use hybrid post-quantum key exchange (`X25519MLKEM768`,
+`SecP256r1MLKEM768`, `SecP384r1MLKEM1024`). Key exchange is the urgent
+part: traffic recorded today can be decrypted later, when a quantum
+computer can break the classical exchange.
+
+What a profile negotiates depends on the firmware, its `KEMAlgs` and
+its protocols, not on `KEMAlgs` alone. MAST uses what tests of every
+level from 10.5 to 11.0.0.3 found:
+
+| Firmware | With no `KEMAlgs` | `KEMAlgs` |
+|---|---|---|
+| 10.5 and older, 10.6.0.x before 10.6.0.11 | classical only | refused |
+| 10.6.0.11 | negotiates `X25519MLKEM768` | refused |
+| 10.6.2, 10.6.3 (preview) | classical only | accepted, with preview names that standard clients cannot use |
+| 10.6.4 and newer | negotiates `X25519MLKEM768` | accepted |
+
+From 10.6.2 to 11.0.0.1, a profile with `KEMAlgs` and TLS 1.2 (or
+older) on **goes down**, although the change says OK: every service
+that uses it refuses connections. From 11.0.0.2 it is allowed, and TLS
+1.2 then works only if `KEMAlgs` has `classical`.
+
+| Rule | Severity | Finds |
+|---|---|---|
+| `pqc-no-hybrid` | high | A server or client profile with TLS 1.3 on that cannot negotiate a hybrid group. |
+| `pqc-tls13-off` | high | A server or client profile with TLS 1.3 off: no post-quantum key exchange is possible. |
+| `pqc-only` | medium | A profile whose `KEMAlgs` has no `classical`: it refuses every peer without a PQC group, and all of TLS 1.2. |
+| `pqc-profile-down` | high | A TLS profile that is down (from its status; or, on an older snapshot, one that the firmware would take down). |
+| `pqc-preview-names` | medium | Preview names (`mlkem768`, `x448_mlkem768`...) in `KEMAlgs`. |
+| `pqc-firmware` | medium, low | Firmware that cannot choose its PQC groups. |
+| `pqc-pure-mlkem` | info | `MLKEM768` (or another ML-KEM) without a hybrid group. |
+| `pqc-probe-mismatch` | medium | A port where the probe saw other groups than the configuration predicts. The probe is the truth. |
+| `pqc-classical-certificate` | info, rising | A certificate with an RSA or EC key, by its NIST IR 8547 date: RSA under 3072 bits is deprecated after 2030, and every RSA and EC key is disallowed after 2035. The severity rises as the year comes nearer (`[pqc]` in `crypto.conf`). |
+| `pqc-legacy-profile` | medium | An SSL proxy profile: its crypto profiles cannot use PQC. |
+
+The `cnsa` pack (CNSA 2.0: ML-KEM-1024 and ML-DSA-87, for the systems
+that must follow it) is off. To turn it on, put an empty list in
+`etc/local/crypto.conf`:
+
+    :::ini
+    [packs]
+    disabled:
+
+The **TLS probe** connects to the ports of the appliances as a peer
+would, and records what they accept: the protocol, cipher and group
+that a default client negotiates, the certificate chain, and whether
+each of TLS 1.0 to 1.3, each hybrid group, `MLKEM768` and the classical
+groups alone is accepted. It needs no credential and logs in to
+nothing.
+
+    :::bash
+    ./mast-crypto probe                    # every registered appliance
+    ./mast-crypto probe -a prod -t gw.example.com:443
+
+* The ports are those of the listeners of the newest inventory (the
+front side handlers that use a server profile, the XML management and
+the WebGUI), and the XML management and WebGUI ports of the registry.
+For those two the port of the registry wins, so that an appliance
+behind NAT or a port mapping is reached.
+* The group checks need Python 3.15 (the Python that MAST ships with)
+and OpenSSL 3.5. On an older Python, the probe still checks the
+protocols and the certificates, and says that the groups were not
+checked.
+* After probing an appliance, the rules of its newest snapshot run
+again. A probe counts for a snapshot if it is at most 8 days older
+(`[pqc] probe_max_age_days`).
+* The **TLS probe** tab of the Crypto page shows the newest probe of
+each appliance; an operator can run it, and an admin can make the
+schedule `crypto-probe` (Sundays at 03:00). The **PQC readiness** card
+of the Overview shows each appliance at three levels: the firmware
+(can it?), the profiles (are they configured?) and the probe (do the
+peers get it?).
+* Old probe results go with the snapshots (`crypto_snapshots_days` in
+`jobs.conf`); the newest result of each port stays.
 
 # Appliances and environments
 

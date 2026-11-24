@@ -1,0 +1,237 @@
+##### DataPower 11.0.0.0
+pqc-11000 soma=42367 web=41765
+--- firmware
+<Version>IDG.11.0.0.0</Version>
+<Build>383389</Build>
+<Version>IDG.11.0.0.0</Version>
+--- built-in web-mgmt TLS (startup profile may have failed)
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+--- make profile with no KEMAlgs and attach to web-mgmt
+OK
+stored: 
+OK
+########## protocols: <TLSv1d2>on</TLSv1d2><TLSv1d3>on</TLSv1d3>
+=== KEMAlgs: []
+OK
+stored: 
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       OK  TLSv1.2 group=x25519 cipher=ECDHE-RSA-AES256-GCM-SHA384
+=== KEMAlgs: [X25519MLKEM768]
+log-event class="ssl-server" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [X25519MLKEM768 classical]
+log-event class="ssl-server" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [X25519MLKEM768 SecP256r1MLKEM768 SecP384r1MLKEM1024 classical]
+log-event class="ssl-server" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>SecP256r1MLKEM768</KEMAlgs><KEMAlgs>SecP384r1MLKEM1024</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [MLKEM768]
+log-event class="ssl-server" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+OK
+stored: <KEMAlgs>MLKEM768</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [classical]
+log-event class="ssl-server" level="error">KEM algorithm selection is only allowed in TLSv1.3</dp:log-event
+OK
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [mlkem768]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [x448_mlkem768]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+=== KEMAlgs: [p384_mlkem1024]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode>KEM algorithm selection is only allowed in TLSv1.3</ErrorCode>
+X25519MLKEM768 only            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP256r1MLKEM768 only         FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+SecP384r1MLKEM1024 only        FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+MLKEM768 only                  FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519 only (TLS1.3)           FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+P-256 only (TLS1.3)            FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+hybrid first, then X25519      FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+X25519MLKEM768 on TLS1.2       FAIL ConnectionResetError: [Errno 104] Connection reset by peer
+########## protocols: <TLSv1d2>off</TLSv1d2><TLSv1d3>on</TLSv1d3>
+=== KEMAlgs: []
+OK
+stored: 
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768]
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+P-256 only (TLS1.3)            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768 classical]
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [X25519MLKEM768 SecP256r1MLKEM768 SecP384r1MLKEM1024 classical]
+OK
+stored: <KEMAlgs>X25519MLKEM768</KEMAlgs><KEMAlgs>SecP256r1MLKEM768</KEMAlgs><KEMAlgs>SecP384r1MLKEM1024</KEMAlgs><KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP256r1MLKEM768 only         OK  TLSv1.3 group=SecP256r1MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+SecP384r1MLKEM1024 only        OK  TLSv1.3 group=SecP384r1MLKEM1024 cipher=TLS_AES_256_GCM_SHA384
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=X25519MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [MLKEM768]
+OK
+stored: <KEMAlgs>MLKEM768</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  OK  TLSv1.3 group=MLKEM768 cipher=TLS_AES_256_GCM_SHA384
+X25519 only (TLS1.3)           FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+P-256 only (TLS1.3)            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+hybrid first, then X25519      FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [classical]
+OK
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [mlkem768]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [x448_mlkem768]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+=== KEMAlgs: [p384_mlkem1024]
+stored: <KEMAlgs>classical</KEMAlgs>
+<ErrorCode/>
+X25519MLKEM768 only            FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP256r1MLKEM768 only         FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+SecP384r1MLKEM1024 only        FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+MLKEM768 only                  FAIL SSLError: [SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1147)
+X25519 only (TLS1.3)           OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+P-256 only (TLS1.3)            OK  TLSv1.3 group=secp256r1 cipher=TLS_AES_256_GCM_SHA384
+hybrid first, then X25519      OK  TLSv1.3 group=x25519 cipher=TLS_AES_256_GCM_SHA384
+X25519MLKEM768 on TLS1.2       FAIL SSLError: [SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1147)
+##### end 11.0.0.0
