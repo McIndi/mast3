@@ -805,7 +805,8 @@ appliance asks for a password (the input becomes a password field),
 are `********` in the job, the transcripts and the logs.
 * **Limits** (`[ssh]` in `ssh.conf`): a session closes after 15
 idle minutes (`idle_minutes`) and after 8 hours (`max_hours`); a user
-has at most 3 open (`max_sessions_per_user`); one line runs at most 120
+has at most 3 open (`max_sessions_per_user`), each of at most 20
+appliances (`max_appliances_per_session`); one line runs at most 120
 seconds (`command_timeout`). It also closes when its user logs out or
 gets a new password, and when the web server stops.
 * The sessions live in the web server process: run one web server for

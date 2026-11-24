@@ -525,6 +525,15 @@ class TestTerminalPage(WebCase):
         self.assertEqual(answer.status_code, 200)
         self.assertIn("^C", answer.get_json()["results"]["dp2"]["output"])
 
+    def test_the_most_appliances_in_a_session(self):
+        self.manager._settings = sessions.Settings(
+            connect_timeout=2, max_appliances_per_session=2)
+        operator = self.client_as("operator")
+        answer = self.open(operator, appliances=["dp1", "dp2", "10.0.0.9"])
+        self.assertEqual(answer.status_code, 422)
+        self.assertIn("at most 2 appliances", answer.get_json()["error"])
+        self.assertEqual(self.open(operator).status_code, 201)
+
     def test_four_sessions_are_too_many(self):
         operator = self.client_as("operator")
         for _ in range(3):
@@ -567,8 +576,10 @@ class TestHelpers(TerminalCase):
     def test_settings_from_ssh_conf(self):
         found = sessions.settings()
         self.assertEqual((found.idle_minutes, found.max_hours,
-                          found.max_sessions_per_user, found.command_timeout),
-                         (15, 8, 3, 120))
+                          found.max_sessions_per_user,
+                          found.max_appliances_per_session,
+                          found.command_timeout),
+                         (15, 8, 3, 20, 120))
 
 
 class TestSessionsPostgres(PostgresMixin, TestSessions):

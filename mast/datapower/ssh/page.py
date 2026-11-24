@@ -53,10 +53,7 @@ from mast.web.page import Page
 from .sessions import (COMMAND, NoSuchSession, SessionManager,
                        TooManySessions)
 
-__all__ = ["page", "MANAGER", "MAX_APPLIANCES"]
-
-# The most appliances in one session
-MAX_APPLIANCES = 20
+__all__ = ["page", "MANAGER"]
 
 MANAGER = SessionManager()
 atexit.register(MANAGER.close_all)
@@ -172,9 +169,11 @@ def open_session():
         return _error(422, str(exc))
     if not targets:
         return _error(422, "Add the appliances to the target bar first.")
-    if len(targets) > MAX_APPLIANCES:
-        return _error(422, "A session has at most {} appliances.".format(
-            MAX_APPLIANCES))
+    most = MANAGER.settings.max_appliances_per_session
+    if len(targets) > most:
+        return _error(422, "A session has at most {} appliances "
+                           "(max_appliances_per_session in ssh.conf).".format(
+                               most))
     credential = str(body.get("credential") or "").strip() or None
     credentials = _credentials(body.get("credentials"))
     domain = str(body.get("domain") or "default").strip() or "default"

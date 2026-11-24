@@ -97,6 +97,7 @@ class Settings(object):
     idle_minutes: int = 15
     max_hours: int = 8
     max_sessions_per_user: int = 3
+    max_appliances_per_session: int = 20
     command_timeout: int = 120
     connect_timeout: int = 30
 
