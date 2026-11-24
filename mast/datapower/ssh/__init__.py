@@ -17,3 +17,5 @@ from .ssh import *
 import os
 from mast import __version__
 
+# The job of a session of the Terminal page (ssh.terminal)
+from .terminal import cli  # noqa: E402,F401

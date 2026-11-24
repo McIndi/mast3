@@ -52,6 +52,7 @@ EXPECTED_WEB_PAGES = {
     "admin": "mast.web.pages.admin:page",
     "appliances": "mast.datapower.status.page:page",
     "crypto": "mast.datapower.crypto.page:page",
+    "terminal": "mast.datapower.ssh.page:page",
 }
 
 EXPECTED_DAEMON_PLUGINS = {

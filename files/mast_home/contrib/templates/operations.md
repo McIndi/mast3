@@ -60,7 +60,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 | `crypto.conf` | The posture rules of the crypto inventory: their thresholds, the weights of the score, how long an exception may last, the rules and packs turned off, and the dates of the PQC and CNSA 2.0 rules. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
-| `ssh.conf` | `mast-ssh`: the timeout, and whether host keys that are not pinned are accepted. |
+| `ssh.conf` | `mast-ssh` and the Terminal page: the timeouts, whether host keys that are not pinned are accepted, and how long a session of the Terminal page lasts. |
 | `service-config.conf` | `git-deploy`, see the [git-deploy Guide](./git-deploy.html). |
 | `xor.conf` | The key of `mast-system xor`. |
 
@@ -776,6 +776,49 @@ of an appliance, a command, a schedule or your own.
 5. As an admin, turn a command that you run often into a schedule
 (Admin → Schedules). Its jobs run while a worker runs, without
 anybody logged in.
+6. As an operator, open **Terminal** for the DataPower CLI of the
+appliances of the target bar, side by side (see "The Terminal page").
+
+## The Terminal page
+
+The **Terminal** page opens an SSH session to the DataPower CLI of each
+appliance of the target bar, in one pane each (a grid on a wide screen,
+tabs on a phone). A line goes to every pane that is ticked, and the
+answers come side by side. Up and Down go through the lines sent;
+**Ctrl-C** (or the button) stops a line that is still running. Each
+pane has **Download transcript** and, when it lost its connection,
+**Reconnect**. A reload of the page attaches to its session again.
+
+* **Who:** a terminal can change anything, so it is for operators and
+admins only; a viewer does not see the page. An operator types a user
+name and a password in the target bar. An admin may also choose a
+stored credential of purpose `change`, bound to every appliance and
+only on appliances whose SSH host key is pinned (Admin → Appliances).
+* **Each session is a job** (`ssh.terminal`) that the web server runs
+itself: the Jobs page shows each line (`> line`) and each answer, and
+the whole transcript when the session ends. **Cancel** there closes the
+session. The jobs are passive: a terminal does not hold up a
+deployment on the same appliance, and what is typed in it runs
+alongside the jobs.
+* **Passwords:** the password of the login, and a line typed while an
+appliance asks for a password (the input becomes a password field),
+are `********` in the job, the transcripts and the logs.
+* **Limits** (`[ssh]` in `ssh.conf`): a session closes after 15
+idle minutes (`idle_minutes`) and after 8 hours (`max_hours`); a user
+has at most 3 open (`max_sessions_per_user`); one line runs at most 120
+seconds (`command_timeout`). It also closes when its user logs out or
+gets a new password, and when the web server stops.
+* The sessions live in the web server process: run one web server for
+each MAST home (`mast-web`, or `mastd`).
+* The output is shown as text: ANSI colours are removed, not rendered.
+
+On the command line, `mast-ssh` does the same in one terminal. With a
+stored credential (`mast-ssh -a dp1 --credential NAME`: purpose
+`change`, pinned SSH host keys), its session is recorded as an
+`ssh.terminal` job too, with each line and each use of the credential.
+
+    :::bash
+    ./mast-ssh -a dp1 -a dp2 --credential changer
 
 ## The classic GUI
 
@@ -793,7 +836,7 @@ use a stored credential.
 * The sessions of the `ssh` tab are not tied to your login and are not
 recorded as jobs. An appliance with a pinned SSH host key must show
 that key; without a pin, any host key is accepted, with a warning. For
-work that must be recorded, use `mast-ssh` on the command line.
+work that must be recorded, use the **Terminal** page.
 
 ## Users and roles
 

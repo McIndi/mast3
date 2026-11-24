@@ -256,7 +256,51 @@ class TestNoSecretLeaks(WebCase):
 
         # A pin preview talks to the appliance too
         self.call("POST", "/appliances/dp-fake/pin/preview", {}, client=admin)
+
+        # A terminal: a typed password for the login, and another one
+        # typed at a password prompt (a fake shell, which echoes both)
+        job_ids.append(self.use_a_terminal(operator))
         return job_ids
+
+    def use_a_terminal(self, operator):
+        from mast.datapower.ssh import page as terminal_page
+        from mast.datapower.ssh import sessions
+        from mast.testsuite.unit.test_mast_datapower_ssh_terminal import (
+            FakeShell)
+        manager = sessions.SessionManager(
+            shell_factory=FakeShell,
+            settings_=sessions.Settings(connect_timeout=2),
+            sweep_seconds=3600)
+        patcher = mock.patch.object(terminal_page, "MANAGER", manager)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(manager.close_all)
+        answer = self.call("POST", "/ssh/sessions", {
+            "appliances": ["dp-fake"],
+            "credentials": [USERNAME + ":" + self.markers[1]]},
+            client=operator, status=201)
+        session = answer.get_json()
+        base = "/ssh/sessions/" + session["id"]
+        for line in ("show clock", "ask", self.markers[0]):
+            self.call("POST", base + "/lines", {"line": line},
+                      client=operator, status=200)
+        self.call("GET", base, client=operator, status=200)
+        self.call("GET", "/ssh/sessions", client=operator, status=200)
+        self.call("GET", base + "/lines/3", client=operator, status=200)
+        for query in ("", "?appliance=dp-fake"):
+            self.call("GET", base + "/transcript" + query, client=operator,
+                      status=200)
+        self.terminal_id = session["id"]
+        self.call("DELETE", base, client=operator, status=200)
+        self.assertEqual(jobs.get(session["job_id"]).status, jobs.SUCCEEDED)
+        # The appliance got both, and echoed both: they were there to leak
+        shell = FakeShell.made[-1]
+        self.assertEqual((shell.password, shell.lines[-1]),
+                         (self.markers[1], self.markers[0]))
+        result = jobs.result(session["job_id"]).text
+        self.assertIn("Password: ********", result)
+        self.assertIn("You typed ********", result)
+        return session["job_id"]
 
     def assert_clean(self, where, text):
         if isinstance(text, bytes):
@@ -302,6 +346,10 @@ class TestNoSecretLeaks(WebCase):
         """The values to try for each argument of a GET route."""
         values = {
             "job_id": job_ids,
+            # The Terminal page: the session is closed by now, and its
+            # answers while it was open are in self.answers
+            "session_id": [getattr(self, "terminal_id", "none")],
+            "number": [1, 3],
             "command_id": ["system.list-domains", "credtest.look"],
             "filename": None,  # static files: not searched
         }
@@ -387,6 +435,9 @@ class TestNoSecretLeaks(WebCase):
                      "/api/v1/crypto/findings", "/api/v1/crypto/exceptions",
                      "/api/v1/crypto/snapshots?appliance=dp-fake"):
             self.assertIn(path, checked)
+        # The terminal job: its events and its result were searched
+        self.assertIn("/api/v1/jobs/{}/events".format(job_ids[-1]), checked)
+        self.assertIn("/api/v1/jobs/{}/result".format(job_ids[-1]), checked)
         self.assertTrue([p for p in checked
                          if p.startswith("/api/v1/crypto/objects/")])
         # And the credential was really used, with the second password

@@ -966,9 +966,9 @@ class DataPower(object):
             return False
         return True
 
-    def ssh_issue_command(self, command, timeout=120):
+    def ssh_issue_command(self, command, timeout=120, secret=False):
         """
-        _method_: `mast.datapower.datapower.DataPower(self, command, timeout=120)`
+        _method_: `mast.datapower.datapower.DataPower(self, command, timeout=120, secret=False)`
 
         Description:
 
@@ -993,19 +993,23 @@ class DataPower(object):
         * `command`: The command to send to the appliance.
         * `timeout`: The amount of time (in seconds) to wait for a
         response. Defaults to 120.
+        * `secret`: True for a line typed at a password prompt: it is
+        logged as `********`.
         """
         username, password = _s(self.credentials).split(":", 1)
+        # What the logs say the command was
+        shown = "********\n" if secret else _s(command)
         # need to manually log in order to obfuscate credentials
         logger = make_logger("audit")
         logger.info(
             "Attempting to execute ssh_issue_command('{}', '{}')".format(
-                str(self), _s(command).replace(_s(password), "********").strip()
+                str(self), shown.replace(_s(password), "********").strip()
             ))
         if not self.ssh_is_connected():
             self.log_error(
                 'attempted command on a non-existant '
-                'ssh connection: {}'.format(_s(command).replace(_s(password),
-                                                            "********")))
+                'ssh connection: {}'.format(shown.replace(_s(password),
+                                                          "********")))
             return None
         # I need resp.splitlines() to succeed
         resp = '\n'
@@ -1016,7 +1020,7 @@ class DataPower(object):
 
         self.log_info(
             "Attempting to send SSH command: "
-            "{}".format(_s(command).strip().replace(_s(password), "********")))
+            "{}".format(shown.strip().replace(_s(password), "********")))
         checkpoint()
         self._ssh_conn.sendall(command)
 
@@ -1028,9 +1032,9 @@ class DataPower(object):
             if (time() - start) >= timeout:
                 # Timeout occurred
                 self.log_error(
-                    'Timeout occurred while attempting: {}'.format(command))
+                    'Timeout occurred while attempting: {}'.format(shown))
                 raise SSHTimeoutError(
-                    'Timeout occurred while attempting: {}'.format(command))
+                    'Timeout occurred while attempting: {}'.format(shown))
 
         # Make sure we get everything
         self.log_debug("Retrieving response...")
@@ -1039,9 +1043,9 @@ class DataPower(object):
             if (time() - start) >= timeout:
                 # Timeout occurred
                 self.log_error(
-                    'Timeout occurred while attempting: {}'.format(command))
+                    'Timeout occurred while attempting: {}'.format(shown))
                 raise SSHTimeoutError(
-                    'Timeout occurred while attempting: {}'.format(command))
+                    'Timeout occurred while attempting: {}'.format(shown))
         self.log_info(
             "Response received: {}".format(
                 resp.replace('\n', '').replace('\r', '')))
@@ -1051,7 +1055,7 @@ class DataPower(object):
         #     resp = ' {}\n{}'.format(command.replace(password, "********"), resp)
         logger.info(
             "Finished execution of ssh_issue_command('{}', '{}'). Result: {}".format(
-                str(self), command.replace(password, "********").strip(), resp
+                str(self), shown.replace(password, "********").strip(), resp
             ))
         return resp
 

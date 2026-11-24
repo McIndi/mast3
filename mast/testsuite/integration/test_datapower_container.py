@@ -531,3 +531,58 @@ class TestSSH(ContainerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTerminal(ContainerTestCase):
+    """A session of the Terminal page (mast.datapower.ssh.sessions) to
+    the container: two lines, the transcript, the job."""
+
+    def test_a_session(self):
+        import types
+
+        from mast import jobs
+        from mast.datapower.ssh import sessions
+        from mast.jobs import db
+        from mast.jobs.auth import Principal
+        from mast.testsuite.integration.container import PASSWORD, USERNAME
+        db.configure("sqlite:///" + os.path.join(self.workdir, "jobs.sqlite"))
+        self.addCleanup(db.configure, None)
+        container = self.container
+
+        class Shell(sessions.DataPowerShell):
+            # The container's DataPower (its mapped ports), with the
+            # credentials of the session
+            def __init__(self, name, username, password):
+                self.name = name
+                self.warnings = []
+                self._dp = container.datapower()
+                self._dp.credentials = "{}:{}".format(username, password)
+                self._dp._warn_host_key = self.warnings.append
+
+        manager = sessions.SessionManager(shell_factory=Shell,
+                                          sweep_seconds=3600)
+        self.addCleanup(manager.close_all)
+        owner = types.SimpleNamespace(id=1, name="integration",
+                                      session_epoch=1)
+        session = manager.open(owner, Principal("integration", "operator"),
+                               ["127.0.0.1"],
+                               credentials=[USERNAME + ":" + PASSWORD])
+        pane = session.panes["127.0.0.1"]
+        self.assertTrue(pane.connected, pane.error)
+        # Not registered, so its host key is not checked, and it says so
+        self.assertTrue(any("not checked" in w for w in pane.warnings))
+        version = manager.send(session.id, owner, "show version", wait=60)
+        self.assertTrue(version.finished())
+        self.assertIn("Version", version.results["127.0.0.1"]["output"])
+        clock = manager.send(session.id, owner, "show clock", wait=60)
+        self.assertTrue(clock.finished())
+        self.assertRegex(clock.results["127.0.0.1"]["output"], r"\d\d:\d\d")
+        self.assertFalse(pane.busy)
+        transcript = session.transcript("127.0.0.1")
+        self.assertIn("show version", transcript)
+        self.assertIn("show clock", transcript)
+        manager.close(session.id, owner)
+        self.assertEqual(jobs.get(session.job_id).status, jobs.SUCCEEDED)
+        self.assertIn("show clock", jobs.result(session.job_id).text)
+        messages = [e.message for e in jobs.events(session.job_id)]
+        self.assertIn("> show version", messages)

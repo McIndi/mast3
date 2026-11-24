@@ -109,6 +109,7 @@ commands = "mast.web.pages.commands:page"
 admin = "mast.web.pages.admin:page"
 appliances = "mast.datapower.status.page:page"
 crypto = "mast.datapower.crypto.page:page"
+terminal = "mast.datapower.ssh.page:page"
 
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.web:Plugin"
@@ -146,7 +147,7 @@ include-package-data = false
 "mast.datapower.deployment" = ["docroot/*"]
 "mast.datapower.developer" = ["docroot/*"]
 "mast.datapower.network" = ["docroot/*"]
-"mast.datapower.ssh" = ["docroot/*"]
+"mast.datapower.ssh" = ["docroot/*", "templates/*", "static/*"]
 "mast.datapower.status" = ["docroot/*", "templates/*", "static/*"]
 # The responses of a DataPower and the CycloneDX schemas, for the tests
 "mast.testsuite" = ["data/*/*"]

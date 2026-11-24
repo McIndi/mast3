@@ -115,6 +115,8 @@ def all_commands():
     for namespace in registry.namespaces():
         cli = registry.cli_for(namespace)
         for command in cli.commands.values():
+            if getattr(command, "internal", False):
+                continue
             found.append(command_json(namespace, command))
     return found
 
@@ -124,12 +126,16 @@ def find(command_id):
     _function_: `mast.web.catalog.find(command_id)`
 
     Return `(namespace, command)` for an id such as
-    `system.get-status`. Raises `CommandNotFound`.
+    `system.get-status`. Raises `CommandNotFound`, also for an
+    internal command (`mast.cli.Command.internal`).
     """
     try:
         command = registry.resolve(command_id)
     except registry.UnknownCommand:
         raise CommandNotFound(command_id) from None
+    if getattr(command, "internal", False):
+        # A part of MAST runs it itself (Command.internal)
+        raise CommandNotFound(command_id)
     return command_id.partition(".")[0], command
 
 
