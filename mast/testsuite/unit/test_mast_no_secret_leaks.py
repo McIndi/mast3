@@ -38,6 +38,7 @@ import html
 import json
 import logging
 import os
+import re
 import secrets
 import ssl
 import time
@@ -308,6 +309,11 @@ class TestNoSecretLeaks(WebCase):
             values["name"] = ["leaky"]
         elif rule.startswith("/api/v1/appliances-status/"):
             values["name"] = ["dp-fake", "dp-changed"]
+        elif rule.startswith("/api/v1/crypto/objects/"):
+            from mast.datapower.crypto.models import CryptoObject
+            with db.session(write=False) as session:
+                values["object_id"] = list(session.scalars(
+                    select(CryptoObject.id).order_by(CryptoObject.id))) or [1]
         elif rule.startswith("/api/v1/jobs/"):
             values["name"] = [f["name"] for job_id in job_ids
                               for f in self.client.get(
@@ -337,10 +343,24 @@ class TestNoSecretLeaks(WebCase):
             for combo in combos:
                 path = rule.rule
                 for argument, value in combo.items():
-                    path = path.replace("<{}>".format(argument), str(value))
+                    # <name>, or with a converter: <int:name>
+                    path = re.sub(r"<(?:\w+:)?{}>".format(argument),
+                                  str(value), path)
                 answer = self.client.get(path)
                 self.assert_clean("GET " + path, answer.get_data())
                 checked.append(path)
+        # The routes whose arguments are in the query
+        from mast.datapower.crypto.models import CryptoSnapshot
+        with db.session(write=False) as session:
+            snapshots = list(session.scalars(
+                select(CryptoSnapshot.id).order_by(CryptoSnapshot.id)))
+        for path in ["/api/v1/crypto/snapshots?appliance=dp-fake"] + [
+                "/api/v1/crypto/diff?from={}&to={}".format(a, b)
+                for a in snapshots for b in snapshots]:
+            answer = self.client.get(path)
+            self.assertLess(answer.status_code, 500, path)
+            self.assert_clean("GET " + path, answer.get_data())
+            checked.append(path)
         for where, answer in self.answers:
             self.assert_clean(where, answer.get_data())
         return checked
@@ -362,8 +382,13 @@ class TestNoSecretLeaks(WebCase):
                      "/api/v1/appliances-status",
                      "/api/v1/appliances-status/dp-fake",
                      "/api/v1/credentials/leaky/uses",
-                     "/api/v1/credentials/leaky/audit"):
+                     "/api/v1/credentials/leaky/audit",
+                     "/api/v1/crypto/overview", "/api/v1/crypto/inventory",
+                     "/api/v1/crypto/findings", "/api/v1/crypto/exceptions",
+                     "/api/v1/crypto/snapshots?appliance=dp-fake"):
             self.assertIn(path, checked)
+        self.assertTrue([p for p in checked
+                         if p.startswith("/api/v1/crypto/objects/")])
         # And the credential was really used, with the second password
         self.assertGreaterEqual(len(store.uses("leaky")), 7)
 

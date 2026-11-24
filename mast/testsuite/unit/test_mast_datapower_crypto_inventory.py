@@ -235,6 +235,14 @@ class TestParsing(SqliteCase):
                          ("ML-DSA-65", 15616))
         self.assertEqual(parsed["subject"], "CN=lab.example.test")
 
+    def test_the_objects_that_name_each_file(self):
+        found = inventory.file_users_of(data("config-running.xml"))
+        self.assertEqual(found["cert:///lab-old.key"], {"CryptoKey/lab-old-key"})
+        self.assertNotIn("cert:///lab-unused.crt", found)
+        self.assertEqual(inventory.file_name("cert://a/b.pem"),
+                         "cert:///a/b.pem")
+        self.assertIsNone(inventory.file_name("local:///a.xsl"))
+
     def test_files(self):
         found = inventory.files_of(data("filestore-cert.xml"), "cert:")
         by_name = {(f["domain"], f["name"]) for f in found}

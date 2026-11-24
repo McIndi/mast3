@@ -140,14 +140,15 @@ class TestApiAccess(ApiCase):
         self.assertEqual(me["role"], "operator")
         self.assertEqual(me["csrf_token"], self.token())
         self.assertEqual([page["name"] for page in me["pages"]],
-                         ["appliances", "jobs", "commands"])
+                         ["appliances", "crypto", "jobs", "commands"])
         self.assertTrue(me["may"]["submit"])
         self.assertFalse(me["may"]["cancel-any"])
 
     def test_the_pages_of_each_role(self):
-        expected = {"viewer": ["appliances", "jobs"],
-                    "operator": ["appliances", "jobs", "commands"],
-                    "admin": ["appliances", "jobs", "commands", "admin"]}
+        expected = {"viewer": ["appliances", "crypto", "jobs"],
+                    "operator": ["appliances", "crypto", "jobs", "commands"],
+                    "admin": ["appliances", "crypto", "jobs", "commands",
+                              "admin"]}
         for role, pages in expected.items():
             with self.subTest(role=role):
                 client = self.app.test_client()

@@ -216,6 +216,44 @@ def edges_of(config, start):
     return edges, found
 
 
+_FILE_NAME = re.compile(r"^(cert|sharedcert|pubcert):/*(\S+)$")
+
+
+def file_name(text):
+    """
+    _function_: `mast.datapower.crypto.inventory.file_name(text)`
+
+    `cert:///a/b.pem` in the spelling of `files_of` (three slashes), or
+    None if `text` is not a file of `cert:`, `pubcert:` or `sharedcert:`.
+    """
+    found = _FILE_NAME.match(text.strip()) if isinstance(text, str) else None
+    if not found:
+        return None
+    return "{}:///{}".format(found.group(1), found.group(2))
+
+
+def file_users_of(config):
+    """
+    _function_: `mast.datapower.crypto.inventory.file_users_of(config)`
+
+    The files of `cert:`, `pubcert:` and `sharedcert:` that the objects
+    of a configuration name, whatever their class (a key, but also an
+    AAA policy with an LTPA key): `{file: {"Class/name", ...}}`.
+    """
+    found = {}
+    for element in _config_root(config):
+        if not isinstance(element.tag, str):
+            continue
+        user = "{}/{}".format(_tag(element), element.get("name"))
+        for node in element.iter():
+            if node is element or not isinstance(node.tag, str) or len(node):
+                continue
+            name = file_name(node.text)
+            if name:
+                found.setdefault(name, set()).add(user)
+    return found
+
+
 def _name_text(name):
     try:
         return name.rfc4514_string()
@@ -506,9 +544,11 @@ def collect(appliance, domains=None, delay=0.1, job_id=None, etc_dir=None):
     Read the crypto inventory of one appliance (a `DataPower`). Return
     a dict with `firmware`, `spec_file`, `method`, `objects`
     (`{(domain, class, name): {...}}`), `certs` (`{(domain, name):
-    parsed}`), `files`, `edges` (`{(domain, from, to, via)}`) and
-    `problems`. Raises what the appliance raises for its firmware or
-    its list of domains; a domain that cannot be read is a problem.
+    parsed}`), `files`, `edges` (`{(domain, from, to, via)}`),
+    `file_users` (`{file: {"domain/Class/name"}}`, the objects of the
+    running configurations that name each file) and `problems`. Raises
+    what the appliance raises for its firmware or its list of domains;
+    a domain that cannot be read is a problem.
     """
     from mast.config import MAST_HOME
     from mast.datapower.status.collector import _Poller
@@ -521,7 +561,7 @@ def collect(appliance, domains=None, delay=0.1, job_id=None, etc_dir=None):
     names = list(domains) if domains else list(appliance.domains)
     found = {"firmware": firmware, "spec_file": spec_file, "method": method,
              "objects": {}, "certs": {}, "files": [], "edges": set(),
-             "problems": []}
+             "file_users": {}, "problems": []}
     for domain in names:
         try:
             running = _text(call("get_config", domain=domain, persisted=False))
@@ -531,6 +571,9 @@ def collect(appliance, domains=None, delay=0.1, job_id=None, etc_dir=None):
             continue
         objects = objects_of(running)
         saved_objects = objects_of(saved)
+        for name, users in file_users_of(running).items():
+            found["file_users"].setdefault(name, set()).update(
+                "{}/{}".format(domain, user) for user in users)
         for key in set(objects) | set(saved_objects):
             now, then = objects.get(key), saved_objects.get(key)
             item = dict(now or then)
@@ -614,8 +657,18 @@ def save(appliance_id, collected, now, job_id=None, error=None):
                 not_after=_time(parsed.get("not_after")),
                 sans=parsed.get("sans"),
                 self_signed=parsed.get("self_signed")))
+        file_users = collected.get("file_users")
         for item in collected.get("files", []):
-            session.add(CryptoFile(snapshot_id=snapshot.id, **item))
+            users = None
+            if file_users is not None:
+                # A file of cert: is the domain's own; sharedcert: and
+                # pubcert: are for every domain
+                users = sorted(
+                    u for u in file_users.get(item["name"], ())
+                    if item["location"] != "cert:"
+                    or u.split("/", 1)[0] == item["domain"])
+            session.add(CryptoFile(snapshot_id=snapshot.id, users=users,
+                                   **item))
         for domain, fc, fn, tc, tn, via in sorted(collected.get("edges", ())):
             source, target = ids.get((domain, fc, fn)), ids.get((domain, tc, tn))
             if source and target:
@@ -702,6 +755,15 @@ yourself only to read one appliance again."""
             say("Could not read {}: {}".format(appliance.hostname, error))
         snapshot = save(record.id, collected, now, job_id=current_job(),
                         error=error) if record is not None else None
+        findings = ""
+        if snapshot is not None and error is None:
+            from .posture import evaluate
+            try:
+                findings = str(evaluate(snapshot))
+            except Exception as exc:
+                make_logger("mast.crypto").exception(
+                    "The posture rules failed on snapshot {}".format(snapshot))
+                say("Could not run the posture rules: {}".format(_error(exc)))
         collected = collected or {}
         rows.append([
             appliance.hostname, "no" if error else "yes",
@@ -710,7 +772,7 @@ yourself only to read one appliance again."""
                     if k[1] in CLASSES)),
             str(len(collected.get("certs", {}))),
             str(len(collected.get("files", []))),
-            str(len(collected.get("problems", []))),
+            str(len(collected.get("problems", []))), findings,
             "" if snapshot else "Not registered: not kept",
             error or ""])
         oks.append(error is None)
@@ -719,7 +781,8 @@ yourself only to read one appliance again."""
 
 class _Inventoried(Table):
     HEADER = ("Appliance", "Read", "Firmware", "Method", "Crypto objects",
-              "Certificates", "Files", "Problems", "Note", "Error")
+              "Certificates", "Files", "Problems", "Findings", "Note",
+              "Error")
 
     def __init__(self, rows, oks, history=""):
         super().__init__(self.HEADER, rows, history=history)
@@ -756,17 +819,18 @@ collecting."""
         result = queue.result(child)
         data = result.data if result is not None else None
         row = data["rows"][0] if data and data.get("rows") else None
-        rows.append([name, info.status, child] + (row[2:8] if row else
-                                                  [""] * 6)
+        rows.append([name, info.status, child] + (row[2:9] if row else
+                                                  [""] * 7)
                     + [info.error.splitlines()[0][:200] if info.error
-                       else (row[9] if row else "")])
+                       else (row[10] if row else "")])
         oks.append(info.status == "succeeded")
     return _Children(rows, oks)
 
 
 class _Children(Table):
     HEADER = ("Appliance", "Status", "Job", "Firmware", "Method",
-              "Crypto objects", "Certificates", "Files", "Problems", "Error")
+              "Crypto objects", "Certificates", "Files", "Problems",
+              "Findings", "Error")
 
     def __init__(self, rows, oks):
         super().__init__(self.HEADER, rows)

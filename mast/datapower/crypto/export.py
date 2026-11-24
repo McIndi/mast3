@@ -25,8 +25,8 @@ password alias and TLS profile, the algorithms of the certificates,
 an `application` for each listener or service that uses them, and the
 references as `dependencies`.
 * `xlsx`: one sheet each for the certificates, the keys, the
-credentials, the TLS profiles, the files and the findings (the
-findings come with the posture rules).
+credentials, the TLS profiles, the files and the findings of the
+posture rules (`mast.datapower.crypto.posture`).
 * `csv`: the certificates.
 
 Nothing secret is in a snapshot, so nothing secret is in an export.
@@ -86,10 +86,13 @@ def load(snapshot=None, appliances=()):
 
     The snapshot `snapshot`, or the newest snapshot that worked of each
     appliance (of `appliances`, if given), as a list of dicts with
-    `snapshot`, `appliance`, `objects`, `certs`, `files` and `edges`.
+    `snapshot`, `appliance`, `objects`, `certs`, `files`, `edges` and
+    `findings` (dicts of `posture.findings_of`).
     """
     from mast import registry
     from mast.jobs import db
+
+    from .posture import findings_of
     names = {a.id: a.name for a in registry.list_appliances()}
     found = []
     with db.session(write=False) as session:
@@ -112,6 +115,8 @@ def load(snapshot=None, appliances=()):
                 "edges": list(session.scalars(
                     select(CryptoEdge).where(CryptoEdge.snapshot_id == row.id))),
             })
+    for snap in found:
+        snap["findings"] = findings_of([snap["snapshot"].id])
     return found
 
 
@@ -281,7 +286,7 @@ SHEETS = {
                      "Used by"),
     "Files": ("Appliance", "Domain", "File", "Size", "Modified"),
     "Findings": ("Appliance", "Domain", "Object", "Rule", "Severity",
-                 "Finding"),
+                 "Finding", "Remediation", "Exception"),
 }
 
 
@@ -328,6 +333,16 @@ def rows(snapshots):
         for item in snap["files"]:
             found["Files"].append([appliance, item.domain, item.name,
                                    item.size or "", item.modified or ""])
+        for item in snap.get("findings", ()):
+            exception = item["exception"]
+            found["Findings"].append([
+                appliance, item["domain"] or "", item["subject"],
+                item["rule_id"], item["severity"], item["message"],
+                item["remediation"],
+                "{} (until {}): {}".format(exception["id"],
+                                           exception["expires_at"][:10],
+                                           exception["reason"])
+                if exception else ""])
     return found
 
 
