@@ -65,10 +65,9 @@ checkout, so a change to the code is live:
 | The job queue | `mast/jobs` | Every invocation of a DataPower command is a job. `queue` stores the jobs (SQLite or PostgreSQL, with Alembic migrations), `runner` runs one, `worker` is `mast-worker`, `client` submits a job and follows it, `secrets` encrypts the credentials of a waiting job. |
 | DataPower | `mast/datapower/datapower` | `DataPower` talks to one appliance through its XML management interface (SOMA and AMP) and SSH. `Environment` is a group of appliances. The SOMA spec files are in `files/mast_home/etc`. |
 | Who the appliance is | `mast/datapower/datapower/tls.py` | Every connection to an appliance that can carry a password: the TLS checks (`ca`, `pin`, `none`) of SOMA and AMP, and the SSH host key policy. The pin is checked after the handshake and before the request is sent. Inside `mast.cli.results.stored_credential` (a job with a stored credential) unchecked connections are refused. `mast-appliances pin` and the pin API use its `preview`. |
-| The commands | `mast/datapower/<plugin>` | `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `ssh`, `status`, `system`. Each has a module-level `cli` and a web plugin. |
-| Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `plugin_functions` (the web forms). |
+| The commands | `mast/datapower/<plugin>` | `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `ssh`, `status`, `system`. Each has a module-level `cli`; `crypto`, `ssh` and `status` also have a page of the web UI. |
+| Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `choices` (the choice lists of the web forms). |
 | The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), the CSRF token, the session key and the security headers (`security`), the JSON API (`api`, `catalog`, `uploads`), the pages (`page`, `pages`) and their templates and scripts. |
-| The classic GUI | `mast/datapower/web` | A Flask application that the web UI mounts under `/classic/`. Each web plugin is a tab. |
 | The appliance registry | `mast/registry` | The appliances and the environments, in the job database. `resolve` turns the names that users type into appliances; `DataPower`, `Environment` and the job queue use it. `files` imports and exports the configuration files of MAST 3.15.2. `mast-appliances` is `mast/registry/cli.py`. |
 | Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast-credentials` is `mast/credentials/cli.py`. |
 | Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast-users` is `mast/auth/cli.py`. |
@@ -84,7 +83,7 @@ and runs the function. What the function reports with `say` is stored
 as progress, and the `Result` that it returns is stored and shown.
 
 The plugins are found through entry points in `pyproject.toml`:
-`mast_web_plugin` for the tabs of the web GUI and `mastd_plugin` for
+`mast_web_page` for the pages of the web UI and `mastd_plugin` for
 the threads of `mastd`. A `mastd_plugin` that has running work should
 have `stop()` and `abort()`, so that `mastd` can wait for that work
 when it stops (see `mast._daemon.plugins`). A worker finds the code of a job by importing
@@ -158,7 +157,7 @@ several things on each appliance, as `add-domain` does.
 
 **The result.** Return a `Result`: `Text` and `Table` from `mast.cli`,
 or a result of `mast.plugin_utils.results`. The command line prints its
-text, the classic GUI shows its HTML, and the web UI shows its `data()`
+text, and the web UI shows its `data()`
 as a table that can be sorted and filtered (or its HTML, if `data()` is
 None). A result that is a table gets `data()` from `Table`; a result of
 your own can return a `Table` from `table()` (see
@@ -243,26 +242,6 @@ A unit test checks that every widget of every command is in the map,
 and that the two maps are the same. A new widget needs a control in
 `forms.js`, an entry in both maps, and, for a choice, a case in
 `mast.plugin_utils.choices`.
-
-# Adding a web plugin (classic GUI)
-
-The classic GUI, under `/classic/`, goes away when the web UI has a page
-for each of its tabs (after the Terminal page). Do not add a new web
-plugin: add a command (it gets a form on the Commands page) or a page
-(see "Adding a page to the web UI"). A web plugin is a class with a `route`, `html`,
-`css` and `js`, listed under `mast_web_plugin` in `pyproject.toml`. The DataPower plugins use
-`mast.plugin_utils.plugin_functions`, which makes the forms from the
-`Params` models, so a new command of an existing plugin needs nothing
-more. The web GUI has a strict Content Security Policy:
-
-* Put the JavaScript of a plugin in its `js()`, which is served as
-`/plugins.js`. No inline scripts, no `on...` attributes.
-* Put its styles in its `css()`. No `<style>` elements and no `style`
-attributes; use a class.
-* Do not load anything from another site.
-* jQuery sends the CSRF token with every request. A form that the
-browser submits itself needs the field `csrf_token`, see
-`fileupload.html`.
 
 # Conventions
 

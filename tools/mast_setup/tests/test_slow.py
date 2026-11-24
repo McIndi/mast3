@@ -69,9 +69,11 @@ class TestBuild(unittest.TestCase):
                 re.escape(mast_version())))
             names = set(zipfile.ZipFile(zips[0]).namelist())
             launcher = "mast-version.bat" if sys.platform == "win32" else "mast-version"
-            for expected in (launcher, "etc/default/server.conf", "var/www/templates/index.html",
+            for expected in (launcher, "etc/default/server.conf", "etc/default/ssh.conf",
                              "etc/local/.empty", "contrib/getconfig.py"):
                 self.assertIn(expected, names)
+            # The classic GUI was removed in R-1
+            self.assertEqual([n for n in names if n.startswith("var/www/")], [])
             self.assertTrue(any(re.match(r"python/[^/]+/.*site-packages/mast/home\.py$", n)
                                 for n in names))
 

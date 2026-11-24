@@ -91,17 +91,6 @@ mast-worker = "mast._entry:worker"
 mastd = "mast._entry:daemon"
 test-mast = "mast._entry:testsuite"
 
-[project.entry-points.mast_web_plugin]
-accounts = "mast.datapower.accounts:WebPlugin"
-backups = "mast.datapower.backups:WebPlugin"
-crypto = "mast.datapower.crypto:WebPlugin"
-deployment = "mast.datapower.deployment:WebPlugin"
-developer = "mast.datapower.developer:WebPlugin"
-network = "mast.datapower.network:WebPlugin"
-ssh = "mast.datapower.ssh:WebPlugin"
-status = "mast.datapower.status:WebPlugin"
-system = "mast.datapower.system:WebPlugin"
-
 # The pages of the web UI, see mast/web/page.py
 [project.entry-points.mast_web_page]
 jobs = "mast.web.pages.jobs:page"
@@ -141,14 +130,8 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 "mast.web" = ["templates/*", "static/css/*", "static/js/*", "static/vendor/*/*"]
-"mast.datapower.accounts" = ["docroot/*"]
-"mast.datapower.backups" = ["docroot/*"]
-"mast.datapower.crypto" = ["docroot/*", "templates/*", "static/*"]
-"mast.datapower.deployment" = ["docroot/*"]
-"mast.datapower.developer" = ["docroot/*"]
-"mast.datapower.network" = ["docroot/*"]
-"mast.datapower.ssh" = ["docroot/*", "templates/*", "static/*"]
-"mast.datapower.status" = ["docroot/*", "templates/*", "static/*"]
+"mast.datapower.crypto" = ["templates/*", "static/*"]
+"mast.datapower.ssh" = ["templates/*", "static/*"]
+"mast.datapower.status" = ["templates/*", "static/*"]
 # The responses of a DataPower and the CycloneDX schemas, for the tests
 "mast.testsuite" = ["data/*/*"]
-"mast.datapower.system" = ["docroot/*"]

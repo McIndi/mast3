@@ -743,3 +743,73 @@ class TestResultData(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConnectivity(ApiCase):
+    """The Test button of the target bar: POST /api/v1/connectivity
+    runs a passive job of system.test-connectivity."""
+
+    def setUp(self):
+        super().setUp()
+
+        def start_and_run(command, params, principal, passive=False,
+                          job_id=None):
+            job_id = queue.submit(command, params, principal=principal,
+                                  job_id=job_id, passive=passive)
+            jobs.run_next("w-test")
+            return job_id
+        self.start.side_effect = start_and_run
+        from mast.datapower.system import system as dp_system
+
+        def tested(appliance, timeout):
+            ok = appliance.hostname != "dp2"
+            return [appliance.hostname, "yes", "IDG.11.0.0.3",
+                    "yes" if ok else "no", "" if ok else "SSH: refused"]
+        patcher = mock.patch.object(dp_system, "_test_connectivity",
+                                    side_effect=tested)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        class Env(object):
+            def __init__(self, names, credentials=None, **kwargs):
+                self.appliances = [mock.Mock(hostname=n) for n in names]
+        patcher = mock.patch("mast.plugin_utils.params.Environment", Env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_viewer_may_not(self):
+        self.login("viewer")
+        self.assertEqual(self.api_post("/connectivity", {
+            "appliances": ["dp1"], "credentials": ["a:b"]}).status_code, 403)
+
+    def test_the_rows_and_the_job(self):
+        self.login("operator")
+        answer = self.api_post("/connectivity", {
+            "appliances": ["dp1", "dp2"],
+            "credentials": ["admin:" + SECRET], "no_check_hostname": True})
+        self.assertEqual(answer.status_code, 200, answer.get_json())
+        found = answer.get_json()
+        self.assertEqual(found["rows"], [
+            {"appliance": "dp1", "soma": "yes", "firmware": "IDG.11.0.0.3",
+             "ssh": "yes", "problem": ""},
+            {"appliance": "dp2", "soma": "yes", "firmware": "IDG.11.0.0.3",
+             "ssh": "no", "problem": "SSH: refused"}])
+        job = jobs.get(found["job_id"])
+        self.assertEqual((job.command, job.submitted_by),
+                         ("system.test-connectivity", "operator"))
+        self.assertTrue(job.passive)
+        self.assertNotIn(SECRET, answer.get_data(as_text=True))
+
+    def test_it_needs_appliances_and_credentials(self):
+        self.login("operator")
+        self.assertEqual(self.api_post("/connectivity", {
+            "appliances": [], "credentials": ["a:b"]}).status_code, 422)
+        self.assertEqual(self.api_post("/connectivity", {
+            "appliances": ["dp1"]}).status_code, 422)
+
+    def test_the_target_bar_has_the_button(self):
+        self.login("operator")
+        for path in ("/commands", "/terminal"):
+            with self.subTest(path=path):
+                page = self.client.get(path).get_data(as_text=True)
+                self.assertIn("data-target-test", page)

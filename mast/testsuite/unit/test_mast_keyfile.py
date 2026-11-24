@@ -95,9 +95,7 @@ class TestWebSecretKey(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from mast.datapower.web import gui
         from mast.web import security
-        cls.gui = gui
         cls.security = security
 
     def setUp(self):
@@ -105,13 +103,15 @@ class TestWebSecretKey(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.path = os.path.join(self.tmp, "server.key")
 
-    def test_the_web_gui_has_a_key_from_its_key_file(self):
+    def test_the_web_ui_has_a_key_from_its_key_file(self):
         # The default server.conf names etc/local/server.key, which the
-        # web GUI made when it was imported.
+        # web UI makes when it starts.
         from mast.config import MAST_HOME
+        from mast.web.app import create_app
+        app = create_app()
         path = os.path.join(MAST_HOME, "etc", "local", "server.key")
-        self.assertEqual(self.gui.app.secret_key, keyfile.read_or_create(path))
-        self.assertNotIn(self.gui.app.secret_key,
+        self.assertEqual(app.secret_key, keyfile.read_or_create(path))
+        self.assertNotIn(app.secret_key,
                          {b"INSECURE_SECRET_KEY_CHANGE_ME", b"changeme"})
 
     def test_without_a_secret_key_the_key_file_is_made(self):

@@ -21,8 +21,8 @@ These tests read the installed package metadata, so they run against an
 installed MAST (the build output, or `pip install .`). They skip when MAST
 is only on the path and not installed.
 
-The plugin loaders in mast.daemon and mast.datapower.web.gui hide every
-load error. These tests load each entry point and fail with the error.
+The plugin loaders in mast.daemon and mast.web.page hide every load
+error. These tests load each entry point and fail with the error.
 """
 import importlib
 import importlib.metadata as metadata
@@ -33,18 +33,6 @@ from pathlib import Path
 from unittest import mock
 
 import mast
-
-EXPECTED_WEB_PLUGINS = {
-    "accounts": "mast.datapower.accounts:WebPlugin",
-    "backups": "mast.datapower.backups:WebPlugin",
-    "crypto": "mast.datapower.crypto:WebPlugin",
-    "deployment": "mast.datapower.deployment:WebPlugin",
-    "developer": "mast.datapower.developer:WebPlugin",
-    "network": "mast.datapower.network:WebPlugin",
-    "ssh": "mast.datapower.ssh:WebPlugin",
-    "status": "mast.datapower.status:WebPlugin",
-    "system": "mast.datapower.system:WebPlugin",
-}
 
 EXPECTED_WEB_PAGES = {
     "jobs": "mast.web.pages.jobs:page",
@@ -62,10 +50,8 @@ EXPECTED_DAEMON_PLUGINS = {
 }
 
 # Packages that must have docroot/* files (the web GUI pages).
-DOCROOT_PACKAGES = (
-    "accounts", "backups", "crypto", "deployment", "developer",
-    "network", "ssh", "status", "system",
-)
+# The plugins whose pages of the web UI have templates and static files
+PAGE_PACKAGES = ("crypto", "ssh", "status")
 
 
 def _installed_distribution():
@@ -129,9 +115,9 @@ class TestMASTPackaging(unittest.TestCase):
         self.assertEqual(metadata.metadata("mast")["License-Expression"],
                          "GPL-3.0-only")
 
-    def test_web_plugin_entry_points(self):
-        found = {name: ep.value for name, ep in _entry_points("mast_web_plugin").items()}
-        self.assertEqual(found, EXPECTED_WEB_PLUGINS)
+    def test_the_classic_plugin_group_is_gone(self):
+        # The tabs of the classic GUI were removed in R-1
+        self.assertEqual(_entry_points("mast_web_plugin"), {})
 
     def test_daemon_plugin_entry_points(self):
         found = {name: ep.value for name, ep in _entry_points("mastd_plugin").items()}
@@ -142,7 +128,7 @@ class TestMASTPackaging(unittest.TestCase):
         self.assertEqual(found, EXPECTED_WEB_PAGES)
 
     def test_every_entry_point_loads(self):
-        for group in ("mast_web_plugin", "mast_web_page", "mastd_plugin"):
+        for group in ("mast_web_page", "mastd_plugin"):
             for name, ep in _entry_points(group).items():
                 with self.subTest(group=group, name=name):
                     # load() raises on a bad import or a missing attribute.
@@ -227,22 +213,31 @@ class TestMASTPackaging(unittest.TestCase):
         expected = {
             "mast.cli", "mast.config", "mast.cron", "mast._daemon",
             "mast.datapower", "mast.hashes", "mast.jobs", "mast.jobs.migrations",
-            "mast.jobs.migrations.versions", "mast.logging", "mast.plugins",
+            "mast.jobs.migrations.versions", "mast.logging",
             "mast.plugin_utils", "mast.pprint", "mast.test", "mast.testsuite",
             "mast.testsuite.unit", "mast.testsuite.integration",
             "mast.testsuite.regression", "mast.timestamp", "mast.xor",
         } | {"mast.datapower." + n for n in (
             "accounts", "backups", "crypto", "datapower", "deployment",
-            "developer", "network", "ssh", "status", "system", "web")}
+            "developer", "network", "ssh", "status", "system")}
         self.assertEqual(expected - names, set(), "packages missing from the install")
 
-    def test_docroot_files_are_installed(self):
-        for name in DOCROOT_PACKAGES:
+    def test_the_files_of_the_pages_are_installed(self):
+        for name in PAGE_PACKAGES:
+            module = importlib.import_module("mast.datapower." + name)
+            for folder in ("templates", "static"):
+                with self.subTest(package=name, folder=folder):
+                    path = Path(module.__file__).parent / folder
+                    files = [p for p in path.glob("*") if p.is_file()]
+                    self.assertTrue(files, "no files in {}".format(path))
+
+    def test_no_classic_files_are_installed(self):
+        for name in ("accounts", "backups", "crypto", "deployment",
+                     "developer", "network", "ssh", "status", "system"):
+            module = importlib.import_module("mast.datapower." + name)
             with self.subTest(package=name):
-                module = importlib.import_module("mast.datapower." + name)
-                docroot = Path(module.__file__).parent / "docroot"
-                files = [p for p in docroot.glob("*") if p.is_file()]
-                self.assertTrue(files, "no files in {}".format(docroot))
+                self.assertFalse(
+                    (Path(module.__file__).parent / "docroot").exists())
 
 
 if __name__ == "__main__":

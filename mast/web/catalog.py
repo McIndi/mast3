@@ -36,7 +36,7 @@ __all__ = [
     "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
 ]
 
-# The widgets that the web UI fills itself, as the classic GUI did
+# The widgets that the web UI fills itself (the target bar)
 APPLIANCES = "appliances"
 CREDENTIALS = "credentials"
 UPLOAD = "upload"

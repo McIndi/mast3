@@ -17,7 +17,8 @@
 _module_: `mast.home`
 
 This module finds `MAST_HOME`, the folder that holds the configuration
-(`etc`), the logs (`var/log`), the web files (`var/www`) and, in an
+(`etc`), the logs (`var/log`), the uploads of the web UI
+(`var/www/uploads`) and, in an
 installed MAST, the Python interpreter and the launchers.
 
 MAST runs with its home as the current directory. The launchers

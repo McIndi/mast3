@@ -10,6 +10,10 @@
 // The stored credentials offered are those that can be used on every
 // appliance of the bar (GET /api/v1/credentials?appliances=...). A viewer
 // may not list them, and sees no picker.
+//
+// Test asks whether MAST can log in to each appliance with these
+// credentials, to SOMA and to SSH (POST /api/v1/connectivity, a passive
+// job of system.test-connectivity), and shows the answer by each name.
 import {api, el} from "./api.js";
 
 const KEY = "mast.targets";
@@ -29,6 +33,8 @@ function save(names) {
 
 const listeners = [];
 let names = load();
+// The answer of the last Test, by appliance: {soma, ssh, firmware, problem}
+let tested = {};
 
 // ?appliance=NAME in the URL adds an appliance, so that other pages can
 // link to "run a command on this appliance"
@@ -52,10 +58,19 @@ function render() {
         remove.addEventListener("click", () => setAppliances(names.filter((n) => n !== name)));
         list.append(el("span", {className: "badge text-bg-primary mast-target-chip d-inline-flex align-items-center"},
                        name, remove));
+        const result = tested[name];
+        if (result) {
+            const flag = (label, ok) => el("span", {className: "badge " + (ok ? "text-bg-success" : "text-bg-danger")},
+                                           label + (ok ? " ok" : " failed"));
+            list.append(el("span", {className: "d-inline-flex gap-1 align-items-center me-2",
+                                    title: [result.firmware, result.problem].filter(Boolean).join(" — ")},
+                           flag("SOMA", result.soma === "yes"), flag("SSH", result.ssh === "yes")));
+        }
     }
 }
 
 function changed() {
+    tested = {};
     save(names);
     render();
     if (bar) offerStored();
@@ -148,8 +163,42 @@ export function onChange(listener) {
     listeners.push(listener);
 }
 
+async function testConnectivity() {
+    const status = bar.querySelector("[data-target-test-status]");
+    const button = bar.querySelector("[data-target-test]");
+    status.classList.remove("d-none", "text-danger");
+    if (!names.length) {
+        status.textContent = "Add the appliances first.";
+        return;
+    }
+    const body = {appliances: names};
+    const stored = storedCredential();
+    if (stored) body.credential = stored;
+    else {
+        body.credentials = credentials();
+        body.no_check_hostname = noCheckHostname();
+    }
+    button.disabled = true;
+    status.textContent = "Testing " + names.length + " appliance(s)…";
+    try {
+        const answer = await api.post("/connectivity", body);
+        tested = Object.fromEntries(answer.rows.map((r) => [r.appliance, r]));
+        const failed = answer.rows.filter((r) => r.soma !== "yes" || r.ssh !== "yes").length;
+        render();
+        status.replaceChildren(failed ? failed + " of " + answer.rows.length + " could not log in to everything (hover for why). "
+                                      : "All could log in. ",
+                               el("a", {href: "/jobs/" + encodeURIComponent(answer.job_id)}, "The job"));
+    } catch (error) {
+        status.classList.add("text-danger");
+        status.textContent = error.message;
+    } finally {
+        button.disabled = false;
+    }
+}
+
 if (bar) {
     const form = bar.querySelector("[data-target-form]");
+    bar.querySelector("[data-target-test]").addEventListener("click", testConnectivity);
     const input = bar.querySelector("[data-target-input]");
     form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -158,9 +207,16 @@ if (bar) {
         setAppliances(names.concat(added));
     });
     for (const field of bar.querySelectorAll("[data-target-username], [data-target-password], [data-target-no-check]")) {
-        field.addEventListener("change", () => { for (const listener of listeners) listener(); });
+        field.addEventListener("change", () => {
+            // A test of other credentials says nothing about these
+            tested = {};
+            render();
+            for (const listener of listeners) listener();
+        });
     }
     bar.querySelector("[data-target-stored]").addEventListener("change", () => {
+        tested = {};
+        render();
         wanted = null;
         showAdhoc();
         for (const listener of listeners) listener();

@@ -26,11 +26,6 @@ the CSRF token of the session (see `mast.web.security`).
 The pages come from the entry points in the group `mast_web_page`
 (see `mast.web.page`): the core has Jobs, Commands and Admin. The JSON
 API is `mast.web.api`, under `/api/v1`.
-
-The classic GUI (`mast.datapower.web.gui`) is mounted under
-`/classic/`, until the new web UI can do all that it does. It uses the
-same key and the same session cookie, so a user logs in once, and it
-needs the same login.
 """
 import flask
 
@@ -43,9 +38,7 @@ from mast.web import credentials as _credentials  # noqa: F401
 from mast.web import schedules as _schedules  # noqa: F401
 from mast.web.page import load_pages
 
-__all__ = ["create_app", "settings", "CLASSIC_PREFIX"]
-
-CLASSIC_PREFIX = "/classic"
+__all__ = ["create_app", "settings"]
 
 
 def _flag(value, default=False):
@@ -91,8 +84,7 @@ def configure_session(app, values):
     _function_: `mast.web.app.configure_session(app, values)`
 
     Give `app` the session settings of the web UI: the key, the cookie
-    flags and the session limits. The new web UI and the classic GUI
-    get the same settings, so that they share the session cookie.
+    flags and the session limits.
     """
     app.secret_key = security.secret_key(values["server"])
     app.config.update(
@@ -109,10 +101,9 @@ def _is_api():
     return flask.request.path.startswith(api.blueprint.url_prefix + "/")
 
 
-def create_app(server_conf=None, classic=True, pages=None):
+def create_app(server_conf=None, pages=None):
     """
-    _function_: `mast.web.app.create_app(server_conf=None, classic=True,
-    pages=None)`
+    _function_: `mast.web.app.create_app(server_conf=None, pages=None)`
 
     Make the Flask application of the web UI.
 
@@ -120,7 +111,6 @@ def create_app(server_conf=None, classic=True, pages=None):
 
     * `server_conf`: The parsed `server.conf`. The default is the one
     of the MAST home.
-    * `classic`: If True, mount the classic GUI under `/classic/`.
     * `pages`: The `mast.web.page.Page`s. The default is every entry
     point in `mast_web_page`.
     """
@@ -172,7 +162,6 @@ def create_app(server_conf=None, classic=True, pages=None):
         user = flask.g.get("mast_user")
         return {
             "csrf_token": security.csrf_token,
-            "classic_prefix": CLASSIC_PREFIX if classic else None,
             "nav_pages": [page for page in pages if user is not None
                           and roles.at_least(user.role, page.min_role)],
             "may_submit": user is not None
@@ -194,19 +183,4 @@ def create_app(server_conf=None, classic=True, pages=None):
                 return flask.redirect(page.path)
         return flask.render_template("home.html", user=user)
 
-    if classic:
-        _mount_classic(app, values)
     return app
-
-
-def _mount_classic(app, values):
-    """Mount the classic GUI under CLASSIC_PREFIX, with the session
-    settings of `app`."""
-    from werkzeug.middleware.dispatcher import DispatcherMiddleware
-    from mast.datapower.web import gui
-    configure_session(gui.app, values)
-    gui.secure = values["secure"]
-    gui.hsts_max_age = values["hsts_max_age"]
-    app.wsgi_app = DispatcherMiddleware(
-        app.wsgi_app, {CLASSIC_PREFIX: gui.app})
-    app.classic = gui.app

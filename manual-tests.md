@@ -127,7 +127,7 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
     ./mast-users add -u alice -r admin
     ./mast-web          # and, in a second terminal: ./mast-worker
     # Open https://127.0.0.1:5000/: log in as alice, choose a new password.
-    # /classic/ still works, behind the same login.
+    # /classic/ is 404, and no page links to it.
 
     # 2. The appliances: Admin -> Appliances, add dp1 (or
     #    ./mast-appliances import from the files of MAST 3.15.2), then Pin.
@@ -157,6 +157,22 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
     #    collector: refused ("for collecting ... can change the
     #    appliances"), and no job runs. The same with -c and the password
     #    of the read-only user: DataPower answers "Authorization failure".
+
+# Phase R: the classic GUI is gone
+
+    # /classic/, /classic/plugins.js and /test/connectivity/dp1: 404.
+    # The menu has no "Classic GUI".
+    # Commands and Terminal: the target bar has Test. With a stored
+    # credential, and with a typed user name and password: each appliance
+    # shows SOMA ok/failed and SSH ok/failed; hover for the reason. A
+    # wrong password: SOMA failed and SSH failed, with the reason. An
+    # unpinned SSH host key with a stored credential: SSH failed, "not
+    # pinned". The link opens the job system.test-connectivity.
+    # Change the password or the credential: the results go.
+    # One command of each plugin from the Commands page, on the container:
+    # accounts.list-users, backups.list-checkpoints, crypto.cert-file-audit,
+    # deployment.get-file, developer.list-probes, network.list-host-aliases,
+    # system.get-status; status: the Appliances page; ssh: the Terminal page.
 
 # Phase D: the Terminal page
 

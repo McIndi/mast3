@@ -86,10 +86,6 @@ class TestMASTImports(unittest.TestCase):
         import mast.datapower.system as system
         self.assertTrue(hasattr(system, "__version__"))
 
-    def test_import_mast_datapower_web(self):
-        import mast.datapower.web as web
-        self.assertTrue(hasattr(web, "__version__"))
-
     def test_import_mast_hashes(self):
         import mast.hashes as hashes
         self.assertTrue(hasattr(hashes, "__version__"))
@@ -97,10 +93,6 @@ class TestMASTImports(unittest.TestCase):
     def test_import_mast_logging(self):
         import mast.logging as logging
         self.assertTrue(hasattr(logging, "__version__"))
-
-    def test_import_mast_plugins(self):
-        import mast.plugins as plugins
-        self.assertTrue(hasattr(plugins, "__version__"))
 
     def test_import_mast_plugin_utils(self):
         import mast.plugin_utils as plugin_utils

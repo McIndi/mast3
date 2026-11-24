@@ -21,10 +21,8 @@ tasks associated with IBM DataPower appliances.
 """
 import os
 import urllib.error
-from importlib.resources import files
 from typing import Literal
 from mast.cli import Cli, Option, say
-from mast.plugins.web import Plugin
 from mast.datapower import datapower
 from mast.timestamp import Timestamp
 from mast.pprint import format_xml
@@ -33,8 +31,6 @@ from mast.plugin_utils.params import (
     ApplianceParams, OUT_DIR, UPLOAD, configured)
 from mast.plugin_utils.results import (
     ActionResults, ListResults, SeeDownload)
-from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_functions as pf
 
 cli = Cli(namespace="developer")
 
@@ -314,24 +310,6 @@ def list_probes(params: ListProbes):
                         else:
                             results[k] = [v]
     return ListResults(results, env)
-
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "developer")
-        self.route.__name__ = "developer"
-        self.html = partial(pf.html, "mast.datapower.developer")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')
 
 
 if __name__ == '__main__':

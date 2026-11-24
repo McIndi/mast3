@@ -21,7 +21,6 @@ your DataPower service deployments and migrations.
 """
 import os
 import subprocess
-from importlib.resources import files
 from time import sleep
 from typing import Literal
 from pydantic import model_validator
@@ -30,11 +29,8 @@ from mast.datapower.deployment.git_deploy import git_deploy
 from mast.plugin_utils.params import (
     ApplianceParams, OUT_DIR, UPLOAD, configured, timeout_option)
 from mast.plugin_utils.results import Report, SeeDownload, StatusResults
-from mast.plugins.web import Plugin
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
-from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_functions as pf
 
 cli = Cli(namespace="deployment")
 
@@ -773,12 +769,6 @@ DO NOT RUN AS ROOT!!!"""
     return report
 
 
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-# Every git-deploy uses the same directory of checkouts, the same
-# default out_dir and the same log files, so only one runs at a time
 git_deploy = cli.command(
     'git-deploy', category='deployment',
     resources=["git-deploy"])(git_deploy)
@@ -857,20 +847,6 @@ def del_password_map_alias(params: DelPasswordMapAlias):
     return _password_map_alias(
         params, "DeletePasswordMap", "DeletePasswordMapAlias",
         "Attempting to remove Password Map Alias")
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "deployment")
-        self.route.__name__ = "deployment"
-        self.html = partial(pf.html, "mast.datapower.deployment")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')
 
 
 if __name__ == '__main__':

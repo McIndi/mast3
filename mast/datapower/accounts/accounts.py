@@ -21,16 +21,12 @@ administration tasks associated with IBM DataPower
 appliances.
 """
 from mast.cli import Cli, Option, say
-from importlib.resources import files
-from mast.plugins.web import Plugin
 from mast.logging import make_logger, logged
 from mast.plugin_utils.params import (
     ApplianceParams, SaveConfigParams, configured)
 from mast.plugin_utils.results import ActionResults, CommonItems, Report
 from mast.plugin_utils.steps import perform as _perform
 from mast.plugin_utils.steps import save_config as _save_config
-from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_functions as pf
 
 cli = Cli(namespace="accounts")
 
@@ -408,24 +404,6 @@ def flush_rbm_cache(params: FlushRBMCache):
 
 #
 # ~#~#~#~#~#~#~#
-
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "accounts")
-        self.route.__name__ = "accounts"
-        self.html = partial(pf.html, "mast.datapower.accounts")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file("plugin.css")
-
-    def js(self):
-        return get_data_file("plugin.js")
 
 
 if __name__ == '__main__':

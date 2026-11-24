@@ -47,15 +47,13 @@ class WebCase(SqliteCase):
     `operator` and `viewer` (whose passwords need no change), and
     `self.client`, which is not logged in."""
 
-    classic = True
-
     def setUp(self):
         super().setUp()
         fast_hashes(self)
         for role in ("admin", "operator", "viewer"):
             users.add(role, PASSWORD, role)
             users.set_password(role, PASSWORD)
-        self.app = create_app(server_conf(), classic=self.classic)
+        self.app = create_app(server_conf())
         self.client = self.app.test_client()
 
     def login(self, name="admin", password=PASSWORD, client=None):
@@ -71,7 +69,7 @@ class WebCase(SqliteCase):
         with (client or self.client).session_transaction() as session:
             return session.get("csrf")
 
-    def page_token(self, path="/classic/", client=None):
+    def page_token(self, path="/jobs", client=None):
         page = (client or self.client).get(path).get_data(as_text=True)
         return TOKEN.search(page).group(1)
 

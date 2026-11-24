@@ -17,10 +17,28 @@ before you upgrade.
 first admin on the MAST server, in `$MAST_HOME`:
 `./mast-users add -u NAME -r admin` (`mast-users.bat` on Windows). Until
 there is a user, the web GUI shows only how to do that.
-* The classic GUI moved to `/classic/`. `/` is the new web UI. The
-classic GUI stays, behind the same login, until the new web UI has a
-page for each of its tabs. It cannot use stored credentials; the
-Operator's Guide lists its limits.
+* **The classic GUI is gone.** `/` is the new web UI, and each tab of
+the classic GUI has a replacement there:
+    * the tabs of the plugins (accounts, backups, crypto, deployment,
+    developer, network, system): **Commands**, a form for every command,
+    with the target bar;
+    * status (live charts): **Appliances**, the status of each appliance
+    that `mast-status collect` keeps;
+    * ssh: **Terminal**;
+    * the connectivity test of the appliance list: **Test** in the
+    target bar (`mast-system test-connectivity`);
+    * the progress of a job and the history downloads: **Jobs**.
+
+    The browser no longer keeps passwords xor-encoded: a typed password
+stays in the memory of the page, and a stored credential is sent by
+    name. The `mast_web_plugin` entry points, `mast.plugins`,
+    `mast.plugin_utils.plugin_functions`, `mast.datapower.web`,
+    `var/www/templates` and `var/www/static` are removed, and so are the
+    `[dirs]` and `[paths]` sections of `server.conf`. A plugin that added
+    a tab adds a page instead (`mast_web_page`, see the Contributor's
+    Guide). No page of the web UI may be put in a frame any more
+    (`frame-ancestors 'none'`).
+
 * `mast-web` and `mastd` refuse to serve the web GUI without TLS
 (`secure = false`) on any host but `127.0.0.1` or `::1`.
 * Jobs that the command line submits are recorded as `os:<account>`
@@ -49,8 +67,6 @@ after 90 days (jobs of schedules sooner), uploads after a day, and log
 files in `var/log` after 30 days. Change or turn this off in
 `[retention]` of `etc/local/jobs.conf` before you upgrade if you need
 them for longer. `mast-jobs prune --dry-run` shows what would go.
-* `/classic/config/<file>` no longer serves `server.conf` and
-`jobs.conf`, which can hold keys and the password of the database.
 * The job database gets new tables, `users`, `appliances`,
 `environments`, `environment_members`, `credentials`,
 `credential_bindings`, `credential_uses`, `audit_events`,
@@ -172,8 +188,11 @@ answer; Cancel on the Jobs page closes it. Passwords, also those typed
 at a password prompt, are `********` in the job and the transcripts.
 An admin can use a stored credential of purpose `change`, only on
 appliances whose SSH host key is pinned. `mast-ssh --credential NAME`
-does the same on the command line. The classic `ssh` tab stays until
-the classic GUI goes.
+does the same on the command line.
+* **Test in the target bar**: whether MAST can log in to each
+appliance, with the typed or the stored credential, to its XML
+management interface and to its SSH (`mast-system test-connectivity`,
+a passive job).
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists
@@ -192,12 +211,6 @@ works at phone width.
 * `mast-ssh` wrote a line typed at a password prompt (a new password,
 for example) to its log and to the audit log. Such a line is now
 logged as `********`.
-* The history download and the upload of the classic GUI used a file
-name from the request as it was. A name with `..` could read or write
-a file outside their directories, for example a key file. They now
-accept only their own names.
-* A viewer cannot run commands from the classic GUI, including the
-`ssh` tab, or upload files.
 
 # MAST Version 3.15.2.1
 

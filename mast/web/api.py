@@ -259,13 +259,8 @@ def _lookup(widget, appliances, body):
         return error(422, "; ".join(cli_params.error_messages(
             found.model, exc, flags=False)))
     # Refusals of the credential (Forbidden) are answered with 403
-    job_id = jobs_client.start(dp_choices.LOOKUP_COMMAND, model,
-                               principal=who, passive=True)
-    deadline = time.monotonic() + timeout + LOOKUP_GRACE_SECONDS
-    info = queue.get(job_id, who)
-    while info.status not in FINISHED and time.monotonic() < deadline:
-        time.sleep(0.1)
-        info = queue.get(job_id, who)
+    job_id, info = _run_and_wait(dp_choices.LOOKUP_COMMAND, model, who,
+                                 timeout + LOOKUP_GRACE_SECONDS)
     what = widget.split(":", 1)[1]
     if info.status not in FINISHED:
         return error(504, "The appliances did not answer in time for {}. "
@@ -279,6 +274,74 @@ def _lookup(widget, appliances, body):
         "choices": dp_choices.from_result(
             found_result.data if found_result else None),
         "job_id": job_id})
+
+
+def _run_and_wait(command, model, who, seconds):
+    """Run a passive job of `command` with the parameters `model` (in a
+    worker, or in this process if none is alive), and wait up to
+    `seconds` for it. Return `(job_id, info)`."""
+    job_id = jobs_client.start(command, model, principal=who, passive=True)
+    deadline = time.monotonic() + seconds
+    info = queue.get(job_id, who)
+    while info.status not in FINISHED and time.monotonic() < deadline:
+        time.sleep(0.1)
+        info = queue.get(job_id, who)
+    return job_id, info
+
+
+# The command of the Test button of the target bar
+CONNECTIVITY_COMMAND = "system.test-connectivity"
+
+
+@blueprint.post("/connectivity")
+def connectivity():
+    """
+    _function_: `mast.web.api.connectivity()`
+
+    Test whether MAST can log in to the appliances of the target bar:
+    `{appliances, credentials | credential, no_check_hostname}`. It runs
+    a passive job of `system.test-connectivity` (SOMA and SSH for each
+    appliance) and waits for it. The answer is `{job_id, rows}`, a row
+    of `{appliance, soma, firmware, ssh, problem}` for each appliance,
+    or an error that names the job.
+
+    Exposed at: `/api/v1/connectivity` via POST
+    """
+    who = principal()
+    jobs_auth.authorize(who, "submit", command=CONNECTIVITY_COMMAND)
+    body = _body()
+    appliances = [str(a) for a in body.get("appliances") or [] if str(a)]
+    if not appliances:
+        return error(422, "Add the appliances to the target bar first.")
+    timeout = 20
+    params = {"appliances": appliances, "timeout": timeout}
+    if body.get("credential"):
+        params["credential"] = str(body["credential"])
+    else:
+        params["credentials"] = [str(c) for c in body.get("credentials") or []]
+        params["no_check_hostname"] = bool(body.get("no_check_hostname"))
+        if not params["credentials"]:
+            return error(422, "Type a user name and a password, or choose a "
+                              "stored credential.")
+    _, found = catalog.find(CONNECTIVITY_COMMAND)
+    try:
+        model = found.model(**params)
+    except ValidationError as exc:
+        return error(422, "; ".join(cli_params.error_messages(
+            found.model, exc, flags=False)))
+    # Two logins for each appliance, at most `timeout` each
+    job_id, info = _run_and_wait(CONNECTIVITY_COMMAND, model, who,
+                                 2 * timeout + LOOKUP_GRACE_SECONDS)
+    if info.status not in FINISHED:
+        return error(504, "The test did not end in time. See the job "
+                          "{}.".format(job_id))
+    result = queue.result(job_id, who)
+    data = result.data if result is not None else None
+    if not data or not data.get("rows"):
+        return error(502, "The test failed: {} (job {})".format(
+            (info.error or info.status).splitlines()[0][:200], job_id))
+    rows = [dict(zip(data.get("columns") or [], row)) for row in data["rows"]]
+    return flask.jsonify({"job_id": job_id, "rows": rows})
 
 
 def _upload_path(token):
@@ -304,7 +367,7 @@ def submit():
 
     Run a command. The body is `{"command": "<id>", "params": {...}}`.
     The parameters are checked with the model of the command, as the
-    command line and the classic GUI check them: on a problem the
+    command line checks them: on a problem the
     answer is 422, with a message for each field, and nothing is
     queued. Otherwise the job is queued and the answer is
     `{"job_id": "..."}`.

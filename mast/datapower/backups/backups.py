@@ -21,19 +21,15 @@ related tasks associated with IBM DataPower appliances.
 """
 import os
 import zipfile
-from importlib.resources import files
 from typing import Literal
 from mast.cli import Cli, Option, say
 from time import time, sleep
-from mast.plugins.web import Plugin
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
 from mast.plugin_utils.params import (
     ApplianceParams, OUT_DIR, UPLOAD, configured, timeout_option)
 from mast.plugin_utils.results import (
     ActionResults, ListResults, Report, SeeDownload, StatusResults)
-from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_functions as pf
 
 
 class TimeoutError(Exception):
@@ -575,24 +571,6 @@ def set_checkpoint(params: SetCheckpoint):
     return report
 #
 # ~#~#~#~#~#~#~#
-
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "backups")
-        self.route.__name__ = "backups"
-        self.html = partial(pf.html, "mast.datapower.backups")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')
 
 
 if __name__ == '__main__':

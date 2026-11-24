@@ -106,7 +106,7 @@ An admin can also store a credential once, for operators to use by name; the pas
 
 `mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Appliances page shows the status of every appliance, which `mast-status collect` polls on a schedule. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances (with their pinned certificates and SSH host keys), the stored credentials and the schedules. The Installation Guide has the steps of a first run, and the Operator's Guide a short tour, the roles, and what MAST protects and what it does not.
 
-The classic GUI is still at `/classic/`, behind the same login, until the new web UI has a page for each of its tabs. It cannot use stored credentials, and its `ssh` tab is not recorded as jobs; the Operator's Guide lists its limits.
+The Crypto page has the crypto inventory, its posture and its PQC readiness, and the Terminal page the DataPower CLI of several appliances at once, recorded as jobs. The classic GUI of earlier releases is gone; the release notes list what replaced each of its tabs.
 
 ## The job queue
 

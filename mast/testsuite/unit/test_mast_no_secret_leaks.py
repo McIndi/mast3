@@ -257,6 +257,17 @@ class TestNoSecretLeaks(WebCase):
         # A pin preview talks to the appliance too
         self.call("POST", "/appliances/dp-fake/pin/preview", {}, client=admin)
 
+        # The Test button of the target bar, with the stored credential
+        answer = self.call("POST", "/connectivity", {
+            "appliances": ["dp-fake"], "credential": "leaky"},
+            client=operator, status=200)
+        found = answer.get_json()
+        # It asked the appliance; SSH is refused before the login, as
+        # the host key of dp-fake is not pinned
+        self.assertEqual(found["rows"][0]["appliance"], "dp-fake", found)
+        self.assertIn("NotPinned", found["rows"][0]["problem"])
+        job_ids.append(found["job_id"])
+
         # A terminal: a typed password for the login, and another one
         # typed at a password prompt (a fake shell, which echoes both)
         job_ids.append(self.use_a_terminal(operator))
