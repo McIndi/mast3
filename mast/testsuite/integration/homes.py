@@ -28,7 +28,7 @@ __all__ = ["TEST_HOME", "copy_home"]
 TEST_HOME = os.environ.get("MAST_TEST_HOME")
 
 # Not copied: the runtime files of the home, and the interpreter, which
-# is linked. var/www (the web GUI) is copied.
+# is linked.
 _NOT_COPIED = {
     os.path.join("etc", "local"), os.path.join("var", "log"),
     os.path.join("var", "run"), os.path.join("var", "jobs"), "tmp",

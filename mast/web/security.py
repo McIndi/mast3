@@ -17,8 +17,7 @@
 """
 _module_: `mast.web.security`
 
-How the web UI defends itself in the browser. The new web UI and the
-classic GUI (`/classic/`) use the same functions:
+How the web UI defends itself in the browser:
 
 * `secret_key`: The key that signs the session cookie.
 * `csrf_token` and `csrf_ok`: The CSRF token of the session.
@@ -53,10 +52,9 @@ UNSAFE_METHODS = frozenset(("POST", "PUT", "DELETE", "PATCH"))
 CSRF_HEADER = "X-CSRF-Token"
 CSRF_FIELD = "csrf_token"
 
-# Scripts, style sheets, images and frames only from the web UI itself,
-# and no inline script or style. The upload form of the classic GUI
-# posts into an iframe of the page, so the page may frame itself, but no
-# other site may frame it.
+# Scripts, style sheets and images only from the web UI itself, and no
+# inline script or style. No page may be put in a frame, not even by the
+# web UI itself: it uses none (the classic GUI did, until R-1).
 CONTENT_SECURITY_POLICY = "; ".join((
     "default-src 'self'",
     "script-src 'self'",
@@ -65,7 +63,7 @@ CONTENT_SECURITY_POLICY = "; ".join((
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'self'",
+    "frame-ancestors 'none'",
 ))
 
 

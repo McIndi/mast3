@@ -24,15 +24,12 @@ import gzip
 import base64
 import shutil
 import zipfile
-from importlib.resources import files
 from mast.cli import Cli, Params, Option, Result, Table, Text, say
 from time import time, sleep
 from mast.xor import xorencode
-from mast.plugins.web import Plugin
 from mast.logging import make_logger
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
-from functools import partial, update_wrapper
 from mast.plugin_utils.params import (
     ApplianceParams, SaveConfigParams, OBJECT_CLASS, OUT_DIR, OUT_FILE,
     STATUS_PROVIDER, UPLOAD, configured, timeout_option)
@@ -40,7 +37,6 @@ from mast.plugin_utils.results import (
     ActionResults, CommonItems, Report, SeeDownload, StatusResults, history)
 from mast.plugin_utils.steps import perform
 from mast.plugin_utils.steps import save_config as save_default_domain
-import mast.plugin_utils.plugin_functions as pf
 from mast.datapower.backups import get_normal_backup
 
 cli = Cli(namespace="system")
@@ -215,7 +211,6 @@ def _verify_zip(zip_file):
     return False
 
 
-
 def _action(params, action, suffix, description, **kwargs):
     """Perform action on each appliance in params and return the
     responses. description says what the action does, for the log and
@@ -329,6 +324,78 @@ action that changes nothing: a user that may only read is refused.
         say("Checking the credentials on {}".format(appliance.hostname))
         rows.append(_check_credentials(appliance))
     return CredentialChecks(rows)
+
+
+class ConnectivityChecks(Table):
+    """The result of test-connectivity: one row for each appliance."""
+    def __init__(self, rows):
+        super().__init__(
+            ["appliance", "soma", "firmware", "ssh", "problem"], rows)
+
+    def outcomes(self):
+        return [row[1] == "yes" and row[3] == "yes" for row in self.rows]
+
+
+def _test_connectivity(appliance, timeout):
+    """The row of test-connectivity for one appliance: can MAST log in
+    to its XML management interface (SOMA), and to its SSH?"""
+    problems = []
+    soma, firmware = "no", ""
+    try:
+        status = appliance.get_status("FirmwareVersion")
+        found = status.xml.find(".//Version")
+        if found is not None and (found.text or "").strip():
+            soma, firmware = "yes", found.text.strip()
+        else:
+            problems.append("SOMA: the appliance gave no data for this user "
+                            "(a new user must change its password first)")
+    except datapower.AuthenticationFailure:
+        problems.append("SOMA: the user name or the password is wrong, or "
+                        "the account is locked")
+    except Exception as exc:
+        problems.append("SOMA: {}: {}".format(type(exc).__name__, exc))
+    ssh = "no"
+    try:
+        banner = appliance.ssh_connect(port=appliance.ssh_port,
+                                       timeout=timeout) or ""
+        try:
+            if "DataPower" in banner or banner.rstrip().endswith("#"):
+                ssh = "yes"
+            else:
+                problems.append("SSH: no DataPower prompt after the login")
+        finally:
+            appliance.ssh_disconnect()
+    except datapower.AuthenticationFailure:
+        problems.append("SSH: the user name or the password is wrong, or "
+                        "the account is locked")
+    except Exception as exc:
+        problems.append("SSH: {}: {}".format(type(exc).__name__, exc))
+    return [appliance.hostname, soma, firmware, ssh,
+            "; ".join(p.splitlines()[0][:200] for p in problems)]
+
+
+@cli.command('test-connectivity', category='utilities', exclusive=False,
+             passive=True)
+def test_connectivity(params: ApplianceParams):
+    """Tests whether MAST can log in to each appliance, with these
+credentials: to its XML management interface (SOMA, which reads the
+firmware version) and to its SSH (which logs in and out). It changes
+nothing. With a stored credential, SSH needs a pinned host key.
+
+The Test button of the target bar of the web UI runs this."""
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+    env = params.environment()
+    say("Testing {} appliance(s)".format(len(env.appliances)))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        # Each thread runs in a copy of this context: with a stored
+        # credential, the job runs inside stored_credential(), which
+        # refuses an SSH host key that is not pinned
+        futures = [pool.submit(contextvars.copy_context().run,
+                               _test_connectivity, a, params.timeout)
+                   for a in env.appliances]
+        rows = [f.result() for f in futures]
+    return ConnectivityChecks(rows)
 
 
 # ~#~#~#~#~#~#~#
@@ -1954,25 +2021,6 @@ def _clean_error_reports(appliance, domain, backup, timestamp, out_dir):
                 fout.write(appliance.getfile('default', fqp))
         appliance.DeleteFile(domain="default", File=fqp)
 
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "system")
-        self.route.__name__ = "system"
-        self.html = partial(pf.html, "mast.datapower.system")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')
-#
-# ~#~#~#~#~#~#~#
 
 if __name__ == "__main__":
     cli.run()

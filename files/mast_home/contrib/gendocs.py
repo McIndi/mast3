@@ -13,12 +13,10 @@ import mast.datapower.network
 import mast.datapower.ssh
 import mast.datapower.status
 import mast.datapower.system
-import mast.datapower.web
 import mast.hashes
 import mast.home
 import mast.jobs
 import mast.logging
-import mast.plugins
 import mast.plugin_utils
 import mast.pprint
 import mast.timestamp
@@ -170,12 +168,10 @@ api_modules = LastUpdatedOrderedDict([
     (mast.cron, LastUpdatedOrderedDict()),
     (mast._daemon, LastUpdatedOrderedDict()),
     (mast.datapower.datapower, LastUpdatedOrderedDict()),
-    (mast.datapower.web, LastUpdatedOrderedDict()),
     (mast.hashes, LastUpdatedOrderedDict()),
     (mast.home, LastUpdatedOrderedDict()),
     (mast.jobs, LastUpdatedOrderedDict()),
     (mast.logging, LastUpdatedOrderedDict()),
-    (mast.plugins, LastUpdatedOrderedDict()),
     (mast.plugin_utils, LastUpdatedOrderedDict()),
     (mast.pprint, LastUpdatedOrderedDict()),
     (mast.timestamp, LastUpdatedOrderedDict()),

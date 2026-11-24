@@ -20,19 +20,15 @@ A set of tools for automating routine network administration
 tasks associated with IBM DataPower appliances.
 """
 from typing import Literal
-from importlib.resources import files
 import urllib.request, urllib.error, urllib.parse
 from pydantic import field_validator
 from mast.cli import Cli, Option, Table, say
-from mast.plugins.web import Plugin
 import mast.datapower.datapower as datapower
 from mast.logging import make_logger, logged
 from mast.plugin_utils.params import (
     ApplianceParams, SaveConfigParams, configured)
 from mast.plugin_utils.results import ActionResults, Report, history
 from mast.plugin_utils.steps import perform, save_config
-from functools import partial, update_wrapper
-import mast.plugin_utils.plugin_functions as pf
 
 
 cli = Cli(namespace="network")
@@ -564,20 +560,3 @@ def flush_pdp_cache(params: FlushPDPCache):
 for the specified XACMLPDP."""
     return _flush(params, 'FlushPDPCache', XACMLPDP=params.XACMLPDP)
 
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "network")
-        self.route.__name__ = "network"
-        self.html = partial(pf.html, "mast.datapower.network")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')

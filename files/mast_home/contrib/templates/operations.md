@@ -696,8 +696,9 @@ Without TLS (`secure = false`), the host must be `127.0.0.1` or `::1`:
 `mast-web` and `mastd` refuse to serve the web GUI without TLS on an
 address that other hosts can reach, and say why.
 
-The web UI is at `/`, and the classic GUI at `/classic/`. Both need
-the same login. The web UI has these pages, each for a role and up:
+The web UI is at `/`. It has these pages, each for a role and up (the
+classic GUI of earlier releases is gone; see the release notes for what
+replaced each of its tabs):
 
 * **Appliances** (viewer), the first page after the login: one row for
 each appliance, the ones with a problem first. It shows whether the
@@ -740,7 +741,10 @@ credentials; with a stored credential, that is a short job of
 `system.list-objects`, which the Jobs page shows like any other. The browser keeps only the names
 of the appliances (in the tab, until it is closed); a password stays
 in the page and is sent only when you run a command. Running a
-command opens its job.
+command opens its job. **Test** checks the login to each appliance
+(see "Testing the login to the appliances").
+* **Terminal** (operator): the DataPower CLI of the appliances of the
+target bar, side by side (see "The Terminal page").
 * **Admin → Users** (admin): add a user with a temporary password,
 change a role, disable, enable, set a new temporary password, and
 delete. An admin cannot change their own role, disable or delete
@@ -821,23 +825,19 @@ stored credential (`mast-ssh -a dp1 --credential NAME`: purpose
     :::bash
     ./mast-ssh -a dp1 -a dp2 --credential changer
 
-## The classic GUI
+## Testing the login to the appliances
 
-The classic GUI is still at `/classic/`, behind the same login, while
-the new web UI takes over its tabs. The status tab (with its live
-charts; the Appliances page now shows the status), the `ssh` tab and
-the tabs of the plugins work as before. It goes in a
-later release, when the new web UI has a page for each of them. Its
-limits, which the new web UI and the command line do not have:
+**Test** in the target bar (on the Commands and Terminal pages) asks
+whether MAST can log in to each appliance of the bar with the typed or
+the stored credential: to its XML management interface (it reads the
+firmware version) and to its SSH (it logs in and out). It changes
+nothing. Each appliance shows `SOMA ok` or `failed` and `SSH ok` or
+`failed`; hover for the firmware or the reason. It runs a passive job
+of `mast-system test-connectivity`, so it is on the Jobs page; with a
+stored credential, SSH needs a pinned host key. On the command line:
 
-* You type the user name and the password in the browser. The browser
-keeps them, xor-encoded with a key from a cookie, which is not
-encryption, and sends them with each request. The classic GUI cannot
-use a stored credential.
-* The sessions of the `ssh` tab are not tied to your login and are not
-recorded as jobs. An appliance with a pinned SSH host key must show
-that key; without a pin, any host key is accepted, with a warning. For
-work that must be recorded, use the **Terminal** page.
+    :::bash
+    ./mast-system test-connectivity -a dp1 -a dp2 --credential collector
 
 ## Users and roles
 
@@ -914,8 +914,10 @@ The web GUI signs its session cookie with the key in
 `etc/local/server.key`, which MAST makes the first time. Each request
 that changes something must carry the token of the session, so another
 web site cannot submit a form of the web GUI. The web GUI only runs
-scripts and style sheets that it serves itself, and other sites cannot
-put it in a frame. A script that posts to the web GUI must first load
+scripts and style sheets that it serves itself, and nobody can put it
+in a frame. A typed password stays in the memory of the page and is
+sent only in the body of the request that needs it; it is never kept
+in the browser. A script that posts to the web GUI must first load
 the page and send the token back, see the release notes.
 
 # Credentials
@@ -966,7 +968,6 @@ MAST does not protect against:
 have the database and the key files, and so the passwords. Keep the
 account and the server for MAST alone.
 * Someone who can read the memory of a worker while a job runs.
-* What the classic GUI does with a password, see "The classic GUI".
 
 An external key store (Vault, the key service of a cloud, the key ring
 of the system) would close part of the first gap. MAST is ready for one

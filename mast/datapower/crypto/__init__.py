@@ -19,21 +19,17 @@ import csv
 import sys
 import OpenSSL
 import openpyxl
-from importlib.resources import files
 from .utils import *
 from time import sleep
 from mast.cli import Cli, Option, Table, say
 from datetime import datetime
-from mast.plugins.web import Plugin
 from mast.logging import make_logger
 from mast.timestamp import Timestamp
 import xml.etree.cElementTree as etree
 import mast.datapower.datapower as datapower
 from mast.plugin_utils.params import ApplianceParams, OUT_DIR, OUT_FILE
 from mast.plugin_utils.results import Report, SeeDownload, history
-from functools import partial, update_wrapper
 from dateutil import parser, tz, relativedelta
-import mast.plugin_utils.plugin_functions as pf
 from mast import __version__
 
 cli = Cli(namespace="crypto")
@@ -443,23 +439,6 @@ Downloaded files"""
         [appliance.hostname for appliance in env.appliances],
         env, suffix="export-certs")
 
-
-def get_data_file(f):
-    return files(__package__).joinpath('docroot').joinpath(f).read_text(encoding='utf-8')
-
-
-class WebPlugin(Plugin):
-    def __init__(self):
-        self.route = partial(pf.handle, "crypto")
-        self.route.__name__ = "crypto"
-        self.html = partial(pf.html, "mast.datapower.crypto")
-        update_wrapper(self.html, pf.html)
-
-    def css(self):
-        return get_data_file('plugin.css')
-
-    def js(self):
-        return get_data_file('plugin.js')
 
 if __name__ == "__main__":
     cli.run()

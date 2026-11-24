@@ -10,8 +10,10 @@
                 <input class="form-control" data-target-input list="target-names" placeholder="appliance, environment or hostname" aria-label="Add an appliance">
                 <datalist id="target-names" data-target-names></datalist>
                 <button class="btn btn-outline-secondary" type="submit">Add</button>
+                <button class="btn btn-outline-secondary" type="button" data-target-test title="Can MAST log in to each appliance, with these credentials, to its XML management interface (SOMA) and its SSH? Changes nothing.">Test</button>
             </div>
             <div class="mt-1 d-flex flex-wrap gap-1" data-target-list></div>
+            <div class="small mt-1 d-none" data-target-test-status aria-live="polite"></div>
         </div>
         <div class="col-12 col-lg-2 d-none" data-target-stored-box>
             <select class="form-select form-select-sm" data-target-stored aria-label="Stored credential">

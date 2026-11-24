@@ -16,11 +16,8 @@
 """
 mast status: the status of the appliances. `mast-status collect` keeps
 it in the job database for the Appliances page of the web UI
-(`mast.datapower.status.page`). The classic GUI has a status tab
-(`mast.datapower.status.status`).
+(`mast.datapower.status.page`).
 """
-from .status import *
-from .collector import cli
-import os
-from mast import __version__
+from .collector import cli  # noqa: F401
+from mast import __version__  # noqa: F401
 

@@ -849,7 +849,7 @@ class TestSystemCommandLine(SystemTestCase):
         self.assertNotIn("hunter2", repr(params))
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(47, len(cli.commands))
+        self.assertEqual(48, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)
@@ -857,3 +857,67 @@ class TestSystemCommandLine(SystemTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConnectivity(SystemTestCase):
+    """test-connectivity: SOMA and SSH for each appliance, in threads,
+    with the stored-credential guard of the job in each thread."""
+
+    def setUp(self):
+        super().setUp()
+        self.stored = {}
+
+        def get_status(appliance, provider):
+            if appliance.hostname == "dp2":
+                raise ConnectionRefusedError("refused")
+            return FakeResponse(xml="<s><Version>IDG.11.0.0.3</Version></s>")
+
+        def ssh_connect(appliance, port=None, timeout=None):
+            from mast.cli.results import using_stored_credential
+            self.stored[appliance.hostname] = using_stored_credential()
+            if appliance.hostname == "dp2":
+                raise PermissionError("Authentication failed")
+            return "Welcome to IBM DataPower Gateway console\nidg# "
+
+        for name, value in (("get_status", get_status),
+                            ("ssh_connect", ssh_connect),
+                            ("ssh_disconnect", lambda appliance: True),
+                            ("ssh_port", 22)):
+            patcher = mock.patch.object(FakeAppliance, name, value,
+                                        create=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_each_appliance_gets_a_row(self):
+        result, messages = self.call(system.test_connectivity)
+        rows = {row[0]: row for row in result.data()["rows"]}
+        self.assertEqual(rows["dp1"], ["dp1", "yes", "IDG.11.0.0.3", "yes", ""])
+        self.assertEqual(rows["dp2"][1], "no")
+        self.assertEqual(rows["dp2"][3], "no")
+        self.assertIn("SOMA: ConnectionRefusedError: refused", rows["dp2"][4])
+        self.assertIn("SSH: PermissionError: Authentication failed",
+                      rows["dp2"][4])
+        self.assertEqual(result.outcomes(), [True, False])
+
+    def test_a_wrong_password_says_so(self):
+        from mast.datapower.datapower import AuthenticationFailure
+
+        def refused(appliance, *args, **kwargs):
+            raise AuthenticationFailure(b"<env:Envelope>...</env:Envelope>")
+        with mock.patch.object(FakeAppliance, "get_status", refused), \
+                mock.patch.object(FakeAppliance, "ssh_connect", refused):
+            result, _ = self.call(system.test_connectivity, appliances=["dp1"])
+        problem = result.data()["rows"][0][4]
+        self.assertEqual(problem, "SOMA: the user name or the password is "
+                         "wrong, or the account is locked; SSH: the user "
+                         "name or the password is wrong, or the account is "
+                         "locked")
+
+    def test_the_threads_keep_the_stored_credential_guard(self):
+        from mast.cli.results import stored_credential
+        with stored_credential("leaky"):
+            self.call(system.test_connectivity)
+        self.assertEqual(self.stored, {"dp1": True, "dp2": True})
+        self.stored.clear()
+        self.call(system.test_connectivity)
+        self.assertEqual(self.stored, {"dp1": False, "dp2": False})

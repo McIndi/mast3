@@ -13,9 +13,13 @@
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
-from .ssh import *
-import os
-from mast import __version__
+"""
+mast ssh: the DataPower CLI over SSH, on several appliances at once:
+`mast-ssh` on the command line (`__main__`), and the Terminal page of
+the web UI (`page`, `sessions`), whose sessions are jobs of the command
+`ssh.terminal` (`terminal`).
+"""
+from mast import __version__  # noqa: F401
 
 # The job of a session of the Terminal page (ssh.terminal)
 from .terminal import cli  # noqa: E402,F401

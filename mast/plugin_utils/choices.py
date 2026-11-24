@@ -29,7 +29,7 @@ credentials, here (`choices`); with a stored credential, as a job of
 `LOOKUP_COMMAND` (`lookup_params` and `from_result`), so that the
 queue checks the credential and records its use.
 
-The classic GUI and the JSON API of the web UI both call `choices`.
+The JSON API of the web UI calls `choices`.
 """
 from mast.plugin_utils import params as widgets
 
