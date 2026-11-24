@@ -28,7 +28,7 @@ from mast.timestamp import Timestamp
 from mast.pprint import format_xml
 from mast.logging import make_logger, logged
 from mast.plugin_utils.params import (
-    ApplianceParams, OUT_DIR, UPLOAD, configured)
+    ApplianceParams, BACKUPS_DIR, OUT_DIR, UPLOAD, configured)
 from mast.plugin_utils.results import (
     ActionResults, ListResults, SeeDownload)
 
@@ -223,7 +223,7 @@ class Export(ApplianceParams):
         help="If specified, referenced objects will not be included in "
              "the export.")
     out_dir: str = Option(
-        'tmp', widget=OUT_DIR,
+        BACKUPS_DIR, widget=OUT_DIR,
         help="The directory (local) in which to save the export")
 
 

@@ -13,6 +13,17 @@ before you upgrade.
 
 ## Changes that need your attention
 
+* **Backups no longer go to `tmp` by default, and `tmp` is emptied.**
+The commands that take backups, or keep a copy of what they delete or
+change (`mast-backups normal-backup` and `secure-backup`,
+`mast-developer export`, `del-file -b`, `clean-up`, `predeploy`,
+`deploy` and `firmware-upgrade`), write to `var/backups` by default. The
+daily retention now deletes the files in `tmp` that are older than 30
+days (`tmp_days` in `[retention]` of `jobs.conf`), but not
+`var/backups`. If a crontab, a schedule or a script writes something
+that you keep to `tmp` (for example `-o tmp/nightly`), point it at
+`var/backups` or another folder before you upgrade, and move what you
+have in `tmp` now. `tmp_days = 0` turns the new rule off.
 * Every page of the web GUI needs a login. After the upgrade, add the
 first admin on the MAST server, in `$MAST_HOME`:
 `./mast-users add -u NAME -r admin` (`mast-users.bat` on Windows). Until

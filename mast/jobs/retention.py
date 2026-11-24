@@ -29,7 +29,11 @@ of the days that ended are made first;
 * the snapshots of the crypto inventory, but the newest of each
 appliance (`mast.datapower.crypto`);
 * the uploads of the web UI (`var/www/uploads`);
-* the log files in `var/log`, and the folders that they leave empty.
+* the log files in `var/log`, and the folders that they leave empty;
+* the files in `tmp/` (reports, exports and downloads of the command
+line), and the folders that they leave empty, but not the folders of
+the jobs of the web UI (`tmp/web/jobs`), which go with their jobs.
+Backups go to `var/backups` by default, which is never emptied.
 
 `prune` deletes in batches of `BATCH` rows, each in its own
 transaction, so that it never holds the SQLite lock for long. The
@@ -268,33 +272,77 @@ def _prune_uploads(now, dry_run, counts, root):
     counts["uploads_days"] = counted
 
 
-def _prune_logs(now, dry_run, counts, root):
-    cutoff = _cutoff(now, "logs_days")
-    if cutoff is None:
-        return
-    directory = os.path.join(root, "var", "log")
-    counted = 0
+# The file that keeps an empty folder in the MAST home
+PLACEHOLDER = ".empty"
+
+
+def _key(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _inside(path, skip):
+    """True if `path` is one of the folders `skip` (keys), or in one."""
+    path = _key(path)
+    return any(path == folder or path.startswith(folder + os.sep)
+               for folder in skip)
+
+
+def _prune_tree(directory, cutoff, dry_run, skip=()):
+    """Delete the files under `directory` older than `cutoff`, and the
+    folders that they leave empty, but not `directory`, the folders of
+    `skip` (and what is in them), links or placeholders. Return how
+    many files."""
     if not os.path.isdir(directory):
-        counts["logs_days"] = 0
-        return
+        return 0
+    skip = [_key(folder) for folder in skip]
+    counted = 0
+    # The folders that this run emptied of old things
+    emptied = set()
     for parent, folders, names in os.walk(directory, topdown=False):
+        if _inside(parent, skip):
+            continue
         for name in names:
             path = os.path.join(parent, name)
-            if os.path.islink(path) or not _old(path, cutoff):
+            if name == PLACEHOLDER or os.path.islink(path) \
+                    or not _old(path, cutoff):
                 continue
             counted += 1
             if not dry_run:
                 try:
                     os.remove(path)
+                    emptied.add(parent)
                 except OSError:
                     counted -= 1
-        if not dry_run and parent != directory:
+        # Only an empty folder goes, and only one that is old or that
+        # this run emptied: a command may have just made it
+        if not dry_run and parent != directory \
+                and (parent in emptied or _old(parent, cutoff)):
             try:
-                # Only an empty folder goes
                 os.rmdir(parent)
+                emptied.add(os.path.dirname(parent))
             except OSError:
                 pass
-    counts["logs_days"] = counted
+    return counted
+
+
+def _prune_logs(now, dry_run, counts, root):
+    cutoff = _cutoff(now, "logs_days")
+    if cutoff is None:
+        return
+    counts["logs_days"] = _prune_tree(
+        os.path.join(root, "var", "log"), cutoff, dry_run)
+
+
+def _prune_tmp(now, dry_run, counts, root):
+    cutoff = _cutoff(now, "tmp_days")
+    if cutoff is None:
+        return
+    # Imported here: the job folders are the web UI's, and they go with
+    # their jobs (jobs_days)
+    from mast.web.catalog import JOBS_DIR
+    counts["tmp_days"] = _prune_tree(
+        os.path.join(root, "tmp"), cutoff, dry_run,
+        skip=[os.path.join(root, JOBS_DIR)])
 
 
 def prune(now=None, dry_run=False, root=None):
@@ -306,7 +354,8 @@ def prune(now=None, dry_run=False, root=None):
     `scheduled_jobs_days` and `scheduled_failed_days`, rows for
     `credential_uses_days`, `audit_events_days` and the `status_*`
     rules (before which the daily rollups are made), upload folders for
-    `uploads_days` and log files for `logs_days`. A rule that keeps for
+    `uploads_days`, log files for `logs_days` and files in `tmp/` for
+    `tmp_days`. A rule that keeps for
     ever is not in it. With `dry_run`, nothing is deleted. `root` is
     the MAST home (for the tests).
     """
@@ -319,6 +368,7 @@ def prune(now=None, dry_run=False, root=None):
     _prune_crypto(now, dry_run, counts)
     _prune_uploads(now, dry_run, counts, root)
     _prune_logs(now, dry_run, counts, root)
+    _prune_tmp(now, dry_run, counts, root)
     if not dry_run:
         make_logger("mast.retention").info("Deleted what is old: {}".format(
             ", ".join("{} {}".format(n, rule) for rule, n in counts.items())))

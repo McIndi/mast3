@@ -27,8 +27,9 @@ needs is in it, and everything MAST writes goes into it.
 | `var/jobs` | The job queue, when it is the default SQLite database. | Yours |
 | `var/log` | The logs. | Yours |
 | `var/run` | The process id of `mastd`. | MAST's |
-| `var/www` | The web GUI. | MAST's |
-| `tmp` | Downloads, uploads and backups that commands write. | Yours |
+| `var/backups` | The backups that commands take, and the copies that they keep of what they delete or change. MAST never empties it. | Yours |
+| `var/www/uploads` | Files uploaded in the web UI, for a day. | MAST's |
+| `tmp` | The reports, exports and downloads that commands write. Files older than 30 days are deleted (`tmp_days`). | MAST's |
 | `contrib` | Scripts that come with MAST, and the sources of this guide. | MAST's |
 | `doc` | This documentation. | MAST's |
 
@@ -163,7 +164,7 @@ line is a cron expression and a command, for example a backup at 02:00
 every day:
 
     :::text
-    0 2 * * * ./mast-backups normal-backup -a prod -c <credentials> -n -o tmp/nightly
+    0 2 * * * ./mast-backups normal-backup -a prod -c <credentials> -n -o var/backups/nightly
 
 * The times are in UTC, not in the time zone of the server.
 * The command runs in `$MAST_HOME`, with the shell.
@@ -294,8 +295,16 @@ first one deletes and the others find little left. `mast-jobs prune` does it now
 | The uses of stored credentials, and the audit events of the credentials | 400 | `credential_uses_days`, `audit_events_days` |
 | Files uploaded in the web UI | 1 | `uploads_days` |
 | Log files in `var/log` (by the time they were last written), and the folders that they leave empty | 30 | `logs_days` |
+| Files in `tmp` (reports, exports and downloads), and the folders that they leave empty; not `tmp/web/jobs`, whose files go with their jobs | 30 | `tmp_days` |
 | The status of the appliances: each poll, then summed up by hour, then by day | 2, 31, 400 | `status_samples_days`, `status_hourly_days`, `status_daily_days` |
 | The snapshots of the crypto inventory (the newest of each appliance stays) | 400 | `crypto_snapshots_days` |
+
+Backups are not in this table: the commands that take them, or that
+keep a copy of what they delete or change (`normal-backup`,
+`secure-backup`, `developer export`, `del-file -b`, `clean-up`,
+`predeploy`, `deploy`, `firmware-upgrade`), write to `var/backups` by
+default, which MAST never empties. Give `-o` a folder outside `tmp` for
+anything else that you want to keep.
 
 A child job goes with its parent, and a parent stays while one of its
 children has not finished. `0` keeps that kind of thing for ever, and
@@ -999,7 +1008,7 @@ Back up what is yours in the table of the MAST home:
 * `etc/crypto`,
 * `etc/crontab`, if you have one,
 * `var/jobs` (SQLite), or the PostgreSQL database with `jobs.key`,
-* `tmp`, if commands write backups of your appliances there.
+* `var/backups`, the backups of your appliances that commands take.
 
 Without `jobs.key`, the jobs that wait in the queue cannot be run.
 Without `credentials.key`, the stored credentials cannot be used.
@@ -1012,8 +1021,8 @@ Install the new version next to the old one, and move your files to it:
 `/opt/mast-new`.
 2. Stop `mastd`, `mast-web` and the workers. A worker that stops
 gracefully finishes its running jobs first.
-3. Copy `etc/local`, `etc/crypto`, `etc/crontab`, `var/jobs` and what
-you keep in `tmp` from the old home to the new one.
+3. Copy `etc/local`, `etc/crypto`, `etc/crontab`, `var/jobs` and
+`var/backups` from the old home to the new one.
 4. Rename the folders, so that the new home has the old path, or change
 the paths of your services.
 5. Start the services again. The first program that uses the job queue

@@ -19,6 +19,8 @@ _module_: `mast.plugin_utils.params`
 The parameters that the DataPower commands share, and the widgets that
 tell the web GUI how to ask for a value.
 """
+import os
+
 from pydantic import model_validator
 
 from mast.cli import Params, Option
@@ -27,15 +29,14 @@ from mast.datapower.datapower import Environment
 __all__ = [
     "ApplianceOptions", "ApplianceParams", "SaveConfigParams",
     "APPLIANCES", "CREDENTIALS", "STORED_CREDENTIAL", "UPLOAD", "OUT_DIR", "OUT_FILE",
-    "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
+    "BACKUPS_DIR", "STATUS_PROVIDER", "OBJECT_CLASS", "configured", "timeout_option",
 ]
 
 # Widgets
 # =======
 #
 # A widget is the `widget` argument of `mast.cli.Option`. The command
-# line ignores it. `mast.plugin_utils.plugin_functions` uses it to build
-# the web form.
+# line ignores it. `mast.web.catalog` uses it to build the web form.
 
 # The appliances and credentials that are selected at the top of the
 # web GUI. The form does not ask for them again.
@@ -52,6 +53,12 @@ UPLOAD = "upload"
 # path and gives the user a download link when the command finishes.
 OUT_DIR = "out_dir"
 OUT_FILE = "out_file"
+
+# The default out_dir of the commands that take backups, or keep a copy
+# of what they delete or change (relative to MAST_HOME). The rest write
+# to tmp/ by default, which the daily retention empties of old files
+# (tmp_days in [retention] of jobs.conf); this folder it leaves alone.
+BACKUPS_DIR = os.path.join("var", "backups")
 # A choice from the status providers, or from the object classes.
 STATUS_PROVIDER = "status_provider"
 OBJECT_CLASS = "object_class"

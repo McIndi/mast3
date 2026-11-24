@@ -2597,9 +2597,10 @@ class DataPower(object):
 
     @correlate
     @logged("audit")
-    def del_file(self, domain, filename, backup=False, local_dir="tmp"):
+    def del_file(self, domain, filename, backup=False,
+                 local_dir=os.path.join("var", "backups")):
         """
-        _method_: `mast.datapower.datapower.DataPower.del_file(self, domain, filename, backup=False, local_dir="tmp")`
+        _method_: `mast.datapower.datapower.DataPower.del_file(self, domain, filename, backup=False, local_dir="var/backups")`
 
         Removes a file from the DataPower in the specified domain. If backup
         is True it will copy the file into local_dir.
@@ -2612,7 +2613,7 @@ class DataPower(object):
             ...     domain="default",
             ...     filename="local:/foo/foo.xml",
             ...     backup=False,
-            ...     local_dir="tmp")
+            ...     local_dir="var/backups")
             >>> print resp
             <env:Envelope \
                 xmlns:dp="http://www.datapower.com/schemas/management" \
@@ -2638,6 +2639,7 @@ class DataPower(object):
         """
         if backup:
             contents = self.getfile(domain, filename)
+            os.makedirs(local_dir, exist_ok=True)
             file_out = os.path.join(local_dir, filename.split("/")[-1])
             with open(file_out, "wb") as fout:
                 fout.write(contents)
