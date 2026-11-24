@@ -409,6 +409,7 @@ posture rules at once, and their findings are kept with it. The
 | `disabled-in-use` | medium | A disabled object that an enabled object still refers to. |
 | `mast-tls-none` | high | A registered appliance with `tls_mode none`. |
 | `mast-collect-can-write` | high | A stored credential for collecting whose user could change the appliances at its last test. |
+| `mast-collect-untested` | low | A stored credential for collecting that was never tested (or whose last test failed): until a test, MAST cannot tell whether its user can change the appliances. |
 | `mast-credential-unused` | low | A stored credential that no job used for 180 days. |
 
 The rules that start with `mast-` check how MAST is set up, not a

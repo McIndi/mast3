@@ -137,8 +137,8 @@ and MD5 signatures, self-signed certificates on production, plaintext
 passwords, also those left over next to a password alias, unused
 files, unsaved changes, disabled objects still in use), and MAST
 checks its own setup (an appliance whose certificate is not checked, a
-collect credential that can write, a credential not used for 180
-days). An admin accepts a finding with an exception, which needs a
+collect credential that can write, a collect credential never tested,
+a credential not used for 180 days). An admin accepts a finding with an exception, which needs a
 reason and ends on a date. The **Crypto** page shows a score for each
 appliance, an expiry chart, the inventory with what uses each object
 and what breaks if a certificate expires, the findings, and the

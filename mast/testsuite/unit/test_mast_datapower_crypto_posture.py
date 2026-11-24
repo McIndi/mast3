@@ -375,7 +375,16 @@ class TestSelfChecks(PostureCase):
                            ["dp1"], principal=ADMIN)
         credentials.create("changer", "admin", "Ch4nge-the-pass", "change",
                            ["dp1"], principal=ADMIN)
-        self.assertEqual(self.checks(), [("mast-tls-none", "dp2")])
+        # A collect credential that was never tested: MAST cannot know
+        # whether it can write (a change credential is not asked)
+        self.assertEqual(self.checks(), [("mast-collect-untested", "collector"),
+                                         ("mast-tls-none", "dp2")])
+        # A test that did not work does not tell either
+        credentials.record_test("collector", False, principal=ADMIN)
+        found = posture.self_check_findings()
+        self.assertIn("its last test did not work", [
+            f["message"] for f in found
+            if f["rule_id"] == "mast-collect-untested"][0])
         credentials.record_test("collector", True, can_write=True,
                                 principal=ADMIN)
         credentials.record_test("changer", True, can_write=True,
@@ -705,6 +714,9 @@ class TestCryptoPage(WebCase):
         registry.add("dp2", "10.0.0.2")
         credentials.create("collector", "reader", "Read-0nly-pass", "collect",
                            ["dp1", "dp2"], principal=ADMIN)
+        # Tested, and it can only read: no self-check finding
+        credentials.record_test("collector", True, can_write=False,
+                                principal=ADMIN)
         old, old_cert = certificate("old", days=-3)
         soon, soon_cert = certificate("soon", days=20, sha="b")
         objects = [old, soon, obj("CryptoIdentCred", "idcred"),
