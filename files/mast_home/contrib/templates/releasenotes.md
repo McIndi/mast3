@@ -197,7 +197,10 @@ a passive job).
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists
 of domains and other objects with it, as a job.
-* The web UI (`/`): the **Jobs** page lists the jobs with filters,
+* The web UI (`/`): the **Jobs** page lists the jobs with filters
+(by default, only the jobs that people submitted: the jobs of the
+schedules, such as a status poll each minute, are one choice away, and
+the page says how many it does not show),
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the
 workers. The **Commands** page has a form for every command, made from
@@ -208,6 +211,23 @@ works at phone width.
 
 ## Fixed
 
+* The Windows launchers (`mast-*.bat`) failed when `MAST_HOME` was in a
+folder with a space in its name (`C:\Program Files\MAST`), and when
+`cmd.exe` does not look for programs in the current folder
+(`NoDefaultCurrentDirectoryInExePath`). They also left the console in
+`MAST_HOME` after the command. Each one now calls `mast.bat` by its
+full, quoted path, keeps the console where it was, and returns the exit
+status of the command.
+* The output of a job (the result and the progress of the commands that
+show SOMA responses, such as the `developer` commands) had the color
+codes of a terminal in it, which the Jobs page showed as text. A job
+now keeps no such codes, and the command line uses colors only on a
+terminal, not in a file or a pipe. For plugin authors:
+`mast.pprint.format_xml`, `pprint_xml` and `pprint_xml_str` now
+highlight only when `stdout` is a terminal (`color=None`), and
+`format_xml` always returns a `str`.
+* `mast-accounts add-group -A` now explains the form of an access
+policy, with examples.
 * `mast-ssh` wrote a line typed at a password prompt (a new password,
 for example) to its log and to the audit log. Such a line is now
 logged as `********`.

@@ -303,6 +303,39 @@ class TestResults(unittest.TestCase):
         self.assertIn("&lt;b&gt;", table.html())
         self.assertNotIn("<b>", table.html())
 
+    def test_strip_ansi(self):
+        from mast.cli.results import strip_ansi
+        self.assertEqual(
+            "red, a title, plain",
+            strip_ansi("\x1b[1;31mred\x1b[0m, \x1b]0;t\x07a title, \x1bMplain"))
+        self.assertEqual("", strip_ansi(""))
+        self.assertIsNone(strip_ansi(None))
+
+    def test_format_xml_colors_only_a_terminal(self):
+        import xml.etree.ElementTree as etree
+        from mast.pprint import format_xml
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        def formatted(stdout, **kwargs):
+            with contextlib.redirect_stdout(stdout):
+                return format_xml(etree.fromstring("<a><b>x</b></a>"),
+                                  **kwargs)
+
+        # A file, a pipe or a job: plain text, as a str
+        plain = formatted(io.StringIO())
+        self.assertIsInstance(plain, str)
+        self.assertIn("<b>x</b>", plain)
+        self.assertNotIn("\x1b", plain)
+        self.assertIn("\x1b[", formatted(Terminal()))
+        with captured():
+            self.assertNotIn("\x1b", formatted(Terminal()))
+        # An explicit choice wins
+        self.assertIn("\x1b[", formatted(io.StringIO(), color=True))
+        self.assertNotIn("\x1b", formatted(Terminal(), color=False))
+
     def test_result_defaults(self):
         self.assertEqual("", Result().text())
         self.assertEqual("<pre>a &amp; b</pre>", Text("a & b").html())

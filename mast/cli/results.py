@@ -42,8 +42,10 @@ appliances.
 import contextlib
 import contextvars
 import html
+import re
 
 __all__ = ["Result", "Text", "Table", "say", "captured", "listening",
+           "is_listening", "strip_ansi",
            "checkpoint", "guarded", "stored_credential",
            "using_stored_credential", "stored_credential_name",
            "SUCCEEDED", "PARTIAL", "FAILED"]
@@ -57,6 +59,22 @@ FAILED = "failed"
 _sink = contextvars.ContextVar("mast_cli_sink", default=None)
 _guard = contextvars.ContextVar("mast_cli_guard", default=None)
 _stored = contextvars.ContextVar("mast_cli_stored_credential", default=False)
+
+# The escape codes of a terminal: CSI (colors, cursor moves), OSC
+# (titles) and the short two-character ones
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)"
+                   r"|\x1b[@-Z\\-_]")
+
+
+def strip_ansi(text):
+    """
+    _function_: `mast.cli.results.strip_ansi(text)`
+
+    Return `text` without the escape codes of a terminal (colors,
+    cursor moves, titles). The job queue stores text this way, because
+    a web page shows the codes as text and does not render them.
+    """
+    return _ANSI.sub("", text) if text else text
 
 
 def say(*parts):
@@ -72,6 +90,16 @@ def say(*parts):
         print(message)
     else:
         sink(message)
+
+
+def is_listening():
+    """
+    _function_: `mast.cli.results.is_listening()`
+
+    True if someone (the job queue, the web GUI) collects what the
+    command says, in place of the command line.
+    """
+    return _sink.get() is not None
 
 
 @contextlib.contextmanager

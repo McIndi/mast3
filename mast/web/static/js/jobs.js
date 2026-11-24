@@ -7,6 +7,8 @@ const filters = document.querySelector("[data-job-filters]");
 const errorBox = document.querySelector("[data-error]");
 const more = document.querySelector("[data-more]");
 const workersBox = document.querySelector("[data-workers]");
+const hiddenBox = document.querySelector("[data-hidden-scheduled]");
+const scheduleSelect = filters.querySelector("[data-schedule-filter]");
 const PAGE = 50;
 let limit = PAGE;
 
@@ -14,8 +16,15 @@ function query() {
     const form = new FormData(filters);
     const params = new URLSearchParams();
     for (const [name, value] of form.entries()) {
-        if (value) params.append(name, value);
+        if (value && name !== "schedule") params.append(name, value);
     }
+    // The jobs of schedules (a status poll each minute) would fill the
+    // page, so it shows by default only the jobs that people submitted.
+    // Schedule names cannot start with "*".
+    const schedule = form.get("schedule") || "";
+    if (schedule === "") params.set("scheduled", "no");
+    else if (schedule === "*scheduled") params.set("scheduled", "yes");
+    else if (schedule !== "*any") params.set("schedule", schedule);
     params.set("limit", String(limit));
     return params;
 }
@@ -39,6 +48,11 @@ async function refresh() {
                 el("td", {className: "small text-nowrap"}, when(job.created_at))));
         }
         more.classList.toggle("d-none", answer.jobs.length < limit);
+        const hidden = answer.hidden_scheduled || 0;
+        hiddenBox.classList.toggle("d-none", !hidden);
+        hiddenBox.querySelector("[data-hidden-count]").textContent = hidden === 1
+            ? "1 job of a schedule is not shown."
+            : hidden.toLocaleString() + " jobs of schedules are not shown.";
         showError(errorBox, null);
     } catch (error) {
         showError(errorBox, error);
@@ -67,18 +81,19 @@ async function refreshWorkers() {
 // The schedules, for the filter. ?schedule=NAME (the Jobs link of
 // Admin -> Schedules) chooses one.
 async function loadSchedules() {
-    const select = filters.querySelector("[data-schedule-filter]");
+    const select = scheduleSelect;
     const wanted = new URLSearchParams(window.location.search).get("schedule") || "";
     try {
         const found = (await api.get("/schedules")).schedules;
         for (const schedule of found) {
-            select.append(el("option", {value: schedule.name, selected: schedule.name === wanted}, schedule.name));
+            select.append(el("option", {value: schedule.name, selected: schedule.name === wanted},
+                "Schedule " + schedule.name));
         }
     } catch (error) {
         // The filter is a help; the page works without it
     }
     if (!select.querySelector("option[value='" + CSS.escape(wanted) + "']") && wanted) {
-        select.append(el("option", {value: wanted, selected: true}, wanted));
+        select.append(el("option", {value: wanted, selected: true}, "Schedule " + wanted));
     }
 }
 
@@ -92,6 +107,11 @@ for (const [name, value] of new URLSearchParams(window.location.search)) {
 filters.addEventListener("change", () => { limit = PAGE; refresh(); });
 filters.addEventListener("submit", (event) => { event.preventDefault(); refresh(); });
 more.addEventListener("click", () => { limit += PAGE; refresh(); });
+hiddenBox.querySelector("[data-show-scheduled]").addEventListener("click", () => {
+    scheduleSelect.value = "*any";
+    limit = PAGE;
+    refresh();
+});
 loadSchedules().then(refresh);
 refreshWorkers();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);

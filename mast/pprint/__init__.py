@@ -28,6 +28,18 @@ from pprint import pprint
 import xml.etree.cElementTree as etree
 from mast import __version__
 
+def _is_terminal():
+    """True if `stdout` is a terminal, and no job listens to what the
+    command says (see `mast.cli.results.listening`)."""
+    import sys
+    from mast.cli.results import is_listening
+    try:
+        return sys.stdout.isatty() and not is_listening()
+    except (AttributeError, ValueError):
+        # No stdout (a service), or a closed one
+        return False
+
+
 def term_highlight(text):
     """
     _function_: `mast.pprint.term_highlight(text)`
@@ -237,7 +249,7 @@ def pprint_plus(text, color=True, page_output=False):
     else:
         print(text)
 
-def pprint_xml(elem, color=True, page_output=False):
+def pprint_xml(elem, color=None, page_output=False):
     """
     _function_: `mast.pprint.pprint_xml`
 
@@ -259,7 +271,8 @@ def pprint_xml(elem, color=True, page_output=False):
 
     * `elem`: An `xml.etree.Element` or `xml.etree.ElementTree` instance to
     send to stdout
-    * `color`: If True the XML will be syntax highlighted
+    * `color`: If True the XML will be syntax highlighted. The default
+    highlights only on a terminal.
     * `page`: If True, the output will be paged
     """
     text = format_xml(elem, color=color)
@@ -269,21 +282,25 @@ def pprint_xml(elem, color=True, page_output=False):
         print(text)
 
 
-def format_xml(elem, color=True):
+def format_xml(elem, color=None):
     """
     _function_: `mast.pprint.format_xml`
 
     Return what `pprint_xml` sends to `stdout`: a pretty-printed version
-    of elem, syntax highlighted if `color` is True.
+    of elem as a `str`, syntax highlighted if `color` is True. The
+    default (`None`) highlights only when `stdout` is a terminal, so
+    that a file, a pipe or a job gets no escape codes.
     """
     pretty_print(elem)
-    text = etree.tostring(elem)
+    text = etree.tostring(elem, encoding="unicode")
+    if color is None:
+        color = _is_terminal()
     if color:
         text = term_highlight(text)
     return text
 
 
-def pprint_xml_str(text, color=True, page_output=False):
+def pprint_xml_str(text, color=None, page_output=False):
     """
     _function_: `mast.pprint.pprint_xml_str`
 
@@ -303,14 +320,11 @@ def pprint_xml_str(text, color=True, page_output=False):
     PARAMETERS:
 
     * `text`: A Python `str` containing XML
-    * `color`: If True the XML will be syntax highlighted
+    * `color`: If True the XML will be syntax highlighted. The default
+    highlights only on a terminal.
     * `page`: If True, the output will be paged
     """
-    elem = etree.fromstring(text)
-    pretty_print(elem)
-    text = etree.tostring(elem)
-    if color:
-        text = term_highlight(text)
+    text = format_xml(etree.fromstring(text), color=color)
     if page_output:
         page(text)
     else:

@@ -804,7 +804,25 @@ class TestScheduleApi(WebCase):
         self.assertEqual([j["id"] for j in listed], [job_id])
         self.assertEqual(listed[0]["submitted_by"], "schedule:domains")
         self.assertEqual(self.client.get("/api/v1/jobs?schedule=nothing").status_code, 404)
+        # The Jobs page shows by default only what people submitted,
+        # and says how many jobs of schedules it leaves out
+        mine = jobs.submit("system.list-domains", {"appliances": ["dp1"]},
+                           principal=Principal("admin", "admin"))
+
+        def listed(query):
+            answer = self.client.get("/api/v1/jobs" + query).get_json()
+            return [j["id"] for j in answer["jobs"]], answer.get("hidden_scheduled")
+
+        self.assertEqual(listed("?scheduled=no"), ([mine], 1))
+        self.assertEqual(listed("?scheduled=yes"), ([job_id], None))
+        self.assertEqual(listed(""), ([mine, job_id], None))
+        # The count follows the other filters
+        self.assertEqual(listed("?scheduled=no&command=nothing"), ([], 0))
+        self.assertEqual(listed("?scheduled=no&mine=1"), ([mine], 0))
+        self.assertEqual(self.client.get("/api/v1/jobs?scheduled=maybe").status_code, 400)
         self.assertEqual(self.call("DELETE", "/schedules/domains").status_code, 204)
+        # The jobs of a deleted schedule are still jobs of a schedule
+        self.assertEqual(listed("?scheduled=yes"), ([job_id], None))
         self.assertEqual(self.client.get("/api/v1/schedules").get_json()["schedules"], [])
 
     def test_out_dir_from_the_browser_is_not_kept(self):

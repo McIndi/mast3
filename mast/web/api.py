@@ -452,8 +452,13 @@ def list_jobs():
 
     The newest jobs first. Filters (all optional): `status` (repeat it
     for several), `mine=1`, `command`, `appliance`, `schedule` (the
-    name of a schedule), `before` (an ISO time, for the next page) and
-    `limit` (50 by default).
+    name of a schedule), `scheduled` (`yes` for only the jobs of
+    schedules, `no` for only those that people submitted), `before`
+    (an ISO time, for the next page) and `limit` (50 by default).
+
+    With `scheduled=no`, the answer also has `hidden_scheduled`: how
+    many jobs of schedules the other filters match, so that the page
+    can say what it does not show.
 
     Exposed at: `/api/v1/jobs` via GET
     """
@@ -475,13 +480,23 @@ def list_jobs():
             schedule_id = schedules.get(args.get("schedule"), who).id
         except schedules.UnknownSchedule as exc:
             return error(404, str(exc))
-    found = queue.list_jobs(
-        status=args.getlist("status") or None, limit=limit, principal=who,
+    scheduled = {"yes": True, "no": False, "": None}.get(
+        args.get("scheduled", ""), "bad")
+    if scheduled == "bad":
+        return error(400, "scheduled must be yes or no.")
+    filters = dict(
+        status=args.getlist("status") or None,
         submitted_by=who.name if args.get("mine") in ("1", "true") else None,
         command=args.get("command") or None,
         appliance=args.get("appliance") or None,
-        before=before, parent_id=None, schedule_id=schedule_id)
-    return flask.jsonify({"jobs": [_job_json(info) for info in found]})
+        schedule_id=schedule_id)
+    found = queue.list_jobs(limit=limit, principal=who, before=before,
+                            scheduled=scheduled, **filters)
+    answer = {"jobs": [_job_json(info) for info in found]}
+    if scheduled is False:
+        answer["hidden_scheduled"] = queue.count_jobs(
+            principal=who, scheduled=True, **filters)
+    return flask.jsonify(answer)
 
 
 @blueprint.get("/jobs/<job_id>")

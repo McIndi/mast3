@@ -58,6 +58,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from mast.cli.results import strip_ansi
 from mast.logging import make_logger
 
 __all__ = ["SessionManager", "TerminalSession", "Pane", "Line",
@@ -70,8 +71,6 @@ SECRET = "********"
 # with the ones that are done (the others are fetched later)
 WAIT_SECONDS = 2.0
 
-_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)"
-                   r"|\x1b[@-Z\\-_]")
 _PASSWORD_PROMPT = re.compile(
     r"(password|passphrase)[^\n]*:\s*$|enter password\s*$", re.I)
 
@@ -83,7 +82,7 @@ def _log():
 def clean(text):
     """`text` without ANSI escape codes and carriage returns: the page
     shows them as text, it does not render them."""
-    return _ANSI.sub("", text or "").replace("\r", "")
+    return strip_ansi(text or "").replace("\r", "")
 
 
 def is_password_prompt(output):

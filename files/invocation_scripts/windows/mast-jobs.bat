@@ -1,8 +1,9 @@
 @echo off
+setlocal
 
-SET MAST_HOME=%~dp0
+SET "MAST_HOME=%~dp0"
 
-cd /d %MAST_HOME%
+cd /d "%MAST_HOME%"
 
-mast.bat -m mast.jobs %*
-
+call "%MAST_HOME%mast.bat" -m mast.jobs %*
+exit /b %ERRORLEVEL%

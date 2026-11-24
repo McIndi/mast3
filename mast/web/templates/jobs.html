@@ -12,8 +12,10 @@
         </select>
         <input class="form-control form-control-sm w-auto" name="command" placeholder="Command id" aria-label="Command">
         <input class="form-control form-control-sm w-auto" name="appliance" placeholder="Appliance" aria-label="Appliance">
-        <select class="form-select form-select-sm w-auto" name="schedule" aria-label="Schedule" data-schedule-filter>
-            <option value="">Any schedule</option>
+        <select class="form-select form-select-sm w-auto" name="schedule" aria-label="Submitted by" data-schedule-filter>
+            <option value="">Submitted by people</option>
+            <option value="*any">People and schedules</option>
+            <option value="*scheduled">Every schedule</option>
         </select>
         <div class="form-check align-self-center">
             <input class="form-check-input" type="checkbox" name="mine" id="filter-mine" value="1">
@@ -28,6 +30,10 @@
         <tbody data-job-rows><tr><td colspan="6" class="text-body-secondary">Loading…</td></tr></tbody>
     </table>
 </div>
+<p class="small text-body-secondary d-none" data-hidden-scheduled>
+    <span data-hidden-count></span>
+    <button class="btn btn-link btn-sm p-0 align-baseline" type="button" data-show-scheduled>Show them</button>
+</p>
 <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-more>Older jobs</button>
 <h2 class="h5 mt-4">Workers</h2>
 <div data-workers class="text-body-secondary small">Loading…</div>

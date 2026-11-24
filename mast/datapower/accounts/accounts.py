@@ -55,8 +55,13 @@ class AddGroup(SaveConfigParams):
     name: str = Option(short="N", help="The name of the group to add")
     access_policies: list[str] = Option(
         default_factory=list, short="A",
-        help="The access policies which will be associated with this "
-             "group")
+        help="An access policy of the group, in the form "
+             "address/domain/resource?Access=permissions. Each part "
+             "can be *. The permissions are r (read), w (write), "
+             "a (add), d (delete) and x (execute), joined with +. "
+             "For example, */*/*?Access=r reads everything in every "
+             "domain, and */dev/*?Access=r+w+a+d+x gives full access "
+             "to the domain dev. Give the option once for each policy.")
 
 
 @logged("mast.datapower.accounts")
