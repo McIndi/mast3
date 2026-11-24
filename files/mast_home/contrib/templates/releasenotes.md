@@ -162,6 +162,18 @@ to 1.3, each hybrid group (Python 3.15), the certificate chain. A port
 where the probe and the configuration disagree is a finding. The
 Crypto page has a **TLS probe** tab and a **PQC readiness** card. A
 `cnsa` pack (CNSA 2.0) is there, off by default.
+* **The Terminal page**: the DataPower CLI of the appliances of the
+target bar, one pane each, for operators and admins. A line goes to
+every ticked pane, and a slow appliance does not hold up the others;
+Ctrl-C, history, a transcript to download, reconnect. Each session is
+tied to its user, closes when idle (15 minutes), after 8 hours or at
+logout, and is recorded as a job (`ssh.terminal`) with each line and
+answer; Cancel on the Jobs page closes it. Passwords, also those typed
+at a password prompt, are `********` in the job and the transcripts.
+An admin can use a stored credential of purpose `change`, only on
+appliances whose SSH host key is pinned. `mast-ssh --credential NAME`
+does the same on the command line. The classic `ssh` tab stays until
+the classic GUI goes.
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists
@@ -177,6 +189,9 @@ works at phone width.
 
 ## Fixed
 
+* `mast-ssh` wrote a line typed at a password prompt (a new password,
+for example) to its log and to the audit log. Such a line is now
+logged as `********`.
 * The history download and the upload of the classic GUI used a file
 name from the request as it was. A name with `..` could read or write
 a file outside their directories, for example a key file. They now

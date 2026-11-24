@@ -158,6 +158,35 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
     #    appliances"), and no job runs. The same with -c and the password
     #    of the read-only user: DataPower answers "Authorization failure".
 
+# Phase D: the Terminal page
+
+Two appliances: two containers, or one container registered twice
+(`mast-appliances add -n dp-a ...` and `-n dp-b` with the same address
+and ports), with SSH on. Pin both (`mast-appliances pin -n NAME --both`).
+
+    # As a viewer: no Terminal in the menu; /terminal is 403.
+    # As an operator: both in the target bar, user name and password,
+    # Open session: two panes, connected. "show clock" goes to both.
+    # Untick one: "show version" goes to the other only.
+    # "ping 10.255.255.1": both panes show "running", then the answers.
+    # A long command, then Ctrl-C: it stops.
+    # "configure terminal" then "user-password": the input becomes a
+    # password field; the job shows the line as ********.
+    # Up and Down: the lines sent (not the password).
+    # Reload the page: it attaches to the session, with its output.
+    # Download transcript: no password in it.
+    # Jobs page: the ssh.terminal job, running, with "> show clock" and
+    # each answer. Disconnect: the job succeeded, with the transcript.
+    # Open three sessions (three tabs); the fourth is refused.
+    # Leave one idle for 15 minutes: it closes (its job says why).
+    # As an admin, Cancel on the Jobs page closes a session.
+    # As an admin, choose a stored credential of purpose change: it
+    # opens only when both host keys are pinned; a collect credential
+    # is refused. An operator does not see the stored credentials there.
+    # mast-ssh -a dp-a --credential NAME: a job ssh.terminal with each
+    # line; the credential's Uses list it.
+    # Phone width, dark theme: tabs, one pane at a time.
+
 # Phase C: the crypto inventory
 
 The home of the Phase A test, with the credential collector. A domain

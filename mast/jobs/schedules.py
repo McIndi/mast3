@@ -143,6 +143,8 @@ def _check(command, params, principal, name):
         raise ScheduleError("There is no command {}.".format(command))
     if not getattr(cmd, "queued", True):
         raise ScheduleError("{} does not run as a job.".format(command))
+    if getattr(cmd, "internal", False):
+        raise ScheduleError("{} is run only by MAST itself.".format(command))
     try:
         model = cmd.model(**(params or {}))
     except Exception as exc:

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Terminal · MAST{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('terminal_page.static', filename='terminal.css') }}">
+<script type="module" src="{{ url_for('terminal_page.static', filename='terminal.js') }}"></script>{% endblock %}
+{% block targetbar %}{% include "targetbar.html" %}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+    <h1 class="h4 mb-0 me-auto">Terminal</h1>
+    <span class="small text-body-secondary" data-state aria-live="polite"></span>
+</div>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+
+<section data-start>
+    <p class="small text-body-secondary mb-2">The DataPower CLI of the appliances of the target bar, side by side: each line goes to every appliance that is ticked.
+        {% if may_store %}Log in with the user name and password of the target bar, or a stored credential of purpose change (its appliances need a pinned SSH host key).{% else %}Log in with the user name and password of the target bar.{% endif %}
+        Each session is a job: its lines and answers are on the Jobs page, without passwords.</p>
+    <form class="row g-2 align-items-end" data-open-form>
+        <div class="col-6 col-sm-4 col-lg-3">
+            <label class="form-label small mb-0" for="t-domain">Domain</label>
+            <input class="form-control form-control-sm" id="t-domain" name="domain" value="default" autocomplete="off">
+        </div>
+        <div class="col-6 col-sm-8 col-lg-9 d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-primary" type="submit" data-open>Open session</button>
+            <select class="form-select form-select-sm w-auto d-none" aria-label="Open sessions" data-attach></select>
+        </div>
+    </form>
+</section>
+
+<section class="d-none" data-session>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+        <span class="small" data-session-text></span>
+        <a class="btn btn-sm btn-outline-secondary ms-auto" data-download-all href="#">Download all transcripts</a>
+        <button class="btn btn-sm btn-outline-danger" type="button" data-disconnect>Disconnect</button>
+    </div>
+    <ul class="nav nav-tabs d-lg-none mb-2" role="tablist" data-tabs></ul>
+    <div class="row g-2" data-panes></div>
+    <form class="mt-2" data-line-form autocomplete="off">
+        <div class="input-group">
+            <span class="input-group-text font-monospace" aria-hidden="true">&gt;</span>
+            <input class="form-control font-monospace" name="line" data-line aria-label="Command line" aria-describedby="t-line-help" spellcheck="false" autocapitalize="off">
+            <button class="btn btn-primary" type="submit" data-send>Send</button>
+            <button class="btn btn-outline-secondary" type="button" data-interrupt title="Send Ctrl-C to the appliances that are still running">Ctrl-C</button>
+        </div>
+        <div class="form-text" id="t-line-help" data-line-help>Enter sends the line to the ticked appliances. Up and Down go through the lines sent. Ctrl-C stops a line that is still running.</div>
+    </form>
+</section>
+{% endblock %}

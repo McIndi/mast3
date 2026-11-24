@@ -105,9 +105,13 @@ class Command(object):
     * `passive`: True if its jobs neither wait for nor hold up other
     jobs (see `mast.jobs.queue.submit`): a poll that only reads, such
     as `mast-status collect`. Only with `exclusive=False`.
+    * `internal`: True for a command whose jobs a part of MAST makes
+    and runs itself (the Terminal page's `ssh.terminal`, a record of a
+    session). The Commands page does not offer it, and it cannot be
+    submitted through the web API or scheduled.
     """
     def __init__(self, name, fn, category, model, parser, exclusive=True,
-                 resources=None, queued=True, passive=False):
+                 resources=None, queued=True, passive=False, internal=False):
         if passive and exclusive:
             raise ValueError(
                 "{}: a passive command only reads (exclusive=False)".format(
@@ -122,6 +126,7 @@ class Command(object):
         self.resources = resources
         self.queued = queued
         self.passive = passive
+        self.internal = internal
 
     @property
     def doc(self):
@@ -272,7 +277,7 @@ class Cli(object):
 
     def create_subparser(self, fn, name=None, category=None,
                          exclusive=True, resources=None, queued=True,
-                         passive=False):
+                         passive=False, internal=False):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -290,7 +295,8 @@ class Cli(object):
         of the function.
         * `category`: The heading under which the web GUI lists the
         command.
-        * `exclusive`, `resources`, `queued`, `passive`: See `Command`.
+        * `exclusive`, `resources`, `queued`, `passive`, `internal`: See
+        `Command`.
         """
         if not name:
             name = fn.__name__
@@ -317,7 +323,7 @@ class Cli(object):
             if not _parser.description:
                 _parser.description = desc
         command = Command(name, fn, category, model, _parser, exclusive,
-                          resources, queued, passive)
+                          resources, queued, passive, internal)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
@@ -338,7 +344,7 @@ class Cli(object):
         return fn
 
     def command(self, name=None, category=None, exclusive=True,
-                resources=None, queued=True, passive=False):
+                resources=None, queued=True, passive=False, internal=False):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -360,13 +366,16 @@ class Cli(object):
         through the job queue. See `Command`.
         * `passive`: Give True for a poll whose jobs neither wait for
         nor hold up other jobs. See `Command`.
+        * `internal`: Give True for a command whose jobs a part of MAST
+        makes and runs itself. See `Command`.
         """
         def inner(fn):
             if self.main is not None:
                 print("The Cli decorator cannot be used when main is specified")
                 sys.exit(-1)
             return self.create_subparser(
-                fn, name, category, exclusive, resources, queued, passive)
+                fn, name, category, exclusive, resources, queued, passive,
+                internal)
         return inner
 
     def run(self, argv=None):

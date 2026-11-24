@@ -1,0 +1,14 @@
+/* The Terminal page (mast.datapower.ssh.page) */
+.mast-term-output {
+    height: 22rem;
+    overflow: auto;
+    margin: 0;
+    padding: 0.5rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8rem;
+    background: var(--bs-tertiary-bg);
+    border-top: 1px solid var(--bs-border-color);
+}
+.mast-term-pane .card-header { padding: 0.35rem 0.6rem; }
+.mast-term-pane.mast-term-off .mast-term-output { opacity: 0.6; }

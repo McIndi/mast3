@@ -91,11 +91,12 @@ def initialize_appliances(env, domain='default', timeout=120):
     return prompt
 
 
-def issue_command(command, env, timeout=60):
-    """This method issues a command to the DataPower's CLI."""
+def issue_command(command, env, timeout=60, secret=False):
+    """This method issues a command to the DataPower's CLI. A `secret`
+    line (typed at a password prompt) is logged as ********."""
     responses = []
     for appliance in env.appliances:
-        resp = appliance.ssh_issue_command(command)
+        resp = appliance.ssh_issue_command(command, secret=secret)
         responses.append(resp)
     return responses
 
@@ -156,6 +157,88 @@ class SSH(Params):
         help="The timeout in seconds to wait for a response from an "
              "appliance for any single request. __NOTE__ Program "
              "execution may halt if a timeout is reached.")
+    credential: str | None = Option(
+        None,
+        help="The name of a stored credential of purpose change, in "
+             "place of `--credentials` (see `mast-credentials list`). "
+             "Every appliance must be registered, bound to it, and have "
+             "a pinned SSH host key. The session is recorded as a job "
+             "(ssh.terminal), with each line and each use of the "
+             "credential.")
+
+
+class _Recorder(object):
+    """The job of a session with a stored credential: it records the
+    use of the credential on each appliance, and each line (a line
+    typed at a password prompt as ********). It is kept with heartbeats
+    until the session ends."""
+
+    def __init__(self, credential, appliances):
+        import threading
+        from mast import jobs, registry
+        from mast.credentials import store
+        from mast.jobs import config as jobs_config
+        from mast.jobs.auth import LOCAL
+        from mast.jobs.runner import new_worker_id
+        names = [a.name for a in registry.resolve(appliances)]
+        found = store.check_use(credential, names, LOCAL,
+                                command="ssh.terminal", exclusive=True)
+        if found.purpose != store.CHANGE:
+            raise store.Forbidden(
+                "The credential {} is not for changes (purpose "
+                "change).".format(credential))
+        unpinned = [a.name for a in registry.resolve(names)
+                    if not a.ssh_host_key]
+        if unpinned:
+            raise store.Forbidden(
+                "A stored credential is never sent over SSH to an appliance "
+                "whose host key is not pinned: {}. Pin it with "
+                "mast-appliances pin -n NAME --ssh.".format(", ".join(unpinned)))
+        self.jobs = jobs
+        self.worker_id = new_worker_id()
+        self.job_id = jobs.submit(
+            "ssh.terminal", {"appliances": names, "credential": credential},
+            principal=LOCAL, reserved_for=self.worker_id, passive=True)
+        jobs.claim(self.worker_id, job_id=self.job_id)
+        self.names = names
+        self.passwords = []
+        self.credentials = []
+        for name in names:
+            username, password = store._open(credential, name, self.job_id,
+                                             LOCAL.name)
+            self.passwords.append(password)
+            self.credentials.append("{}:{}".format(username, password))
+        self._stop = threading.Event()
+        interval = max(1.0, jobs_config.lease_seconds() / 3.0)
+        threading.Thread(target=self._beat, args=(interval,),
+                         daemon=True).start()
+
+    def _beat(self, interval):
+        while not self._stop.wait(interval):
+            try:
+                self.jobs.heartbeat(self.job_id, self.worker_id)
+            except Exception:
+                pass
+
+    def line(self, text, secret=False):
+        if secret:
+            text = "********"
+        for password in self.passwords:
+            text = text.replace(password, "********")
+        try:
+            self.jobs.add_event(self.job_id, "> " + text.rstrip("\n"),
+                                worker_id=self.worker_id)
+        except Exception:
+            pass
+
+    def finish(self):
+        self._stop.set()
+        try:
+            self.jobs.finish(self.job_id, self.worker_id, "succeeded",
+                             text="A mast-ssh session on {}.".format(
+                                 ", ".join(self.names)))
+        except Exception:
+            pass
 
 
 def main(params: SSH):
@@ -167,11 +250,27 @@ because since the DataPower doesn't follow the SSH spec exactly,
 special care was taken so we would properly handle their implementation.
 The steps which were taken to achieve this handling prevent it from
 being reliably used for other machine types"""
+    from mast.cli.results import stored_credential
+    if params.credential and params.credentials:
+        raise SystemExit("Give either credentials or a stored credential "
+                         "(credential), not both.")
+    if not params.credential:
+        return _main(params, Environment(params.appliances,
+                                         params.credentials), None)
+    recorder = _Recorder(params.credential, params.appliances)
+    try:
+        with stored_credential(params.credential):
+            return _main(params, Environment(recorder.names,
+                                             recorder.credentials), recorder)
+    finally:
+        recorder.finish()
+
+
+def _main(params, env, recorder):
     domain = params.domain
     input_file = params.input_file
     timeout = params.timeout
     log = make_logger("ssh")
-    env = Environment(params.appliances, params.credentials)
     prompt = initialize_appliances(env, domain, timeout=timeout)
     log.info(f"Found prompt: {prompt}")
     global _input
@@ -185,6 +284,8 @@ being reliably used for other machine types"""
         with open(input_file, "r") as fin:
             for command in fin:
                 log.info(f"Found command: {command}")
+                if recorder is not None:
+                    recorder.line(command)
                 output = issue_command(command, env, timeout=timeout)
                 output = format_output(output, env)
                 log.info(f"Found output: {output}")
@@ -197,8 +298,12 @@ being reliably used for other machine types"""
                     display_output('Goodbye')
                     sys.exit(0)
     for command in _input:
-        log.info(f"Found command: {command}")
-        output = issue_command(command, env, timeout=timeout)
+        # A line typed at a password prompt is not logged
+        secret = _input.prompt in PASSWORD_PROMPTS
+        log.info("Found command: {}".format("********" if secret else command))
+        if recorder is not None:
+            recorder.line(command, secret=secret)
+        output = issue_command(command, env, timeout=timeout, secret=secret)
         output = format_output(output, env)
         log.info(f"Found output: {output}")
         prompt = output.splitlines()[-1:][0] + ' '
