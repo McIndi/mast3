@@ -1,11 +1,13 @@
 // The target bar: the appliances that the next command talks to, and how to
 // log in to them: a stored credential, or a user name and a password.
 //
-// Only the names of the appliances are kept, in sessionStorage. The user
-// name and the password stay in the memory of this page: they are sent in
-// the body of the POST that submits a job, and they are never stored in the
+// Only the names of the appliances and the name of the chosen stored
+// credential are kept, in sessionStorage (this tab only). The user name
+// and the password stay in the memory of this page: they are sent in the
+// body of the POST that submits a job, and they are never stored in the
 // browser. A stored credential is sent by name; the password never comes to
-// the browser.
+// the browser. The server checks again, for each job, that the user may
+// use the credential on those appliances.
 //
 // The stored credentials offered are those that can be used on every
 // appliance of the bar (GET /api/v1/credentials?appliances=...). A viewer
@@ -17,6 +19,7 @@
 import {api, el} from "./api.js";
 
 const KEY = "mast.targets";
+const CREDENTIAL_KEY = "mast.credential";
 
 function load() {
     try {
@@ -29,6 +32,17 @@ function load() {
 
 function save(names) {
     try { sessionStorage.setItem(KEY, JSON.stringify(names)); } catch (e) { /* no storage */ }
+}
+
+function loadCredential() {
+    try { return sessionStorage.getItem(CREDENTIAL_KEY) || null; } catch (e) { return null; }
+}
+
+function saveCredential(name) {
+    try {
+        if (name) sessionStorage.setItem(CREDENTIAL_KEY, name);
+        else sessionStorage.removeItem(CREDENTIAL_KEY);
+    } catch (e) { /* no storage */ }
 }
 
 const listeners = [];
@@ -102,10 +116,12 @@ export function noCheckHostname() {
 
 // Choose a stored credential by name (or none with null). It is chosen
 // as soon as the credentials that fit the appliances offer it, or the
-// user chooses another.
-let wanted = null;
+// user chooses another. The choice of the last page of this tab is
+// chosen in the same way.
+let wanted = loadCredential();
 export function setStoredCredential(name) {
     wanted = name || "";
+    saveCredential(wanted);
     if (bar) offerStored();
 }
 
@@ -218,6 +234,7 @@ if (bar) {
         tested = {};
         render();
         wanted = null;
+        saveCredential(storedCredential());
         showAdhoc();
         for (const listener of listeners) listener();
     });

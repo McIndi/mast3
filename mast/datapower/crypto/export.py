@@ -32,6 +32,7 @@ posture rules (`mast.datapower.crypto.posture`).
 Nothing secret is in a snapshot, so nothing secret is in an export.
 """
 import csv
+import io
 import json
 import os
 import uuid
@@ -47,7 +48,8 @@ from . import cli
 from .models import (
     CryptoCert, CryptoEdge, CryptoFile, CryptoObject, CryptoSnapshot)
 
-__all__ = ["load", "cbom", "write_xlsx", "write_csv", "export", "FORMATS"]
+__all__ = ["load", "cbom", "render", "write_xlsx", "write_csv", "export",
+           "FORMATS"]
 
 FORMATS = {"cbom": ".cdx.json", "xlsx": ".xlsx", "csv": ".csv"}
 
@@ -347,7 +349,8 @@ def rows(snapshots):
 
 
 def write_xlsx(snapshots, path):
-    """Write the sheets of `SHEETS` to `path`."""
+    """Write the sheets of `SHEETS` to `path` (a file name or a binary
+    file)."""
     import openpyxl
     book = openpyxl.Workbook()
     book.remove(book.active)
@@ -362,10 +365,30 @@ def write_xlsx(snapshots, path):
 
 def write_csv(snapshots, path):
     """Write the certificates to `path`."""
-    with open(path, "w", newline="") as fout:
-        writer = csv.writer(fout)
+    with open(path, "wb") as fout:
+        fout.write(render(snapshots, "csv"))
+
+
+def render(snapshots, format):
+    """
+    _function_: `mast.datapower.crypto.export.render(snapshots, format)`
+
+    Return `snapshots` (from `load`) in `format` (a key of `FORMATS`)
+    as bytes. The Crypto page sends these as a download.
+    """
+    if format == "cbom":
+        return json.dumps(cbom(snapshots), indent=1).encode("utf-8")
+    if format == "xlsx":
+        out = io.BytesIO()
+        write_xlsx(snapshots, out)
+        return out.getvalue()
+    if format == "csv":
+        out = io.StringIO(newline="")
+        writer = csv.writer(out)
         writer.writerow(SHEETS["Certificates"])
         writer.writerows(rows(snapshots)["Certificates"])
+        return out.getvalue().encode("utf-8")
+    raise ValueError("format is one of {}".format(", ".join(FORMATS)))
 
 
 class Export(Params):
@@ -410,13 +433,8 @@ newest snapshot of each appliance (or of the appliances given)."""
     directory = os.path.dirname(path)
     if directory:
         os.makedirs(directory, exist_ok=True)
-    if params.format == "cbom":
-        with open(path, "w") as fout:
-            json.dump(cbom(snapshots), fout, indent=1)
-    elif params.format == "xlsx":
-        write_xlsx(snapshots, path)
-    else:
-        write_csv(snapshots, path)
+    with open(path, "wb") as fout:
+        fout.write(render(snapshots, params.format))
     say("Wrote {}".format(path))
     return Table(("Appliance", "Snapshot", "Collected", "File"),
                  [[s["appliance"], str(s["snapshot"].id),

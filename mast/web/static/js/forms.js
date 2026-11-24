@@ -111,9 +111,13 @@ function control(option, id, context) {
 function choicesControl(option, id, context) {
     const many = option.kind === "list";
     const select = el("select", {className: "form-select form-select-sm", id: id, multiple: many});
+    // What to choose at the start: the default, or the value of a job
+    // that the form was filled in from
+    const chosen = many ? (option.default || []).map(String)
+        : (option.default === null || option.default === undefined ? [] : [String(option.default)]);
     const text = el("input", {className: "form-control form-control-sm d-none", id: id + "-text",
                               placeholder: many ? "Values, separated by commas" : "Value",
-                              "aria-label": label(option)});
+                              "aria-label": label(option), value: chosen.join(", ")});
     const note = el("div", {className: "form-text"});
     const refresh = el("button", {type: "button", className: "btn btn-sm btn-link p-0 ms-2"}, "Reload");
     const configured = option.widget.startsWith("configured:");
@@ -143,7 +147,14 @@ function choicesControl(option, id, context) {
             select.replaceChildren();
             if (!many && !option.required) select.append(el("option", {value: ""}, ""));
             for (const value of answer.choices) {
-                select.append(el("option", {value: value, selected: value === option.default}, value));
+                select.append(el("option", {value: value, selected: chosen.includes(String(value))}, value));
+            }
+            // A value of a job that the appliances no longer offer stays,
+            // marked, so that nothing is dropped without a word
+            for (const value of option.filled ? chosen : []) {
+                if (!answer.choices.map(String).includes(value)) {
+                    select.append(el("option", {value: value, selected: true}, value + " (not offered now)"));
+                }
             }
             note.textContent = configured ? "What every selected appliance has." : "";
             useText(false);
@@ -187,7 +198,7 @@ export function buildForm(command, container, values) {
     const fields = el("div", {className: "row g-3"});
     for (const declared of command.options) {
         const option = values && Object.prototype.hasOwnProperty.call(values, declared.name)
-            ? {...declared, default: values[declared.name]} : declared;
+            ? {...declared, default: values[declared.name], filled: true} : declared;
         const kind = widgetControl(option.widget);
         if (kind === "target-bar") {
             readers[option.name] = {

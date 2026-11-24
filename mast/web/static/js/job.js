@@ -134,9 +134,25 @@ $("cancel").addEventListener("click", async () => {
     }
 });
 
+// "Edit and run again" opens the form of the command, filled in with the
+// parameters of this job (commands.js, ?from=JOB). Only for a user who may
+// submit, and a command that the Commands page has.
+async function offerRerun(job) {
+    if (!job || !me.may.submit) return;
+    try {
+        await api.get("/commands/" + encodeURIComponent(job.command));
+    } catch (error) {
+        return;
+    }
+    const link = $("rerun");
+    link.href = "/commands?from=" + encodeURIComponent(jobId) + "#" + encodeURIComponent(job.command);
+    link.classList.remove("d-none");
+}
+
 async function follow() {
     me = await api.get("/me");
     let job = await refresh();
+    offerRerun(job);
     while (!job || !job.finished || job.children.some((child) => !child.finished)) {
         await new Promise((resolve) => setTimeout(resolve, document.hidden ? 5000 : 1000));
         job = await refresh();
