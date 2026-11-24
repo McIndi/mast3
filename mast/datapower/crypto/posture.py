@@ -586,13 +586,14 @@ etc/local/crypto.conf; adding or removing an exception needs no run."""
 @cli.command("rules", category="inventory", exclusive=False)
 def list_rules(params: Params):
     """List the posture rules: their id, pack, severity, and whether
-etc/local/crypto.conf turns them off."""
+they are on. The cnsa pack is off unless etc/local/crypto.conf turns it
+on ([packs] disabled)."""
     from .rules import _load
     _load()
-    disabled = settings().disabled
+    current = settings()
     return Table(("Rule", "Pack", "Severity", "Title", "On", "What it finds"),
                  [[r.id, r.pack, r.severity, r.title,
-                   "no" if r.id in disabled else "yes", r.doc]
+                   "yes" if current.enabled(r) else "no", r.doc]
                   for r in RULES.values()])
 
 

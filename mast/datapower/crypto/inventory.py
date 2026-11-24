@@ -35,7 +35,12 @@ for each object);
 SOMA spec of the firmware has it (7.5 and newer), which returns the
 certificate itself, or else with `CryptoExport` to a temporary file
 with a name of its own, which is deleted in any case;
-4. lists the files of `cert:`, `pubcert:` and `sharedcert:` (from the
+4. reads the ObjectStatus of the domain, for the state of each object
+(a TLS profile can be down while its configuration looks right), and
+keeps the `LocalAddress:LocalPort` of each listener (for
+`mast-crypto probe`; the management services of `default` are kept
+even when no TLS profile is theirs);
+5. lists the files of `cert:`, `pubcert:` and `sharedcert:` (from the
 `default` domain, once).
 
 The certificates are parsed here with `cryptography`, and kept by their
@@ -64,7 +69,8 @@ from .models import (
     CryptoObject, CryptoSnapshot)
 
 __all__ = [
-    "CLASSES", "sanitize", "objects_of", "names_of", "edges_of", "parse_certificate",
+    "CLASSES", "sanitize", "objects_of", "names_of", "edges_of",
+    "status_of", "listen_of", "MGMT_CLASSES", "parse_certificate",
     "certificate_from_details", "certificate_from_export", "files_of",
     "spec_for", "firmware_version", "inventory", "inventory_appliance",
     "collect"]
@@ -169,6 +175,54 @@ def objects_of(config):
         found[(_class, element.get("name"))] = {
             "admin_state": state if isinstance(state, str) else None,
             "attrs": attrs, "has_plaintext_password": plaintext}
+    return found
+
+
+def status_of(xml):
+    """
+    _function_: `mast.datapower.crypto.inventory.status_of(xml)`
+
+    The ObjectStatus of a domain (a get-status response): `{(class,
+    name): (op_state, error)}`, where `error` is the `ErrorCode` (None
+    if empty).
+    """
+    if isinstance(xml, (bytes, str)):
+        xml = etree.fromstring(xml.encode() if isinstance(xml, str) else xml)
+    found = {}
+    for element in xml.iter():
+        if not isinstance(element.tag, str) or \
+                _tag(element) != "ObjectStatus":
+            continue
+        values = {_tag(c): (c.text or "").strip() for c in element
+                  if isinstance(c.tag, str)}
+        if values.get("Class") and values.get("Name"):
+            found[(values["Class"], values["Name"])] = (
+                values.get("OpState") or None, values.get("ErrorCode") or None)
+    return found
+
+
+# The management services, whose ports the TLS probe tries too
+MGMT_CLASSES = ("WebGUI", "MgmtInterface", "RestMgmtInterface")
+
+
+def listen_of(config):
+    """
+    _function_: `mast.datapower.crypto.inventory.listen_of(config)`
+
+    The `LocalAddress:LocalPort` of each object of a configuration that
+    listens (a front side handler, the WebGUI...): `{(class, name):
+    "address:port"}`. An address of 0.0.0.0 or none is `0.0.0.0`.
+    """
+    found = {}
+    for element in _config_root(config):
+        if not isinstance(element.tag, str):
+            continue
+        port = (element.findtext("LocalPort") or "").strip()
+        if not port.isdigit():
+            continue
+        address = (element.findtext("LocalAddress") or "").strip() or "0.0.0.0"
+        found[(_tag(element), element.get("name"))] = "{}:{}".format(
+            address, port)
     return found
 
 
@@ -583,11 +637,35 @@ def collect(appliance, domains=None, delay=0.1, job_id=None, etc_dir=None):
             found["objects"][(domain,) + key] = item
         edges, referrers = edges_of(running, set(objects))
         saved_names = names_of(saved)
+        listening = listen_of(running)
+        if domain == "default":
+            # The management services, for the probe, even when they use
+            # no TLS profile
+            root = _config_root(running)
+            for _class in MGMT_CLASSES:
+                for element in root.findall(_class):
+                    if (_class, element.get("name")) in listening:
+                        referrers.add((_class, element.get("name"),
+                                       element.findtext("mAdminState")))
         for _class, name, state in referrers:
             found["objects"].setdefault((domain, _class, name), {
                 "admin_state": state, "attrs": None,
                 "has_plaintext_password": False, "running": True,
                 "saved": (_class, name) in saved_names})
+        for key, item in found["objects"].items():
+            if key[0] == domain and key[1:] in listening:
+                item["listen"] = listening[key[1:]]
+        try:
+            status = status_of(_text(call("get_status", "ObjectStatus",
+                                          domain=domain)))
+        except Exception as exc:
+            status = {}
+            found["problems"].append({
+                "domain": domain, "object": "ObjectStatus",
+                "problem": "status not read: {}".format(_error(exc))})
+        for key, item in found["objects"].items():
+            if key[0] == domain and key[1:] in status:
+                item["op_state"], item["status_error"] = status[key[1:]]
         found["edges"] |= {(domain,) + edge for edge in edges}
         certificates = [n for (c, n) in objects if c == "CryptoCertificate"]
         for name, parsed in _read_certificates(
@@ -641,7 +719,10 @@ def save(appliance_id, collected, now, job_id=None, error=None):
                 name=name, admin_state=item.get("admin_state"),
                 running=item["running"], saved=item["saved"],
                 attrs=item.get("attrs"),
-                has_plaintext_password=item["has_plaintext_password"])
+                has_plaintext_password=item["has_plaintext_password"],
+                op_state=item.get("op_state"),
+                status_error=item.get("status_error"),
+                listen=item.get("listen"))
             session.add(row)
             session.flush()
             ids[(domain, _class, name)] = row.id

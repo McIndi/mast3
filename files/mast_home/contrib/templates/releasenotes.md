@@ -137,8 +137,8 @@ and MD5 signatures, self-signed certificates on production, plaintext
 passwords, also those left over next to a password alias, unused
 files, unsaved changes, disabled objects still in use), and MAST
 checks its own setup (an appliance whose certificate is not checked, a
-collect credential that can write, a credential not used for 180
-days). An admin accepts a finding with an exception, which needs a
+collect credential that can write, a collect credential never tested,
+a credential not used for 180 days). An admin accepts a finding with an exception, which needs a
 reason and ends on a date. The **Crypto** page shows a score for each
 appliance, an expiry chart, the inventory with what uses each object
 and what breaks if a certificate expires, the findings, and the
@@ -147,6 +147,21 @@ inventory from it, and an admin schedules it. The Appliances page
 shows the score and the nearest expiry. `mast-crypto posture`, `rules`,
 `exceptions`, `exception-add` and `exception-remove` do the same on
 the command line. The thresholds are in `crypto.conf`.
+* **Post-quantum readiness**: the `pqc` pack judges each TLS profile by
+the key exchange it can actually negotiate, from its firmware,
+`KEMAlgs` and protocols (rules from tests of every firmware level from
+10.5 to 11.0.0.3): no hybrid PQC group, TLS 1.3 off, PQC only (no
+`classical`), a profile down (among others the one that `KEMAlgs` with
+TLS 1.2 takes down on 10.6.2 to 11.0.0.1), preview names, firmware
+without PQC control, ML-KEM without a hybrid, a legacy SSL proxy
+profile, and certificates with RSA or EC keys by their NIST IR 8547
+dates. The inventory now also records the state of each object and the
+port of each listener. `mast-crypto probe` connects to the TLS ports of
+the appliances (no credential) and records what they accept: TLS 1.0
+to 1.3, each hybrid group (Python 3.15), the certificate chain. A port
+where the probe and the configuration disagree is a finding. The
+Crypto page has a **TLS probe** tab and a **PQC readiness** card. A
+`cnsa` pack (CNSA 2.0) is there, off by default.
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists

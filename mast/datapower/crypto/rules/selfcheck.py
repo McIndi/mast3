@@ -63,6 +63,29 @@ def collect_can_write(setup):
                             "it again.")
 
 
+@check("mast-collect-untested", "low", "Collect credential not tested")
+def collect_untested(setup):
+    """A stored credential for collecting that was never tested, or
+    whose last test could not tell whether its user can change the
+    appliances. Until a test says so, mast-collect-can-write cannot see
+    a collect credential with an admin user."""
+    for credential in setup.credentials:
+        if credential.purpose != "collect" or credential.can_write is not None:
+            continue
+        yield Finding(
+            subject=credential.name, name=credential.name,
+            message="The stored credential {} (user {}) is for collecting, "
+                    "{}, so MAST does not know whether its user can change "
+                    "the appliances.".format(
+                        credential.name, credential.username,
+                        "and its last test did not work"
+                        if credential.last_tested_at else
+                        "and it was never tested"),
+            remediation="Test it (Admin → Credentials → Test, or "
+                        "mast-credentials test -n {} -a APPLIANCE).".format(
+                            credential.name))
+
+
 @check("mast-credential-unused", "low", "Credential not used")
 def credential_unused(setup):
     """A stored credential that no job used for `[credentials]

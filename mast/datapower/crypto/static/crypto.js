@@ -1,5 +1,5 @@
-// The Crypto page: the crypto inventory and its posture, in four views
-// (Overview, Inventory, Findings, History). The view is in the hash of
+// The Crypto page: the crypto inventory and its posture, in five views
+// (Overview, Inventory, Findings, TLS probe, History). The view is in the hash of
 // the address (#findings), so a link can open one. Every value is put in
 // the page as text, never as HTML, and the charts are inline SVG, so the
 // page needs no inline style.
@@ -7,7 +7,8 @@ import {api, el, showError, when} from "/static/js/api.js";
 
 const errorBox = document.querySelector("[data-error]");
 const updated = document.querySelector("[data-updated]");
-const VIEWS = ["overview", "inventory", "findings", "history"];
+const VIEWS = ["overview", "inventory", "findings", "probe", "history"];
+const HYBRID = ["X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024"];
 const SVG = "http://www.w3.org/2000/svg";
 const SEVERITY_BADGES = {
     critical: "text-bg-danger", high: "text-bg-warning", medium: "text-bg-primary",
@@ -294,7 +295,56 @@ async function loadOverview() {
         });
         line.replaceChildren(link, " about how MAST is set up: the TLS of the appliances and the stored credentials.");
     }
+    drawReadiness(answer.pqc || []);
     showRunForm(answer);
+}
+
+function readinessTone(ok, total) {
+    if (!total) return "text-body-secondary";
+    return ok === total ? "text-success" : ok ? "text-warning-emphasis" : "text-danger";
+}
+
+function drawReadiness(items) {
+    const box = q("[data-pqc]");
+    box.replaceChildren();
+    if (!items.length) {
+        box.append(el("p", {className: "small text-body-secondary mb-0"}, "No snapshot yet: run the inventory."));
+        return;
+    }
+    const list = el("ul", {className: "list-unstyled small mb-0"});
+    for (const item of items) {
+        const name = el("button", {type: "button", className: "btn btn-link btn-sm p-0 fw-semibold"}, item.appliance);
+        name.addEventListener("click", () => {
+            q("[data-f-appliance]").value = item.appliance;
+            q("[data-f-pack]").value = "pqc";
+            show("findings", true);
+            if (findingsAnswer) drawFindings();
+        });
+        const firmwareTone = item.support === "control" ? "text-success"
+            : item.support === "none" ? "text-danger" : "text-warning-emphasis";
+        const profiles = item.profiles;
+        const peers = item.peers;
+        let peerText = "not probed";
+        let peerTone = "text-body-secondary";
+        if (peers) {
+            const tested = peers.probed - peers.unknown;
+            peerText = tested ? peers.hybrid + " of " + plural(tested, "port") + " accept a hybrid group"
+                : plural(peers.probed, "port") + " probed, groups not checked (needs Python 3.15)";
+            peerTone = tested ? readinessTone(peers.hybrid, tested) : "text-body-secondary";
+        }
+        list.append(el("li", {className: "mb-2"}, name,
+            el("div", {}, el("span", {className: "text-body-secondary"}, "Firmware: "),
+               el("span", {className: firmwareTone}, (item.firmware || "") + " — " + item.support_text)),
+            el("div", {}, el("span", {className: "text-body-secondary"}, "Profiles: "),
+               profiles.total ? el("span", {className: readinessTone(profiles.hybrid, profiles.total)},
+                   profiles.hybrid + " of " + plural(profiles.total, "profile") + " can negotiate a hybrid group" +
+                   (profiles.down ? ", " + profiles.down + " down" : ""))
+                   : el("span", {className: "text-body-secondary"}, "no server or client profile")),
+            el("div", {}, el("span", {className: "text-body-secondary"}, "Peers: "),
+               el("span", {className: peerTone}, peerText),
+               peers && peers.at ? el("span", {className: "text-body-secondary"}, " (" + when(peers.at) + ")") : "")));
+    }
+    box.append(list);
 }
 
 // Inventory
@@ -407,6 +457,8 @@ async function openObject(id) {
     const parts = [facts([["Appliance", item.appliance], ["Domain", item.domain],
                           ["State", item.state + (item.running ? "" : ", not running") +
                                     (item.saved ? "" : ", not saved as it runs")],
+                          ["Status", item.op_state ? item.op_state + (item.status_error ? ": " + item.status_error : "") : null],
+                          ["Listens on", item.listen],
                           ["Snapshot", item.snapshot.id + " of " + when(item.snapshot.collected_at)],
                           ["Plaintext password", item.has_plaintext_password ? "yes (not kept by MAST)" : null]])];
     if (item.cert) {
@@ -417,6 +469,15 @@ async function openObject(id) {
             ["Key", [cert.key_alg, cert.key_bits ? cert.key_bits + " bits" : "", cert.curve].filter(Boolean).join(" ")],
             ["Signature", cert.sig_alg], ["Alternative names", (cert.sans || []).join(", ")],
             ["Serial", cert.serial], ["SHA-256", cert.sha256]]));
+    }
+    if (item.groups) {
+        const groups = item.groups;
+        parts.push(el("h3", {className: "h6"}, "Key exchange"), facts([
+            ["TLS 1.3 groups", groups.down ? "none: the firmware takes this profile down"
+                : groups.tls13.length ? groups.tls13.join(", ") : "none (TLS 1.3 is off)"],
+            ["Hybrid PQC", groups.hybrid.length ? groups.hybrid.join(", ") : "no"],
+            ["TLS 1.2", groups.tls12 ? "yes, classical groups" : "no"],
+            ["Why", groups.reason]]));
     }
     if (item.findings.length) {
         parts.push(el("h3", {className: "h6"}, "Findings"), el("ul", {className: "list-unstyled small"}, ...item.findings.map(findingItem)));
@@ -601,6 +662,87 @@ exceptionForm.addEventListener("submit", async (event) => {
     }
 });
 
+// TLS probe
+// =========
+
+function offer(row, name, label, bad) {
+    // bad: accepting it is the problem (TLS 1.0, 1.1)
+    const value = row.offers[name];
+    const note = row.notes[name] || "";
+    if (value === true) {
+        return el("span", {className: "badge me-1 " + (bad ? "text-bg-danger" : "text-bg-success"),
+                           title: bad ? "accepted" : note}, label || name);
+    }
+    if (value === false) return el("span", {className: "badge text-bg-light me-1 text-decoration-line-through", title: note}, label || name);
+    return el("span", {className: "badge text-bg-secondary me-1", title: note || "not tried"}, (label || name) + " ?");
+}
+
+function targetText(target) {
+    if (target.kind === "listener") return target.class + " " + target.name + " (" + target.domain + ")";
+    return target.name || target.kind || "";
+}
+
+async function loadProbe() {
+    let answer;
+    try {
+        answer = await api.get("/crypto/probes");
+    } catch (error) {
+        failed(error);
+        return;
+    }
+    const enabled = answer.schedules.filter((s) => s.enabled);
+    const box = q("[data-p-run]");
+    const parts = [enabled.length ? "The schedule " + enabled.map((s) => s.name + " (" + s.cron + ")").join(", ") + " runs the probe."
+        : "No schedule runs the probe yet."];
+    if (!answer.may.run && !enabled.length) parts.push("An operator can run it on this page.");
+    q("[data-p-run-text]").textContent = parts.join(" ");
+    box.classList.toggle("d-none", !answer.may.run && Boolean(enabled.length));
+    q("[data-p-actions]").classList.toggle("d-none", !answer.may.run);
+    q("[data-p-weekly]").classList.toggle("d-none", !(answer.may.schedule && !enabled.length));
+    const body = q("[data-p-rows]");
+    body.replaceChildren();
+    if (!answer.results.length) {
+        body.append(el("tr", {}, el("td", {colSpan: 9, className: "text-body-secondary"}, "No probe yet.")));
+    }
+    for (const row of answer.results) {
+        const negotiated = row.ok ? el("span", {}, [row.protocol, row.group].filter(Boolean).join(" · "),
+                                       el("div", {className: "text-body-secondary"}, row.cipher || ""))
+            : el("span", {className: "text-danger"}, row.error || "no TLS");
+        const leaf = row.chain[0];
+        const cert = leaf ? (leaf.subject || leaf.sha256.slice(0, 16)) + " · " +
+            [leaf.key_alg, leaf.key_bits].filter(Boolean).join(" ") : "";
+        const job = row.job_id ? el("a", {href: "/jobs/" + encodeURIComponent(row.job_id)}, when(row.probed_at)) : when(row.probed_at);
+        const reached = row.ok || Object.values(row.offers).some((v) => v === true);
+        body.append(el("tr", {},
+            el("td", {}, row.appliance || "—"), el("td", {}, row.host + ":" + row.port),
+            el("td", {className: "mast-cell"}, el("div", {className: "mast-probe-wide"}, targetText(row.target))),
+            el("td", {className: "mast-cell"}, el("div", {className: "mast-probe-wide"}, negotiated)),
+            el("td", {}, reached ? el("span", {}, ...HYBRID.map((g) => offer(row, g)), offer(row, "MLKEM768")) : ""),
+            el("td", {}, reached ? offer(row, "classical", "classical") : ""),
+            el("td", {}, reached ? el("span", {}, offer(row, "TLSv1.0", "1.0", true), offer(row, "TLSv1.1", "1.1", true)) : ""),
+            el("td", {className: "mast-cell"}, cert), el("td", {}, job)));
+    }
+}
+
+q("[data-p-now]").addEventListener("click", async () => {
+    try {
+        const answer = await api.post("/crypto/probe", {});
+        window.location.assign("/jobs/" + encodeURIComponent(answer.job_id));
+    } catch (error) {
+        failed(error);
+    }
+});
+
+q("[data-p-weekly]").addEventListener("click", async () => {
+    try {
+        await api.post("/crypto/probe-schedule", {});
+        showError(errorBox, null);
+        loadProbe();
+    } catch (error) {
+        failed(error);
+    }
+});
+
 // History
 // =======
 
@@ -693,6 +835,7 @@ async function loadHistory() {
     loadSnapshots();
 }
 
-const LOADERS = {overview: loadOverview, inventory: loadInventory, findings: loadFindings, history: loadHistory};
+const LOADERS = {overview: loadOverview, inventory: loadInventory, findings: loadFindings, probe: loadProbe,
+                 history: loadHistory};
 
 show(window.location.hash.slice(1) || "overview", false);
