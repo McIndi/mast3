@@ -21,7 +21,8 @@ the last poll of `mast-status collect`. It is the first page after the
 login. The script (`static/appliances.js`) asks these routes:
 
 * `GET /api/v1/appliances-status`: every appliance of the registry with
-its last status, and whether a schedule polls them.
+its last status, its crypto posture (from the newest snapshot of the
+crypto inventory), and whether a schedule polls them.
 * `GET /api/v1/appliances-status/<name>?hours=24`: one appliance, with
 the domains and the objects that are down, and the points of its charts
 (the samples, or the hourly or daily rollups for longer ranges).
@@ -100,7 +101,20 @@ def _status_json(found, cache, detail=False):
     return status
 
 
-def _appliance_json(appliance, status, cache, detail=False):
+def _crypto():
+    """The posture of each appliance from the crypto inventory, or {} if
+    it cannot be read (the page shows the status anyway)."""
+    try:
+        from mast.datapower.crypto import posture
+        return posture.summary()
+    except Exception:
+        from mast.logging import make_logger
+        make_logger("gui").exception("The crypto posture could not be read")
+        return {}
+
+
+def _appliance_json(appliance, status, cache, detail=False, crypto=None):
+    found = (crypto or {}).get(appliance.id)
     return {
         "name": appliance.name,
         "environments": list(appliance.environments),
@@ -109,6 +123,11 @@ def _appliance_json(appliance, status, cache, detail=False):
         "pinned": bool(appliance.pin_sha256 or appliance.ssh_host_key),
         "pin_changed": bool(appliance.tls_mismatch or appliance.ssh_mismatch),
         "status": _status_json(status, cache, detail),
+        # From the newest snapshot of the crypto inventory, if any
+        "crypto": None if found is None else {
+            "score": found["score"], "counts": found["counts"],
+            "nearest_expiry": found["nearest_expiry"],
+            "collected_at": found["collected_at"]},
     }
 
 
@@ -154,8 +173,10 @@ def appliances_status():
     from mast.datapower.status import store
     latest = store.latest()
     cache = {}
+    crypto = _crypto()
     return flask.jsonify({
-        "appliances": [_appliance_json(a, latest.get(a.id), cache)
+        "appliances": [_appliance_json(a, latest.get(a.id), cache,
+                                       crypto=crypto)
                        for a in registry.list_appliances()],
         "polling": _polling(),
         "now": datetime.now(timezone.utc).isoformat(),

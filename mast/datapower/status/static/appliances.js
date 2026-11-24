@@ -122,8 +122,27 @@ function row(appliance, now) {
         el("td", {}, domains),
         el("td", {}, objects),
         el("td", {}, warnings(appliance, now)),
-        el("td", {className: "text-body-secondary"}, "—"),
-        el("td", {className: "text-body-secondary"}, "—"));
+        el("td", {}, nearestExpiry(appliance.crypto, now)),
+        el("td", {}, posture(appliance.crypto)));
+}
+
+// The two columns of the crypto inventory: they link to the Crypto page
+function nearestExpiry(crypto, now) {
+    const expiry = crypto && crypto.nearest_expiry;
+    if (!expiry) return el("span", {className: "text-body-secondary"}, "—");
+    const days = Math.floor((new Date(expiry.not_after) - new Date(now)) / 86400000);
+    const text = days < 0 ? "expired" : days === 0 ? "today" : days + " days";
+    return el("a", {href: "/crypto#overview", className: "small" + (days < 30 ? " text-danger fw-semibold" : ""),
+                    title: expiry.domain + " / " + expiry.name + ", " + new Date(expiry.not_after).toLocaleDateString()}, text);
+}
+
+function posture(crypto) {
+    if (!crypto) return el("span", {className: "text-body-secondary"}, "—");
+    const tone = crypto.score >= 90 ? "text-bg-success" : crypto.score >= 60 ? "text-bg-warning" : "text-bg-danger";
+    const open = ["critical", "high", "medium", "low", "info"].reduce((total, s) => total + (crypto.counts[s] || 0), 0);
+    return el("a", {href: "/crypto#findings", className: "badge text-decoration-none " + tone,
+                    title: open + " findings from the crypto inventory of " + new Date(crypto.collected_at).toLocaleString()},
+              String(crypto.score));
 }
 
 function sparkline(points, key, label, max, now, hours) {

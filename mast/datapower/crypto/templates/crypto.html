@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Crypto · MAST{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{{ url_for('crypto_page.static', filename='crypto.css') }}">
+<script type="module" src="{{ url_for('crypto_page.static', filename='crypto.js') }}"></script>{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
+    <h1 class="h4 mb-0 me-auto">Crypto</h1>
+    <span class="small text-body-secondary" data-updated aria-live="polite"></span>
+</div>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="overview" aria-controls="v-overview">Overview</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="inventory" aria-controls="v-inventory">Inventory</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="findings" aria-controls="v-findings">Findings</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" type="button" role="tab" data-tab="history" aria-controls="v-history">History</button></li>
+</ul>
+
+<section id="v-overview" role="tabpanel" data-view="overview" class="d-none">
+    <div class="alert alert-info d-none" data-run>
+        <div data-run-text></div>
+        <form class="row g-2 align-items-end mt-1 d-none" data-run-form>
+            <div class="col-12 col-sm-5">
+                <label class="form-label small mb-0" for="r-credential">Stored credential for collecting</label>
+                <select class="form-select form-select-sm" id="r-credential" name="credential" required></select>
+            </div>
+            <div class="col-12 col-sm-7 d-flex flex-wrap gap-2">
+                <button class="btn btn-sm btn-primary" type="submit" data-run-now>Run inventory now</button>
+                <button class="btn btn-sm btn-outline-primary d-none" type="button" data-run-daily>Run it every day at 02:00</button>
+            </div>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mast-crypto-table">
+            <thead><tr>
+                <th>Appliance</th><th>Score</th><th>Findings</th><th>Nearest expiry</th><th>Last snapshot</th>
+            </tr></thead>
+            <tbody data-posture><tr><td colspan="5" class="text-body-secondary">Loading…</td></tr></tbody>
+        </table>
+    </div>
+    <div class="row g-3">
+        <div class="col-12 col-lg-8">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h6">Certificates that expire in the next 12 months</h2>
+                    <div data-timeline></div>
+                    <ul class="list-unstyled small mb-0 mt-2" data-soonest></ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-4">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">PQC readiness</h2>
+                    <p class="small text-body-secondary mb-0" data-pqc>The post-quantum rules come in a later release. They will show here how much of the TLS can use ML-KEM.</p>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6">MAST self-checks</h2>
+                    <p class="small mb-0" data-selfcheck>Loading…</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="v-inventory" role="tabpanel" data-view="inventory" class="d-none">
+    <div class="row g-2 mb-2">
+        <div class="col-12 col-md-5"><input class="form-control form-control-sm" type="search" placeholder="Filter" aria-label="Filter the inventory" data-inv-filter></div>
+        <div class="col-6 col-md-3">
+            <select class="form-select form-select-sm" aria-label="Kind" data-inv-kind>
+                <option value="">Every kind</option><option value="certificate">Certificates</option>
+                <option value="key">Keys</option><option value="credential">Credentials</option>
+                <option value="profile">TLS profiles</option><option value="alias">Password aliases</option>
+                <option value="file">Files</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-4"><select class="form-select form-select-sm" aria-label="Appliance" data-inv-appliance><option value="">Every appliance</option></select></div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-top small">
+            <thead><tr><th>Appliance</th><th>Domain</th><th>Class</th><th>Name</th><th>State</th><th>Detail</th><th>Expires</th><th>Used by</th><th>Findings</th></tr></thead>
+            <tbody data-inv-rows><tr><td colspan="9" class="text-body-secondary">Loading…</td></tr></tbody>
+        </table>
+    </div>
+    <div class="form-text" data-inv-count></div>
+</section>
+
+<section id="v-findings" role="tabpanel" data-view="findings" class="d-none">
+    <div class="row g-2 mb-2 align-items-center">
+        <div class="col-6 col-md-3"><select class="form-select form-select-sm" aria-label="Severity" data-f-severity><option value="">Every severity</option></select></div>
+        <div class="col-6 col-md-3"><select class="form-select form-select-sm" aria-label="Appliance" data-f-appliance><option value="">Every appliance</option></select></div>
+        <div class="col-6 col-md-3">
+            <select class="form-select form-select-sm" aria-label="Pack" data-f-pack>
+                <option value="">Every pack</option><option value="baseline">Baseline</option><option value="mast">MAST self-checks</option><option value="pqc">PQC</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="f-excepted" data-f-excepted><label class="form-check-label small" for="f-excepted">Show the accepted ones</label></div>
+        </div>
+    </div>
+    <div data-f-groups><p class="text-body-secondary">Loading…</p></div>
+    <h2 class="h6 mt-4">Exceptions</h2>
+    <p class="small text-body-secondary">An exception accepts the findings of one rule on some objects until it expires, for a reason. Their findings stay here, marked, and do not lower the score.</p>
+    <div class="table-responsive">
+        <table class="table table-sm small align-top">
+            <thead><tr><th>Rule</th><th>Appliance</th><th>Domain</th><th>Objects</th><th>Until</th><th>Reason</th><th>By</th><th></th></tr></thead>
+            <tbody data-exceptions></tbody>
+        </table>
+    </div>
+</section>
+
+<section id="v-history" role="tabpanel" data-view="history" class="d-none">
+    <div class="row g-2 mb-2 align-items-end">
+        <div class="col-12 col-sm-5">
+            <label class="form-label small mb-0" for="h-appliance">Appliance</label>
+            <select class="form-select form-select-sm" id="h-appliance" data-h-appliance></select>
+        </div>
+        <div class="col-12 col-sm-7"><button class="btn btn-sm btn-outline-primary" type="button" data-h-compare disabled>Compare the two chosen</button></div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm small align-middle">
+            <thead><tr><th>From</th><th>To</th><th>Snapshot</th><th>Collected</th><th>Read</th><th>Firmware</th><th>Objects</th><th>Certificates</th><th>Findings</th></tr></thead>
+            <tbody data-h-rows></tbody>
+        </table>
+    </div>
+    <div data-h-diff></div>
+</section>
+
+<dialog class="mast-dialog" data-object-dialog aria-labelledby="o-title">
+    <div class="d-flex align-items-start gap-2 mb-2">
+        <h2 class="h5 me-auto mb-0" id="o-title" data-o-title></h2>
+        <button type="button" class="btn-close" aria-label="Close" data-close></button>
+    </div>
+    <div data-o-body></div>
+</dialog>
+
+<dialog class="mast-dialog" data-exception-dialog aria-labelledby="e-title">
+    <form data-exception-form>
+        <div class="d-flex align-items-start gap-2 mb-2">
+            <h2 class="h5 me-auto mb-0" id="e-title">Add an exception</h2>
+            <button type="button" class="btn-close" aria-label="Close" data-close></button>
+        </div>
+        <div class="alert alert-danger d-none small" role="alert" data-e-error></div>
+        <div class="mb-2">
+            <label class="form-label small mb-0" for="e-rule">Rule</label>
+            <select class="form-select form-select-sm" id="e-rule" name="rule_id" required></select>
+        </div>
+        <div class="row g-2 mb-2">
+            <div class="col-6">
+                <label class="form-label small mb-0" for="e-appliance">Appliance</label>
+                <select class="form-select form-select-sm" id="e-appliance" name="appliance"><option value="">Every appliance</option></select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small mb-0" for="e-domain">Domain</label>
+                <input class="form-control form-control-sm" id="e-domain" name="domain" placeholder="Every domain">
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label small mb-0" for="e-pattern">Objects</label>
+            <input class="form-control form-control-sm" id="e-pattern" name="object_pattern" required maxlength="255" aria-describedby="e-pattern-help">
+            <div class="form-text" id="e-pattern-help">The name of the object, or a pattern: <code>lab-*</code> matches every name that starts with <code>lab-</code>.</div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label small mb-0" for="e-reason">Reason</label>
+            <textarea class="form-control form-control-sm" id="e-reason" name="reason" rows="3" required minlength="10"></textarea>
+        </div>
+        <div class="mb-3">
+            <label class="form-label small mb-0" for="e-expires">Until</label>
+            <input class="form-control form-control-sm" type="date" id="e-expires" name="expires" required>
+        </div>
+        <button class="btn btn-sm btn-primary" type="submit">Add the exception</button>
+    </form>
+</dialog>
+{% endblock %}

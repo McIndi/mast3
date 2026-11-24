@@ -25,11 +25,20 @@ each run; nothing is changed afterwards.
 objects that refer to them (listeners, services...). `attrs` has the
 configuration of a crypto or TLS object without its secrets.
 * `crypto_certs`: the certificate of each `CryptoCertificate`, parsed.
-* `crypto_files`: the files of `cert:`, `pubcert:` and `sharedcert:`.
+* `crypto_files`: the files of `cert:`, `pubcert:` and `sharedcert:`,
+and which objects name each one (from migration 0010).
 * `crypto_edges`: which object refers to which, and through which
 element.
 * `crypto_cert_cache`: the parsed certificates by SHA-256, so that one
 that has not changed is not parsed (or exported) again.
+
+The posture rules (migration 0010, `mast.datapower.crypto.posture`):
+
+* `crypto_findings`: what the rules found in a snapshot, computed when
+the snapshot is kept. A finding that an exception covered when the
+rules ran points to it.
+* `crypto_exceptions`: an accepted finding, with its reason and an
+expiry date. An exception that has expired no longer applies.
 
 No password, key or file content is stored. A certificate is public.
 """
@@ -42,7 +51,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from mast.jobs.models import Base, UTCDateTime
 
 __all__ = ["CryptoSnapshot", "CryptoObject", "CryptoCert", "CryptoFile",
-           "CryptoEdge", "CryptoCertCache", "DETAILS", "EXPORT"]
+           "CryptoEdge", "CryptoCertCache", "CryptoFinding",
+           "CryptoException", "DETAILS", "EXPORT"]
 
 # How the certificates were read: do-view-certificate-details, or
 # CryptoExport to a temporary file (older firmware)
@@ -130,6 +140,9 @@ class CryptoFile(Base):
     name: Mapped[str] = mapped_column(String(512))
     size: Mapped[int | None] = mapped_column(Integer)
     modified: Mapped[str | None] = mapped_column(String(32))
+    # The objects of the running configurations that name the file
+    # ("domain/Class/name"), from migration 0010; None if not known
+    users: Mapped[list | None] = mapped_column(JSON)
 
 
 class CryptoEdge(Base):
@@ -149,3 +162,38 @@ class CryptoCertCache(Base):
 
     sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
     parsed: Mapped[dict] = mapped_column(JSON)
+
+
+class CryptoException(Base):
+    __tablename__ = "crypto_exceptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[str] = mapped_column(String(64))
+    # None: every appliance, every domain
+    appliance: Mapped[str | None] = mapped_column(String(255))
+    domain: Mapped[str | None] = mapped_column(String(128))
+    # A shell pattern (fnmatch) of the name of the object
+    object_pattern: Mapped[str] = mapped_column(String(255))
+    reason: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    created_by: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class CryptoFinding(Base):
+    __tablename__ = "crypto_findings"
+    __table_args__ = (Index("ix_crypto_findings_snapshot", "snapshot_id"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_id: Mapped[int] = mapped_column(_snapshot())
+    rule_id: Mapped[str] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(16))
+    # The object, if the finding is about one
+    object_id: Mapped[int | None] = mapped_column(
+        ForeignKey("crypto_objects.id", ondelete="CASCADE"))
+    # What the finding is about, as text: domain/class/name, or a file
+    subject: Mapped[str] = mapped_column(String(800))
+    message: Mapped[str] = mapped_column(Text)
+    remediation: Mapped[str] = mapped_column(Text)
+    exception_id: Mapped[int | None] = mapped_column(
+        ForeignKey("crypto_exceptions.id", ondelete="SET NULL"))

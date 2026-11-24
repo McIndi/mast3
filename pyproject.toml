@@ -108,6 +108,7 @@ jobs = "mast.web.pages.jobs:page"
 commands = "mast.web.pages.commands:page"
 admin = "mast.web.pages.admin:page"
 appliances = "mast.datapower.status.page:page"
+crypto = "mast.datapower.crypto.page:page"
 
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.web:Plugin"
@@ -141,7 +142,7 @@ include-package-data = false
 "mast.web" = ["templates/*", "static/css/*", "static/js/*", "static/vendor/*/*"]
 "mast.datapower.accounts" = ["docroot/*"]
 "mast.datapower.backups" = ["docroot/*"]
-"mast.datapower.crypto" = ["docroot/*"]
+"mast.datapower.crypto" = ["docroot/*", "templates/*", "static/*"]
 "mast.datapower.deployment" = ["docroot/*"]
 "mast.datapower.developer" = ["docroot/*"]
 "mast.datapower.network" = ["docroot/*"]

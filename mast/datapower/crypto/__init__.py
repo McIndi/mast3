@@ -466,4 +466,4 @@ if __name__ == "__main__":
 
 
 # The crypto inventory: its commands join this cli
-from . import export, inventory  # noqa: E402,F401
+from . import export, inventory, posture  # noqa: E402,F401

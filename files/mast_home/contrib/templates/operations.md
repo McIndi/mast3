@@ -57,6 +57,7 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 |---|---|
 | `appliances.conf` | The defaults for every appliance (`[global]`): ports, the SOMA spec file and so on. The appliances themselves, their own settings and the environments are in the database (`mast-appliances`). |
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
+| `crypto.conf` | The posture rules of the crypto inventory: their thresholds, the weights of the score, how long an exception may last, and the rules turned off. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
 | `ssh.conf` | `mast-ssh`: the timeout, and whether host keys that are not pinned are accepted. |
@@ -383,7 +384,64 @@ the one of `--snapshot ID`) to a file:
 The CBOM (cryptographic bill of materials) lists each certificate, key,
 credential, password alias and TLS profile as a `cryptographic-asset`,
 the algorithms of the certificates, each listener or service that uses
-them as an `application`, and the references as `dependencies`.
+them as an `application`, and the references as `dependencies`. The
+spreadsheet also has a sheet of the findings (see below).
+
+## The posture rules
+
+Each snapshot that `mast-crypto inventory` keeps is checked by the
+posture rules at once, and their findings are kept with it. The
+**Crypto** page shows them, and `mast-crypto rules` lists the rules:
+
+| Rule | Severity | Finds |
+|---|---|---|
+| `cert-expired` | critical | A certificate that has expired. |
+| `cert-expiring` | high, medium, low | A certificate that expires within 30, 60 or 90 days. |
+| `tls-old-protocol` | high (critical for SSL) | A TLS profile with SSL 3.0, TLS 1.0 or TLS 1.1 on; a crypto profile that does not disable them. |
+| `tls13-off` | low | A TLS profile with TLS 1.3 off, on a firmware that has it. |
+| `weak-rsa-key` | high | A certificate with an RSA key under 2048 bits. |
+| `weak-signature` | high | A certificate signed with SHA-1 or MD5 (not a self-signed one: nobody checks the signature of a trust anchor). |
+| `self-signed-production` | medium | A self-signed certificate that an identification credential presents, on an appliance of an environment marked production. |
+| `plaintext-password` | high | A key or certificate whose password is in its configuration as plain text. |
+| `plaintext-password-unused` | medium | A key or certificate that uses a password alias but still has a plaintext password in its configuration: DataPower ignores it, but keeps it and get-config returns it. |
+| `unused-file` | low | A file of `cert:` or `sharedcert:` that no object of the running configuration names. |
+| `not-saved` | low | A domain whose crypto objects differ between the running and the saved configuration. |
+| `disabled-in-use` | medium | A disabled object that an enabled object still refers to. |
+| `mast-tls-none` | high | A registered appliance with `tls_mode none`. |
+| `mast-collect-can-write` | high | A stored credential for collecting whose user could change the appliances at its last test. |
+| `mast-credential-unused` | low | A stored credential that no job used for 180 days. |
+
+The rules that start with `mast-` check how MAST is set up, not a
+snapshot, so they are checked each time the page asks. The thresholds
+are in `etc/default/crypto.conf`; put changes in
+`etc/local/crypto.conf`, where `[rules] disabled` turns rules off. Run
+the rules again on the newest snapshots after a change:
+
+    :::bash
+    ./mast-crypto posture                 # the findings, and the self-checks
+    ./mast-crypto posture -a prod-dp1
+    ./mast-crypto rules
+
+The **posture score** of an appliance is 100 minus the weight of each
+finding that no exception covers (critical 40, high 15, medium 5, low 1,
+in `[score]`), and never below 0. The Appliances page shows it, with the
+certificate that expires first.
+
+An **exception** accepts the findings of one rule on some objects until
+a date, for a reason. Its findings stay on the Crypto page, marked with
+the exception, and no longer lower the score. When it expires, they
+count again. Only an admin can add or remove one (the action
+`manage-exception`), on the Crypto page or with:
+
+    :::bash
+    ./mast-crypto exception-add -r unused-file -p 'cert:///old-*' \
+        -R "Kept until the rollback window closes" -e 2027-01-31 -a prod-dp1
+    ./mast-crypto exceptions
+    ./mast-crypto exception-remove -i 3
+
+The object is a name or a shell pattern (`old-*`); the appliance and
+the domain are optional (every one by default). An exception lasts at
+most 365 days (`[exceptions] max_days`).
 
 # Appliances and environments
 
@@ -572,7 +630,24 @@ poll that could change the appliance, a status that is old. A row opens
 to show the domains, the objects that are down, the charts of the last
 24 hours, and links to its jobs and to run a command on it. The page
 refreshes every 30 seconds. With no schedule that polls, it says how to
-start one (see "The status of the appliances").
+start one (see "The status of the appliances"). Its last two columns,
+the certificate that expires first and the posture score, come from the
+crypto inventory and link to the Crypto page.
+* **Crypto** (viewer): the crypto inventory and its posture (see "The
+posture rules"), in four views. **Overview**: the score and the
+findings of each appliance, the certificate that expires first, the
+date of its last snapshot, and a chart of the certificates that expire
+in the next 12 months. An operator can run the inventory now with a
+stored credential for collecting (it opens the job), and an admin can
+make it run every day. **Inventory**: the certificates, keys,
+credentials, TLS profiles, password aliases and files of the newest
+snapshots, to filter. An object opens to show its configuration
+(without secrets), its certificate, what it uses, what uses it, its
+findings, and for a certificate what breaks if it expires.
+**Findings**: grouped by rule, with filters, and the exceptions; an
+admin adds an exception from a finding. **History**: the snapshots of
+an appliance, and what changed between two of them (objects added,
+removed and changed, findings opened and closed).
 * **Jobs** (viewer): every job, newest first, with filters (status,
 mine, command, appliance), and the workers. A job shows its
 parameters (secrets as `********`), its progress as it runs, its
@@ -660,7 +735,7 @@ A password has at least 12 characters and is not the user name.
 |---|---|
 | `viewer` | See the jobs, with their progress and results. |
 | `operator` | Also run commands, and cancel their own jobs. |
-| `admin` | Also cancel any job, manage the users, the appliances and the stored credentials in the web UI (Admin), and use credentials for changing. Operators may use the stored credentials for collecting. |
+| `admin` | Also cancel any job, manage the users, the appliances and the stored credentials in the web UI (Admin), add and remove the exceptions of the posture rules, and use credentials for changing. Operators may use the stored credentials for collecting. |
 
 The other commands:
 

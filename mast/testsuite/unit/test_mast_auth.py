@@ -113,7 +113,8 @@ class TestRoles(unittest.TestCase):
 
     def test_manage(self):
         for action in ("manage-credential", "manage-appliance",
-                       "manage-user", "manage-schedule"):
+                       "manage-user", "manage-schedule",
+                       "manage-exception"):
             self.check(action, False, False, True)
 
     def test_approve(self):

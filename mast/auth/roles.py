@@ -60,6 +60,8 @@ MATRIX = {
     "manage-appliance": {ADMIN},
     "manage-user": {ADMIN},
     "manage-schedule": {ADMIN},
+    # Accept findings of the posture rules of the crypto inventory
+    "manage-exception": {ADMIN},
     # Approve a change plan. Nobody may approve their own plan, which
     # is checked where plans are approved.
     "approve": {ADMIN},

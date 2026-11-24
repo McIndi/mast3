@@ -176,6 +176,28 @@ check_hostname=False), 'cryptolab')"` makes one on a test appliance.
     # Cancel an inventory of several appliances: its children are
     # cancelled too.
 
+The posture rules and the Crypto page (C-2), on the lab domain:
+
+    ./mast-crypto posture
+    # cert-expired on lab-old-cert, plaintext-password on lab-old-key,
+    # unused-file on lab-unused.crt, not-saved on cryptolab until the
+    # domain is saved. Save it, run the inventory again: not-saved goes.
+    ./mast-crypto exception-add -r unused-file -p lab-unused.crt \
+        -R "Kept for the manual test" -e 7d
+    # As a viewer, /crypto: the score of each appliance, the expiry
+    # chart, the self-checks. No "Run inventory now", no "Add exception".
+    # As an operator: Run inventory now opens the job; the Overview
+    # shows the new snapshot when it is done.
+    # As an admin: Run it every day makes the schedule crypto-inventory.
+    # Inventory: filter "lab", open lab-server-cert: what breaks shows
+    # lab-idcred, lab-server-profile, lab-https.
+    # Findings: the exception shows on lab-unused.crt (tick "Show the
+    # accepted ones"); Add exception on another finding, then Remove it.
+    # History: compare the two newest snapshots of the appliance.
+    # The Appliances page: the "Nearest expiry" and "Crypto posture"
+    # columns link to the Crypto page.
+    # Firefox and Chromium, light and dark theme, a phone width.
+
 # Phase B: the status of the appliances
 
 The home of the Phase A test, with the credential collector and a

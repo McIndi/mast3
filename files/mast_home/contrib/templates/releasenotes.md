@@ -130,6 +130,23 @@ key is kept. Each appliance is a child job. `mast-crypto export` writes
 it as a CycloneDX 1.6 CBOM, a spreadsheet or a CSV of the
 certificates. Snapshots are kept 400 days (`crypto_snapshots_days`),
 but the newest of each appliance.
+* **The posture rules and the Crypto page**: each snapshot is checked
+by the rules of the baseline pack (certificates that expired or soon
+will, old SSL and TLS protocols, TLS 1.3 off, short RSA keys, SHA-1
+and MD5 signatures, self-signed certificates on production, plaintext
+passwords, also those left over next to a password alias, unused
+files, unsaved changes, disabled objects still in use), and MAST
+checks its own setup (an appliance whose certificate is not checked, a
+collect credential that can write, a credential not used for 180
+days). An admin accepts a finding with an exception, which needs a
+reason and ends on a date. The **Crypto** page shows a score for each
+appliance, an expiry chart, the inventory with what uses each object
+and what breaks if a certificate expires, the findings, and the
+history of the snapshots with what changed. An operator runs the
+inventory from it, and an admin schedules it. The Appliances page
+shows the score and the nearest expiry. `mast-crypto posture`, `rules`,
+`exceptions`, `exception-add` and `exception-remove` do the same on
+the command line. The thresholds are in `crypto.conf`.
 * `mast-system list-objects -O CLASS` lists the objects of a class on
 the appliances, and whether every appliance has each one. With a
 stored credential in the target bar, the Commands page fills its lists

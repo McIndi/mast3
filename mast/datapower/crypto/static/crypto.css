@@ -1,0 +1,23 @@
+/* The Crypto page (mast.datapower.crypto.page) */
+.mast-crypto-table > tbody > tr > td { white-space: nowrap; }
+.mast-crypto-table > tbody > tr > td:nth-child(3) { white-space: normal; }
+.mast-timeline { width: 100%; height: auto; max-height: 12rem; display: block; }
+.mast-timeline .mast-bar { fill: var(--bs-primary); }
+.mast-timeline .mast-bar-late { fill: var(--bs-danger); }
+.mast-timeline text { fill: var(--bs-secondary-color); font-size: 10px; }
+.mast-dialog {
+    width: min(52rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    padding: 1rem;
+    color: var(--bs-body-color);
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+}
+.mast-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+.mast-tree { list-style: none; padding-left: 1.1rem; margin-bottom: 0; }
+.mast-tree > li { border-left: 1px solid var(--bs-border-color); padding-left: 0.5rem; }
+.mast-group > summary { cursor: pointer; }
+.mast-score { font-variant-numeric: tabular-nums; min-width: 2.5rem; display: inline-block; }
+/* The object of a finding: a name is not cut in two */
+.mast-subject { min-width: 10rem; }
