@@ -157,6 +157,32 @@ class TestMASTPackaging(unittest.TestCase):
                     scripts[launcher.name].load()()
                 run.assert_called_once_with(match.group(1))
 
+    def test_every_windows_launcher_is_safe_to_call(self):
+        # Each Windows launcher runs the mast.bat next to it by its full,
+        # quoted path: cmd.exe may not look in the current folder
+        # (NoDefaultCurrentDirectoryInExePath), and a home under a folder
+        # with spaces must work. setlocal keeps the cd and MAST_HOME out
+        # of the console of the user, and the exit status of Python is
+        # passed on.
+        launchers = Path(mast.__file__).resolve().parents[1] / "files" / "invocation_scripts" / "windows"
+        if not launchers.is_dir():
+            self.skipTest("the launchers are only in a source checkout")
+        for launcher in sorted(launchers.glob("*.bat")):
+            if launcher.name == "set-env.bat":
+                continue
+            text = launcher.read_text()
+            with self.subTest(launcher=launcher.name):
+                self.assertIn("\nsetlocal\n", text)
+                self.assertIn('SET "MAST_HOME=%~dp0"', text)
+                self.assertIn('cd /d "%MAST_HOME%"', text)
+                self.assertNotRegex(text, r"(?m)^\s*(call\s+)?(mast|set-env)\.bat")
+                if launcher.name == "mast.bat":
+                    self.assertIn('call "%MAST_HOME%set-env.bat"', text)
+                    self.assertIn('"%MAST_HOME%python\\%PYTHON_VERSION%\\python" %*', text)
+                else:
+                    self.assertRegex(text, r'call "%MAST_HOME%mast\.bat" -m \S+')
+                    self.assertIn("exit /b %ERRORLEVEL%", text)
+
     def test_every_subpackage_imports(self):
         # Walk the installed package and import every package and module,
         # so that a package missing from the wheel fails here.

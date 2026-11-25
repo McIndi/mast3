@@ -198,6 +198,13 @@ def make_cli():
             decoded.encode()).decode())
         return Text("sent as " + decoded, history="<p>{}</p>".format(decoded))
 
+    @cli.command("colors")
+    def colors(params: Work):
+        """Say and return text with the escape codes of a terminal, as
+        a SOMA response highlighted for a terminal has."""
+        say("\x1b[34m<dp:response>\x1b[39;49;00m")
+        return Text("\x1b[1;32mgreen\x1b[0m & plain")
+
     @cli.command("encode", queued=False)
     def encode(params: Work):
         """A utility that must not be stored."""
@@ -712,6 +719,15 @@ class TestRunner(SqliteCase):
             [("state", "queued"), ("state", "running on " + worker),
              ("say", "working on dp1"), ("state", "succeeded")])
         self.assertEqual(jobs.events(job_id, after=events[1].id), events[2:])
+
+    def test_a_job_keeps_no_terminal_colors(self):
+        job_id = jobs.submit("test.colors", {})
+        jobs.run_next("w1")
+        result = jobs.result(job_id)
+        self.assertEqual(result.text, "green & plain")
+        self.assertEqual(result.html, "<pre>green &amp; plain</pre>")
+        self.assertIn(("say", "<dp:response>"),
+                      [(e.kind, e.message) for e in jobs.events(job_id)])
 
     def test_the_status_comes_from_the_result(self):
         cases = (

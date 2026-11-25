@@ -270,7 +270,9 @@ which is checked when the schedule is saved and again for each job.
 object, and `-s NAME=VALUE` sets one (a VALUE that is JSON, such as
 `["prod"]`, is read as JSON).
 * Its jobs run as `schedule:NAME`, with the role of the admin who made
-the schedule. The Jobs page can show only the jobs of one schedule.
+the schedule. The Jobs page shows by default only the jobs that people
+submitted; its "Submitted by" list shows the jobs of every schedule, or
+of one.
 * If the job of the last run still waits or runs when the schedule is
 due again, that run is skipped, and `schedule-list` says why.
 * If the admin who made it is removed, disabled or no longer an

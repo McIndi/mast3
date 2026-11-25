@@ -32,13 +32,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, ForeignKey, Index, Integer, MetaData, String,
-    Text)
+    Text, or_)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
 __all__ = [
     "Base", "Job", "JobTarget", "JobEvent", "JobResult", "Worker",
-    "Schedule",
+    "Schedule", "SCHEDULED",
     "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",
     "LOST", "FINISHED",
 ]
@@ -133,6 +133,13 @@ class Job(Base):
     # The schedule that submitted the job
     schedule_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("schedules.id", ondelete="SET NULL"), index=True)
+
+
+
+# A job that a schedule submitted. A deleted schedule leaves its jobs
+# with no schedule_id, but they were submitted as "schedule:<name>".
+SCHEDULED = or_(Job.schedule_id.is_not(None),
+                Job.submitted_by.startswith("schedule:"))
 
 
 class JobTarget(Base):

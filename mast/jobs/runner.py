@@ -67,7 +67,7 @@ import traceback
 import uuid
 
 from mast.cli import Result, guarded, listening
-from mast.cli.results import stored_credential
+from mast.cli.results import stored_credential, strip_ansi
 from mast.jobs import config, queue, secrets
 from mast.jobs.models import CANCELLED, FAILED, PARTIAL, SUCCEEDED
 from mast.logging import make_logger
@@ -377,7 +377,10 @@ def _call(job_id, worker_id, store, guard, redact):
         redact[0] = secrets.redactor(command.model, values, extra=found)
         token = _current.set(job_id)
         try:
-            with listening(store), guarded(guard), \
+            # A job keeps no escape codes of a terminal: the Jobs page
+            # would show them as text
+            with listening(lambda message: store(strip_ansi(message))), \
+                    guarded(guard), \
                     _stored_credential(name if found else None):
                 result = command.fn(command.model(**values))
         finally:
@@ -408,8 +411,9 @@ def _call(job_id, worker_id, store, guard, redact):
         if status != SUCCEEDED:
             error = "The command reported that {} of its {} results " \
                     "failed.".format(outcomes.count(False), len(outcomes))
-        return {"status": status, "error": error, "text": result.text(),
-                "html": result.html(), "history": result.history,
+        return {"status": status, "error": error,
+                "text": strip_ansi(result.text()),
+                "html": strip_ansi(result.html()), "history": result.history,
                 "data": _data(result)}
     except Exception as exc:
         return {"status": FAILED,

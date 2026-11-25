@@ -58,17 +58,17 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, delete, false, or_, select, true, update
+from sqlalchemy import and_, delete, false, func, or_, select, true, update
 from sqlalchemy.orm import aliased
 
 from mast.jobs import config, db, registry, secrets
 from mast.jobs.auth import LOCAL, authorize
 from mast.jobs.models import (
-    CANCELLED, FINISHED, LOST, QUEUED, RUNNING, Job, JobEvent, JobResult,
-    JobTarget, Worker)
+    CANCELLED, FINISHED, LOST, QUEUED, RUNNING, SCHEDULED, Job, JobEvent,
+    JobResult, JobTarget, Worker)
 
 __all__ = [
-    "new_job_id", "submit", "attach", "get", "find", "list_jobs", "events", "result",
+    "new_job_id", "submit", "attach", "get", "find", "list_jobs", "count_jobs", "events", "result",
     "cancel", "reap_if_expired",
     "claim", "load", "heartbeat", "cancel_requested", "add_event", "finish",
     "abandon", "reap",
@@ -472,27 +472,10 @@ def find(prefix, principal=LOCAL):
     raise JobNotFound(prefix)
 
 
-def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
-              command=None, appliance=None, before=None, parent_id=None,
-              schedule_id=None):
-    """
-    _function_: `mast.jobs.queue.list_jobs(status=None, limit=50,
-    principal=LOCAL, submitted_by=None, command=None, appliance=None,
-    before=None, parent_id=None, schedule_id=None)`
-
-    Return the newest jobs first, as a list of `JobInfo`. `status`
-    can be one status or a sequence of them. The other filters:
-
-    * `submitted_by`: The name of the principal that submitted them.
-    * `command`: The id of their command.
-    * `appliance`: An appliance that they talk to.
-    * `before`: Only jobs made before this time (a `datetime`), to
-    page through older jobs.
-    * `parent_id`: Only the child jobs of this job.
-    * `schedule_id`: Only the jobs of this schedule.
-    """
-    authorize(principal, "read")
-    query = select(Job).order_by(Job.created_at.desc(), Job.id).limit(limit)
+def _filtered(query, status=None, submitted_by=None, command=None,
+              appliance=None, before=None, parent_id=None,
+              schedule_id=None, scheduled=None):
+    """`query` with the filters of `list_jobs`."""
     if status is not None:
         statuses = [status] if isinstance(status, str) else list(status)
         query = query.where(Job.status.in_(statuses))
@@ -509,8 +492,54 @@ def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
         query = query.where(Job.parent_id == parent_id)
     if schedule_id is not None:
         query = query.where(Job.schedule_id == schedule_id)
+    if scheduled is not None:
+        query = query.where(SCHEDULED if scheduled else ~SCHEDULED)
+    return query
+
+
+def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
+              command=None, appliance=None, before=None, parent_id=None,
+              schedule_id=None, scheduled=None):
+    """
+    _function_: `mast.jobs.queue.list_jobs(status=None, limit=50,
+    principal=LOCAL, submitted_by=None, command=None, appliance=None,
+    before=None, parent_id=None, schedule_id=None, scheduled=None)`
+
+    Return the newest jobs first, as a list of `JobInfo`. `status`
+    can be one status or a sequence of them. The other filters:
+
+    * `submitted_by`: The name of the principal that submitted them.
+    * `command`: The id of their command.
+    * `appliance`: An appliance that they talk to.
+    * `before`: Only jobs made before this time (a `datetime`), to
+    page through older jobs.
+    * `parent_id`: Only the child jobs of this job.
+    * `schedule_id`: Only the jobs of this schedule.
+    * `scheduled`: True for only the jobs that a schedule submitted,
+    False for only the others (those that people submitted). The
+    default is both.
+    """
+    authorize(principal, "read")
+    query = _filtered(
+        select(Job).order_by(Job.created_at.desc(), Job.id).limit(limit),
+        status=status, submitted_by=submitted_by, command=command,
+        appliance=appliance, before=before, parent_id=parent_id,
+        schedule_id=schedule_id, scheduled=scheduled)
     with db.session(write=False) as session:
         return [_info(session, job) for job in session.scalars(query)]
+
+
+def count_jobs(principal=LOCAL, **filters):
+    """
+    _function_: `mast.jobs.queue.count_jobs(principal=LOCAL, **filters)`
+
+    Return how many jobs `list_jobs` would find with these filters and
+    no limit.
+    """
+    authorize(principal, "read")
+    query = _filtered(select(func.count()).select_from(Job), **filters)
+    with db.session(write=False) as session:
+        return session.scalar(query)
 
 
 def events(job_id, after=0, principal=LOCAL):

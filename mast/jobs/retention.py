@@ -42,19 +42,16 @@ import os
 import shutil
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, select
 
 from mast.config import MAST_HOME
 from mast.jobs import config, db
-from mast.jobs.models import FINISHED, SUCCEEDED, Job
+from mast.jobs.models import FINISHED, SCHEDULED as _SCHEDULED, SUCCEEDED, Job
 from mast.logging import make_logger
 
 __all__ = ["prune", "BATCH"]
 
 BATCH = 1000
-
-_SCHEDULED = or_(Job.schedule_id.is_not(None),
-                 Job.submitted_by.startswith("schedule:"))
 
 
 def _now():
