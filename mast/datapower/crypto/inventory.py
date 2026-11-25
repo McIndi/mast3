@@ -798,9 +798,11 @@ class InventoryOne(Inventory):
     pass
 
 
-def _child_params(params, appliance):
+def _child_params(params, appliance, credentials=None):
     """The parameters of the child of one appliance. A stored credential
-    goes by its name, so that the child is checked as the parent was."""
+    goes by its name, so that the child is checked as the parent was.
+    `credentials` are those of this appliance; the default is all of
+    `params.credentials`."""
     found = {"appliances": [appliance], "domains": list(params.domains),
              "timeout": params.timeout, "request_delay": params.request_delay,
              "workers": 1}
@@ -808,8 +810,29 @@ def _child_params(params, appliance):
     if name:
         found["credential"] = name
     else:
-        found["credentials"] = list(params.credentials)
+        found["credentials"] = list(
+            params.credentials if credentials is None else credentials)
         found["no_check_hostname"] = params.no_check_hostname
+    return found
+
+
+def _targets(params):
+    """The appliances that `params.appliances` stand for, one for each
+    child job, in order and without repeats, as `(name, credentials)`.
+    An environment stands for its members, which share the credentials
+    given for it, as they do in `Environment`."""
+    from mast import registry
+    names = list(params.appliances)
+    credentials = list(params.credentials)
+    paired = len(credentials) > 1 and len(credentials) == len(names)
+    found, seen = [], set()
+    for index, name in enumerate(names):
+        for appliance in registry.resolve([name]):
+            if appliance.name in seen:
+                continue
+            seen.add(appliance.name)
+            found.append((appliance.name,
+                          [credentials[index]] if paired else credentials))
     return found
 
 
@@ -889,13 +912,15 @@ collecting."""
         return inventory_appliance(**dict(
             _child_params(params, None), appliances=list(params.appliances),
             credentials=list(params.credentials)))
-    say("Reading {} appliance(s)".format(len(params.appliances)))
+    targets = _targets(params)
+    say("Reading {} appliance(s)".format(len(targets)))
     children = run_children(
         "crypto.inventory-appliance",
-        [_child_params(params, name) for name in params.appliances],
+        [_child_params(params, name, credentials)
+         for name, credentials in targets],
         workers=params.workers)
     rows, oks = [], []
-    for name, child in zip(params.appliances, children):
+    for (name, _), child in zip(targets, children):
         info = queue.get(child)
         result = queue.result(child)
         data = result.data if result is not None else None

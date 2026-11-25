@@ -61,7 +61,7 @@ class AddGroup(SaveConfigParams):
              "a (add), d (delete) and x (execute), joined with +. "
              "For example, */*/*?Access=r reads everything in every "
              "domain, and */dev/*?Access=r+w+a+d+x gives full access "
-             "to the domain dev. Give the option once for each policy.")
+             "to the domain dev.")
 
 
 @logged("mast.datapower.accounts")

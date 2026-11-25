@@ -441,6 +441,43 @@ class TestCommands(InventoryCase):
             snapshots = session.scalars(select(CryptoSnapshot)).all()
         self.assertEqual({s.job_id for s in snapshots}, {c.id for c in children})
 
+    def test_an_environment_has_a_child_for_each_member(self):
+        registry.env_add("lab", members=["dp1", "dp2"])
+        parent = jobs.submit("crypto.inventory", {
+            "appliances": ["lab"], "credentials": ["u:p"],
+            "request_delay": 0})
+        jobs.run_next("w1")
+        info = jobs.get(parent)
+        self.assertEqual(info.status, jobs.SUCCEEDED, info.error)
+        children = jobs.list_jobs(parent_id=parent)
+        self.assertEqual(sorted(c.targets for c in children),
+                         [["dp1"], ["dp2"]])
+        rows = jobs.result(parent).data["rows"]
+        self.assertEqual([r[0] for r in rows], ["dp1", "dp2"])
+        with db.session(write=False) as session:
+            snapshots = session.scalars(select(CryptoSnapshot)).all()
+        self.assertEqual(len(snapshots), 2)
+
+    def test_targets_keep_the_credentials_of_each_name(self):
+        registry.add("dp3", "10.0.0.3")
+        registry.env_add("lab", members=["dp1", "dp2"])
+
+        def targets(appliances, credentials):
+            return inventory._targets(mock.Mock(
+                appliances=appliances, credentials=credentials))
+
+        # One set of credentials for every appliance
+        self.assertEqual(targets(["lab", "dp3"], ["u:p"]),
+                         [("dp1", ["u:p"]), ("dp2", ["u:p"]),
+                          ("dp3", ["u:p"])])
+        # One set for each name: the members share that of their
+        # environment, and an appliance named twice is read once
+        self.assertEqual(targets(["lab", "dp3", "dp1"], ["a:1", "b:2", "c:3"]),
+                         [("dp1", ["a:1"]), ("dp2", ["a:1"]),
+                          ("dp3", ["b:2"])])
+        # A stored credential: no credentials
+        self.assertEqual(targets(["lab"], []), [("dp1", []), ("dp2", [])])
+
     def test_without_a_job(self):
         result = inventory.inventory(appliances=["dp1"], credentials=["u:p"],
                                      request_delay=0)
