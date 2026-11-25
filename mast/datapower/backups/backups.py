@@ -27,7 +27,7 @@ from time import time, sleep
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
 from mast.plugin_utils.params import (
-    ApplianceParams, OUT_DIR, UPLOAD, configured, timeout_option)
+    ApplianceParams, BACKUPS_DIR, OUT_DIR, UPLOAD, configured, timeout_option)
 from mast.plugin_utils.results import (
     ActionResults, ListResults, Report, SeeDownload, StatusResults)
 
@@ -164,7 +164,7 @@ class NormalBackup(ApplianceParams):
     comment: str = Option(
         "", short="C", help="The comment to add to the backup")
     out_dir: str = Option(
-        'tmp', short="o", widget=OUT_DIR,
+        BACKUPS_DIR, short="o", widget=OUT_DIR,
         help="The directory (local) where you would like to store the "
              "backup")
     individual: bool = Option(
@@ -241,7 +241,7 @@ def get_normal_backup(params: NormalBackup):
 class SecureBackup(ApplianceParams):
     timeout: int = timeout_option(1200)
     out_dir: str = Option(
-        'tmp', short="o", widget=OUT_DIR,
+        BACKUPS_DIR, short="o", widget=OUT_DIR,
         help="The directory (local) to store the backup")
     CryptoCertificate: str = Option(
         "", short="C", widget=configured("CryptoCertificate"),

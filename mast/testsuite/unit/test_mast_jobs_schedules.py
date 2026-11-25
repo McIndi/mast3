@@ -607,6 +607,73 @@ class TestRetention(RetentionCase):
         self.assertEqual(os.listdir(os.path.join(logs, "me", "2-2")), ["c.log"])
         self.assertTrue(os.path.isdir(logs))
 
+    def test_tmp(self):
+        from mast.web.catalog import JOBS_DIR
+        old = time.time() - 40 * 86400
+        tmp = os.path.join(self.home, "tmp")
+
+        def made(*parts, mtime=old):
+            path = os.path.join(tmp, *parts)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "w").close()
+            os.utime(path, (mtime, mtime))
+            return path
+
+        made("cert-audit.xlsx")
+        made("crypto-inventory-20260101000000.cdx.json")
+        made("restore_normal_backup", "20260101", "dp1-results.xml")
+        fresh = made("cert-file-audit.xlsx", mtime=time.time())
+        placeholder = made(".empty")
+        # The folder of a job of the web UI goes with its job, not here
+        job_file = made(os.path.relpath(os.path.join(self.home, JOBS_DIR), tmp),
+                        "abc", "out", "backup.zip")
+        # An empty folder that a command just made stays; an old one goes
+        os.makedirs(os.path.join(tmp, "just-made"))
+        os.makedirs(os.path.join(tmp, "left-over"))
+        os.utime(os.path.join(tmp, "left-over"), (old, old))
+        backups = os.path.join(self.home, "var", "backups", "normal_backup")
+        os.makedirs(backups)
+        kept_backup = os.path.join(backups, "dp1-all-domains.zip")
+        open(kept_backup, "w").close()
+        os.utime(kept_backup, (old, old))
+
+        self.assertEqual(self.prune(dry_run=True)["tmp_days"], 3)
+        self.assertEqual(self.prune()["tmp_days"], 3)
+        self.assertEqual(sorted(os.listdir(tmp)),
+                         [".empty", "cert-file-audit.xlsx", "just-made", "web"])
+        for path in (fresh, placeholder, job_file, kept_backup):
+            self.assertTrue(os.path.exists(path), path)
+
+    def test_backups_are_not_in_tmp_by_default(self):
+        # The commands that take backups, or keep a copy of what they
+        # delete or change, write to var/backups, which retention never
+        # empties; the others write to tmp/
+        from mast.cli import params as cli_params
+        from mast.jobs import registry as jobs_registry
+        from mast.plugin_utils.params import BACKUPS_DIR, OUT_DIR
+        backups = {"backups.normal-backup", "backups.secure-backup",
+                   "developer.export", "deployment.del-file",
+                   "deployment.clean-up", "deployment.predeploy",
+                   "deployment.deploy", "system.firmware-upgrade",
+                   "system.del-file", "system.clean-up"}
+        found = {}
+        for namespace in jobs_registry.namespaces():
+            for command in jobs_registry.cli_for(namespace).commands.values():
+                for spec in cli_params.options(command.model):
+                    if spec.widget == OUT_DIR:
+                        found["{}.{}".format(namespace, command.name)] = spec.default
+        self.assertLessEqual(backups, set(found))
+        for command_id, default in sorted(found.items()):
+            with self.subTest(command=command_id):
+                if command_id in backups:
+                    self.assertEqual(default, BACKUPS_DIR)
+                elif command_id == "deployment.git-deploy":
+                    # Its own folder of results; git-deploy is not
+                    # changed until it is redesigned
+                    continue
+                else:
+                    self.assertEqual(os.path.normpath(default).split(os.sep)[0], "tmp")
+
     def test_zero_keeps_for_ever(self):
         self.job(1000)
         real = retention.config.retention_days
@@ -833,7 +900,9 @@ class TestScheduleApi(WebCase):
                 "appliances": ["dp1"], "credential": "rw", "Domain": ["all-domains"],
                 "out_dir": "/etc"}))
         self.assertEqual(answer.status_code, 201, answer.get_json())
-        self.assertEqual(answer.get_json()["params"]["out_dir"], "tmp")
+        # The default of the model: a scheduled backup is kept
+        from mast.plugin_utils.params import BACKUPS_DIR
+        self.assertEqual(answer.get_json()["params"]["out_dir"], BACKUPS_DIR)
 
     def test_an_upload_cannot_be_scheduled(self):
         self.login("admin")

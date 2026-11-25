@@ -31,8 +31,8 @@ from mast.logging import make_logger
 from mast.timestamp import Timestamp
 from mast.datapower import datapower
 from mast.plugin_utils.params import (
-    ApplianceParams, SaveConfigParams, OBJECT_CLASS, OUT_DIR, OUT_FILE,
-    STATUS_PROVIDER, UPLOAD, configured, timeout_option)
+    ApplianceParams, SaveConfigParams, BACKUPS_DIR, OBJECT_CLASS, OUT_DIR,
+    OUT_FILE, STATUS_PROVIDER, UPLOAD, configured, timeout_option)
 from mast.plugin_utils.results import (
     ActionResults, CommonItems, Report, SeeDownload, StatusResults, history)
 from mast.plugin_utils.steps import perform
@@ -1014,7 +1014,7 @@ class FirmwareUpgrade(ApplianceParams):
         help="Whether to accept the license of the new firmware (You "
              "**MUST** specify this or the upgrade will not work)")
     out_dir: str = Option(
-        "tmp", short="o", widget=OUT_DIR,
+        BACKUPS_DIR, short="o", widget=OUT_DIR,
         help="The directory in which to save the backups that are "
              "taken before the upgrade")
     quiesce_timeout: int = Option(
@@ -1388,7 +1388,7 @@ class DeleteFile(ApplianceParams):
         help="If specified, the file will be backed up to the "
              "directory specified as `-o, --out-dir`")
     out_dir: str = Option(
-        "tmp", short="o", widget=OUT_DIR,
+        BACKUPS_DIR, short="o", widget=OUT_DIR,
         help="If `-b, --backup` is specified, this is where to save "
              "the backup of the file to.")
 
@@ -1877,7 +1877,7 @@ class CleanUp(ApplianceParams):
         False, short="b",
         help="If specified, files will be backed up before deleting")
     out_dir: str = Option(
-        'tmp', short="o", widget=OUT_DIR,
+        BACKUPS_DIR, short="o", widget=OUT_DIR,
         help="The directory to save backed up files")
 
 
