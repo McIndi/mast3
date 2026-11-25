@@ -625,6 +625,17 @@ class TestExport(InventoryCase):
                       by_ref["dp1/probe/10.0.0.1:443"]["properties"])
         self.assertIn("dp1/probe/10.0.0.1:443", dependencies[
             "dp1/{}/HTTPSSourceProtocolHandler/lab-https".format(DOMAIN)])
+        # A private key has the algorithm and size of the certificate
+        # that an identification credential pairs it with; a key that
+        # none pairs has neither
+        material = by_ref["dp1/{}/CryptoKey/lab-server-key".format(DOMAIN)][
+            "cryptoProperties"]["relatedCryptoMaterialProperties"]
+        self.assertEqual(material, {"type": "private-key",
+                                    "algorithmRef": "algorithm/RSA-2048",
+                                    "size": 2048})
+        self.assertEqual(by_ref["dp1/{}/CryptoKey/lab-old-key".format(DOMAIN)][
+            "cryptoProperties"]["relatedCryptoMaterialProperties"],
+            {"type": "private-key"})
         # The cipher suites of a profile have their IANA names
         names = [c["name"] for c in by_ref[
             "dp1/{}/SSLServerProfile/lab-server-profile".format(DOMAIN)]

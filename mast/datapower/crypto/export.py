@@ -255,6 +255,19 @@ def cbom(snapshots, now=None):
                                      "algorithmProperties": properties}}
         return ref
 
+    def key_algorithm(cert):
+        """The bom-ref of the algorithm of the key of a certificate (a
+        `CryptoCert` or one that the probe parsed), or None."""
+        key_alg, curve = _get(cert, "key_alg"), _get(cert, "curve")
+        bits = _get(cert, "key_bits")
+        if not key_alg:
+            return None
+        name = key_alg + ("-" + curve if curve else
+                          "-{}".format(bits) if bits else "")
+        return algorithm(
+            name, "signature" if key_alg not in ("RSA",) else "pke",
+            curve=curve, parameterSetIdentifier=str(bits or ""))
+
     def certificate_details(cert):
         """The `certificateProperties` of a certificate (a `CryptoCert`
         or a certificate that the probe parsed), and its properties."""
@@ -270,14 +283,8 @@ def cbom(snapshots, now=None):
         if _get(cert, "sig_alg"):
             details["signatureAlgorithmRef"] = algorithm(
                 _get(cert, "sig_alg"), "signature")
-        key_alg, curve = _get(cert, "key_alg"), _get(cert, "curve")
-        bits = _get(cert, "key_bits")
-        if key_alg:
-            name = key_alg + ("-" + curve if curve else
-                              "-{}".format(bits) if bits else "")
-            details["subjectPublicKeyRef"] = algorithm(
-                name, "signature" if key_alg not in ("RSA",) else "pke",
-                curve=curve, parameterSetIdentifier=str(bits or ""))
+        if key_algorithm(cert):
+            details["subjectPublicKeyRef"] = key_algorithm(cert)
         self_signed = _get(cert, "self_signed")
         more = {"sha256": _get(cert, "sha256"), "serial": _get(cert, "serial"),
                 "selfSigned": None if self_signed is None
@@ -298,6 +305,22 @@ def cbom(snapshots, now=None):
                 {"name": "mast:method", "value": snapshot.method or ""})
                 if p["value"]]})
         refs = {}  # object id -> bom-ref
+        # The certificate of each private key: an identification
+        # credential pairs them, so the key has the algorithm and the size
+        # of the certificate's public key
+        paired = {}
+        for edge in snap["edges"]:
+            if edge.via == "Certificate":
+                paired.setdefault(edge.from_object_id, {})["cert"] = \
+                    edge.to_object_id
+            elif edge.via == "Key":
+                paired.setdefault(edge.from_object_id, {})["key"] = \
+                    edge.to_object_id
+        key_certs = {}
+        for pair in paired.values():
+            cert = snap["certs"].get(pair.get("cert"))
+            if pair.get("key") is not None and cert is not None:
+                key_certs.setdefault(pair["key"], []).append(cert)
         for obj in snap["objects"].values():
             ref = _ref(snap, obj)
             refs[obj.id] = ref
@@ -313,8 +336,19 @@ def cbom(snapshots, now=None):
                                          "certificateProperties": details}})
                 component["properties"] = _properties(snap, obj, **more)
             elif _asset_type(obj.class_):
+                kind = _asset_type(obj.class_)
+                # A key paired with certificates whose keys agree
+                found = {(key_algorithm(c), _get(c, "key_bits"))
+                         for c in key_certs.get(obj.id, ())}
+                if obj.class_ == "CryptoKey" and len(found) == 1:
+                    algorithm_ref, bits = found.pop()
+                    material = kind["relatedCryptoMaterialProperties"]
+                    if algorithm_ref:
+                        material["algorithmRef"] = algorithm_ref
+                    if bits:
+                        material["size"] = bits
                 component.update({"type": "cryptographic-asset",
-                                  "cryptoProperties": _asset_type(obj.class_)})
+                                  "cryptoProperties": kind})
                 component["properties"] = _properties(snap, obj)
             elif obj.class_ in PROFILES:
                 attrs = obj.attrs or {}
