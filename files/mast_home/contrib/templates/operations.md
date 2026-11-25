@@ -387,7 +387,9 @@ The CBOM (cryptographic bill of materials) lists each certificate, key,
 credential, password alias and TLS profile as a `cryptographic-asset`,
 the algorithms of the certificates, each listener or service that uses
 them as an `application`, and the references as `dependencies`. The
-spreadsheet also has a sheet of the findings (see below).
+spreadsheet also has a sheet of the findings (see below). **Export**
+on the Crypto page downloads the same files, made from the newest
+snapshots of every appliance, for any role.
 
 ## The posture rules
 
@@ -778,7 +780,10 @@ type a user name and a password). Find a command by name or by its
 plugin; its form shows its options. **Run** opens its job.
 4. **Jobs** shows the job as it runs, then its result as a table that
 you can sort and filter, and its downloads. The filters find the jobs
-of an appliance, a command, a schedule or your own.
+of an appliance, a command, a schedule or your own. **Edit and run
+again** opens the form of the command with the values of the job, to
+change one thing and run it again; type the passwords and choose the
+files again.
 5. As an admin, turn a command that you run often into a schedule
 (Admin → Schedules). Its jobs run while a worker runs, without
 anybody logged in.
@@ -919,7 +924,10 @@ web site cannot submit a form of the web GUI. The web GUI only runs
 scripts and style sheets that it serves itself, and nobody can put it
 in a frame. A typed password stays in the memory of the page and is
 sent only in the body of the request that needs it; it is never kept
-in the browser. A script that posts to the web GUI must first load
+in the browser. The browser keeps, for its tab only, the names of the
+appliances of the target bar and of the stored credential chosen
+there, and the server checks again for each job that the user may use
+that credential on those appliances. A script that posts to the web GUI must first load
 the page and send the token back, see the release notes.
 
 # Credentials

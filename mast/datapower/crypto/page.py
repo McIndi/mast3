@@ -36,6 +36,9 @@ rules.
 * `GET|POST /api/v1/crypto/exceptions`, `DELETE
 /api/v1/crypto/exceptions/<id>`: the exceptions; adding or removing
 one needs `manage-exception` (an admin).
+* `GET /api/v1/crypto/export?format=cbom|xlsx|csv`: the newest
+snapshot that worked of each appliance as a download, as
+`mast-crypto export` writes it.
 * `GET /api/v1/crypto/snapshots?appliance=NAME`: the snapshots of an
 appliance, and `GET /api/v1/crypto/diff?from=ID&to=ID` what changed
 between two of them.
@@ -199,7 +202,12 @@ def crypto_page():
 
     Exposed at: `/crypto` via GET
     """
-    return flask.render_template("crypto.html")
+    from mast.jobs import db
+    with db.session(write=False) as session:
+        exportable = session.scalar(
+            select(CryptoSnapshot.id).where(CryptoSnapshot.ok.is_(True))
+            .limit(1)) is not None
+    return flask.render_template("crypto.html", exportable=exportable)
 
 
 # The overview
@@ -341,8 +349,47 @@ def overview():
         "now": now.isoformat(), "appliances": rows, "expiring": expiring,
         "self_checks": posture.counts(checks),
         "schedules": _schedules(), "pqc": _readiness(appliances, latest),
+        "exportable": bool(latest),
         "may": {"run": _may("submit"), "schedule": _may("manage-schedule"),
                 "exceptions": _may(posture.MANAGE)}})
+
+
+_DOWNLOAD_TYPES = {
+    "cbom": "application/vnd.cyclonedx+json",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv",
+}
+
+
+@blueprint.get("/api/v1/crypto/export")
+def download():
+    """
+    _function_: `mast.datapower.crypto.page.download()`
+
+    The newest snapshot that worked of each appliance, as a file to
+    download: `format` is `cbom` (CycloneDX 1.6 JSON, the default),
+    `xlsx` or `csv` (the certificates). See
+    `mast.datapower.crypto.export`. A snapshot has no secret, so the
+    file has none.
+
+    Exposed at: `/api/v1/crypto/export?format=cbom|xlsx|csv` via GET
+    """
+    from . import export
+    format = flask.request.args.get("format", "cbom")
+    if format not in export.FORMATS:
+        return _error(400, "format is one of {}.".format(
+            ", ".join(export.FORMATS)))
+    snapshots = export.load()
+    if not snapshots:
+        return _error(404, "There is no snapshot yet: run the inventory "
+                           "first.")
+    name = "crypto-inventory-{}{}".format(
+        _now().strftime("%Y%m%d%H%M%S"), export.FORMATS[format])
+    response = flask.Response(export.render(snapshots, format),
+                              mimetype=_DOWNLOAD_TYPES[format])
+    response.headers["Content-Disposition"] = \
+        'attachment; filename="{}"'.format(name)
+    return response
 
 
 # The inventory

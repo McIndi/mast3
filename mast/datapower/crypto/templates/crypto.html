@@ -6,6 +6,16 @@
 <div class="d-flex flex-wrap align-items-baseline gap-2 mb-2">
     <h1 class="h4 mb-0 me-auto">Crypto</h1>
     <span class="small text-body-secondary" data-updated aria-live="polite"></span>
+    <div class="dropdown" data-export>
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"
+                aria-expanded="false" data-export-button{% if not exportable %} disabled{% endif %}>Export</button>
+        <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="/api/v1/crypto/export?format=cbom" download>CBOM (CycloneDX JSON)</a></li>
+            <li><a class="dropdown-item" href="/api/v1/crypto/export?format=xlsx" download>Spreadsheet (xlsx)</a></li>
+            <li><a class="dropdown-item" href="/api/v1/crypto/export?format=csv" download>Certificates (csv)</a></li>
+        </ul>
+    </div>
+    <span class="small text-body-secondary{% if exportable %} d-none{% endif %}" data-export-why>No inventory to export yet: run the inventory first.</span>
 </div>
 <div class="alert alert-danger d-none" role="alert" data-error></div>
 

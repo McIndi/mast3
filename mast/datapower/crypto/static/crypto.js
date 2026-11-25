@@ -236,6 +236,13 @@ q("[data-run-daily]").addEventListener("click", async () => {
     }
 });
 
+// Export is offered once there is a snapshot that worked. The page starts
+// with the state of the server; each overview brings it up to date.
+function exportable(on) {
+    q("[data-export-button]").disabled = !on;
+    q("[data-export-why]").classList.toggle("d-none", on);
+}
+
 async function loadOverview() {
     let answer;
     try {
@@ -245,6 +252,7 @@ async function loadOverview() {
         return;
     }
     showError(errorBox, null);
+    exportable(answer.exportable);
     updated.textContent = "Updated " + new Date(answer.now).toLocaleTimeString();
     const body = q("[data-posture]");
     body.replaceChildren();

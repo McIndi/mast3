@@ -106,7 +106,8 @@ environments. Commands take `--credential NAME` in place of
 Operators may use credentials for collecting with commands that only
 read; only admins use credentials for changing. Every use and every
 change is recorded. The target bar of the Commands page offers the
-credentials that fit its appliances.
+credentials that fit its appliances, and keeps the one chosen (by
+name, in that browser tab) for the next command and the next page.
 * **Pinning**: `mast-appliances pin` shows the certificate and the SSH
 host key of an appliance and pins them, so that a self-signed
 appliance is checked too; `unpin` removes them. Admin → Appliances has
@@ -159,7 +160,9 @@ reason and ends on a date. The **Crypto** page shows a score for each
 appliance, an expiry chart, the inventory with what uses each object
 and what breaks if a certificate expires, the findings, and the
 history of the snapshots with what changed. An operator runs the
-inventory from it, and an admin schedules it. The Appliances page
+inventory from it, and an admin schedules it. **Export** downloads the
+newest snapshots as a CBOM, a spreadsheet or the certificates as CSV,
+as `mast-crypto export` writes them. The Appliances page
 shows the score and the nearest expiry. `mast-crypto posture`, `rules`,
 `exceptions`, `exception-add` and `exception-remove` do the same on
 the command line. The thresholds are in `crypto.conf`.
@@ -203,7 +206,9 @@ schedules, such as a status poll each minute, are one choice away, and
 the page says how many it does not show),
 shows one job live with its progress, its result as a table that can
 be sorted and filtered, its child jobs and its downloads, and lists the
-workers. The **Commands** page has a form for every command, made from
+workers. **Edit and run again** on a job opens the form of its command
+filled in with the parameters of the job (secrets, passwords and
+uploaded files must be given again). The **Commands** page has a form for every command, made from
 the same model as the command line, with a target bar for the
 appliances and credentials. **Admin → Users** manages the users. It
 uses Bootstrap 5, which ships with MAST, has light and dark themes, and

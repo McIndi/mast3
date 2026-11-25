@@ -771,6 +771,46 @@ class TestCryptoPage(WebCase):
             self.assertEqual(answer.status_code, 200, name)
             self.assertIn(kind, answer.content_type)
 
+    def test_export_downloads_the_newest_snapshots(self):
+        import csv
+        import io
+        import json
+        import openpyxl
+        self.login("viewer")
+        page = self.client.get("/crypto").get_data(as_text=True)
+        self.assertRegex(page, r"data-export-button>Export")
+        self.assertIn('class="small text-body-secondary d-none" data-export-why', page)
+        self.assertTrue(self.call("GET", "/crypto/overview").get_json()["exportable"])
+        answer = self.client.get("/api/v1/crypto/export?format=cbom")
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(answer.mimetype, "application/vnd.cyclonedx+json")
+        self.assertRegex(answer.headers["Content-Disposition"],
+                         r'^attachment; filename="crypto-inventory-\d{14}\.cdx\.json"$')
+        names = {c["name"] for c in json.loads(answer.data)["components"]}
+        # The newest snapshot, not the first one
+        self.assertIn("soon", names)
+        answer = self.client.get("/api/v1/crypto/export?format=xlsx")
+        book = openpyxl.load_workbook(io.BytesIO(answer.data))
+        self.assertEqual(book.sheetnames[0], "Certificates")
+        answer = self.client.get("/api/v1/crypto/export?format=csv")
+        found = list(csv.reader(io.StringIO(answer.get_data(as_text=True))))
+        self.assertEqual(sorted(r[2] for r in found[1:]), ["old", "soon"])
+        self.assertEqual(self.client.get("/api/v1/crypto/export?format=pdf").status_code, 400)
+
+    def test_no_export_before_a_snapshot(self):
+        from mast.datapower.crypto.models import CryptoSnapshot
+        with db.session() as session:
+            for row in session.scalars(select(CryptoSnapshot)):
+                row.ok = False
+        self.login("viewer")
+        page = self.client.get("/crypto").get_data(as_text=True)
+        self.assertRegex(page, r"data-export-button disabled>Export")
+        self.assertIn('class="small text-body-secondary" data-export-why', page)
+        self.assertFalse(self.call("GET", "/crypto/overview").get_json()["exportable"])
+        answer = self.client.get("/api/v1/crypto/export?format=csv")
+        self.assertEqual(answer.status_code, 404)
+        self.assertIn("run the inventory", answer.get_json()["error"])
+
     def test_the_overview(self):
         self.login("viewer")
         answer = self.call("GET", "/crypto/overview").get_json()

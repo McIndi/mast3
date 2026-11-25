@@ -6,6 +6,7 @@
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
         <a href="/jobs" class="btn btn-sm btn-outline-secondary">All jobs</a>
         <h1 class="h4 mb-0 me-auto">Job <code>{{ job_id[:8] }}</code> <span class="badge" data-status></span></h1>
+        <a class="btn btn-sm btn-outline-primary d-none" data-rerun>Edit and run again</a>
         <button class="btn btn-sm btn-outline-danger d-none" type="button" data-cancel>Cancel</button>
     </div>
     <div class="alert alert-danger d-none" role="alert" data-error></div>
