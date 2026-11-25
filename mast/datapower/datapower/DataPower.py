@@ -850,11 +850,7 @@ class DataPower(object):
                     "Exception occurred initializing"
                     "SSH subsystem: {}".format(str(e)))
                 raise
-            while not self._ssh_conn.recv_ready():
-                sleep(0.25)
-            resp = ""
-            while self._ssh_conn.recv_ready():
-                resp += self._ssh_conn.recv(1024).decode()
+            resp = self._ssh_login_prompt(timeout)
             resp += self.ssh_issue_command("{}\n".format(_s(username)))
             resp += self.ssh_issue_command("{}\n".format(_s(password)))
             if resp.strip().lower().endswith("login:"):
@@ -869,6 +865,30 @@ class DataPower(object):
             self.log_error('SSH connection failed: %s' % (e))
             raise
         return resp
+
+    def _ssh_login_prompt(self, timeout):
+        """The output of a new SSH shell up to its `login:` prompt.
+
+        The banner and the prompt can come in separate packets. If the
+        username is sent before the prompt is here, each answer of the
+        login is read one step late: the username gets `login:`, the
+        password gets `Password:`, and the next command gets the
+        welcome. A CLI prompt (`#`) also ends the wait, and so does
+        `timeout`: then the login goes on as it did before."""
+        deadline = time() + timeout
+        resp = ""
+        while True:
+            if self._ssh_conn.recv_ready():
+                resp += self._ssh_conn.recv(1024).decode()
+                continue
+            last = resp.strip().lower()
+            if last.endswith("login:") or last.endswith("#"):
+                return resp
+            if time() >= deadline:
+                self.log_warn("No login prompt after {} seconds".format(
+                    timeout))
+                return resp
+            sleep(0.05)
 
     def _warn_host_key(self, message):
         self.log_warn(message)
