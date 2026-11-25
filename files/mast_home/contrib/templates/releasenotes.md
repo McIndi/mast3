@@ -156,7 +156,11 @@ domain, what uses them, and the files of `cert:`, `pubcert:` and
 `sharedcert:`, and keeps a snapshot of each appliance; no password or
 key is kept. Each appliance is a child job. `mast-crypto export` writes
 it as a CycloneDX 1.6 CBOM, a spreadsheet or a CSV of the
-certificates. Snapshots are kept 400 days (`crypto_snapshots_days`),
+certificates. Besides the crypto objects and what uses them, the CBOM
+has each appliance with its firmware, the certificate files, what the
+newest TLS probe saw on each port (with the certificates it was
+served, such as the one of the WebGUI) and the findings of the posture
+rules as `vulnerabilities`. Snapshots are kept 400 days (`crypto_snapshots_days`),
 but the newest of each appliance.
 * **The posture rules and the Crypto page**: each snapshot is checked
 by the rules of the baseline pack (certificates that expired or soon

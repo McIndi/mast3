@@ -549,6 +549,96 @@ class TestExport(InventoryCase):
         by_name["lab-server-cert"]["cryptoProperties"]["assetType"] = "magic"
         self.assertTrue(cyclonedx_errors(document))
 
+    def test_a_cbom_has_files_probes_findings_and_the_appliance(self):
+        from mast.datapower.crypto import export, probe
+        appliance_id = registry.by_name("dp1").id
+        with db.session(write=False) as session:
+            served = session.scalars(
+                select(CryptoCert.sha256).join(
+                    CryptoObject, CryptoObject.id == CryptoCert.object_id)
+                .where(CryptoCert.snapshot_id == self.newest,
+                       CryptoObject.name == "lab-server-cert")).one()
+        other = {"sha256": "ab" * 32, "subject": "CN=intermediate.test",
+                 "issuer": "CN=root.test", "key_alg": "EC", "key_bits": 384,
+                 "curve": "secp384r1", "sig_alg": "ecdsa-with-SHA384",
+                 "not_after": "2027-01-01T00:00:00+00:00",
+                 "self_signed": False}
+        probe.save(appliance_id, self.newest, "10.0.0.1", 443, {
+            "ok": True, "error": None, "protocol": "TLSv1.3",
+            "cipher": "TLS_AES_256_GCM_SHA384", "group": "X25519MLKEM768",
+            "chain": [{"sha256": served}, other],
+            "offers": {"TLSv1.0": False, "TLSv1.3": True},
+            "target": {"kind": "listener", "domain": DOMAIN,
+                       "class": "HTTPSSourceProtocolHandler",
+                       "name": "lab-https"}}, T0)
+        from mast.datapower.crypto.posture import evaluate
+        evaluate(self.newest)
+        snapshots = export.load()
+        snap = snapshots[0]
+        # A reference to an object that the configuration does not have
+        profile = next(o for o in snap["objects"].values()
+                       if o.name == "lab-server-profile")
+        profile.attrs = dict(profile.attrs, Valcred={
+            "class": "CryptoValCred", "name": "system-valcred"})
+        self.assertTrue(snap["findings"])
+        snap["findings"][0]["exception"] = {
+            "id": 7, "expires_at": "2027-01-31T00:00:00+00:00",
+            "reason": "the partner moves in January"}
+        document = export.cbom(snapshots)
+        self.assertEqual(cyclonedx_errors(document), [])
+        by_ref = {c["bom-ref"]: c for c in document["components"]}
+        dependencies = {d["ref"]: d["dependsOn"] for d in document["dependencies"]}
+        self.assertEqual(by_ref["dp1"]["type"], "device")
+        self.assertEqual(by_ref["dp1"]["version"], "IDG.11.0.0.3")
+        # The built-in object, and the reference to it
+        missing = "dp1/{}/CryptoValCred/system-valcred".format(DOMAIN)
+        self.assertIn({"name": "mast:inConfiguration", "value": "false"},
+                      by_ref[missing]["properties"])
+        self.assertIn(missing, dependencies[
+            "dp1/{}/SSLServerProfile/lab-server-profile".format(DOMAIN)])
+        # The files, and what uses them
+        files = [c for c in document["components"] if c["type"] == "file"]
+        self.assertTrue(files)
+        users = {d["ref"] for d in document["dependencies"]
+                 if any("/file/" in t for t in d["dependsOn"])}
+        self.assertTrue(users)
+        # The probe: what it negotiated, the certificate of the inventory
+        # that it was served, and one that the inventory does not have
+        probed = by_ref["dp1/probe/10.0.0.1:443"]["cryptoProperties"]
+        protocol = probed["protocolProperties"]
+        self.assertEqual(protocol["version"], "1.3")
+        self.assertEqual(protocol["cipherSuites"],
+                         [{"name": "TLS_AES_256_GCM_SHA384"}])
+        server_cert = "dp1/{}/CryptoCertificate/lab-server-cert".format(DOMAIN)
+        self.assertEqual(protocol["cryptoRefArray"], [
+            "algorithm/X25519MLKEM768", server_cert,
+            "dp1/certificate/" + "ab" * 32])
+        self.assertEqual(by_ref["algorithm/X25519MLKEM768"]["cryptoProperties"]
+                         ["algorithmProperties"]["primitive"], "kem")
+        self.assertEqual(by_ref["dp1/certificate/" + "ab" * 32]["name"],
+                         "CN=intermediate.test")
+        self.assertIn({"name": "mast:refuses", "value": "TLSv1.0"},
+                      by_ref["dp1/probe/10.0.0.1:443"]["properties"])
+        self.assertIn("dp1/probe/10.0.0.1:443", dependencies[
+            "dp1/{}/HTTPSSourceProtocolHandler/lab-https".format(DOMAIN)])
+        # The cipher suites of a profile have their IANA names
+        names = [c["name"] for c in by_ref[
+            "dp1/{}/SSLServerProfile/lab-server-profile".format(DOMAIN)]
+            ["cryptoProperties"]["protocolProperties"]["cipherSuites"]]
+        self.assertTrue(names)
+        self.assertTrue(all(n.startswith("TLS_") for n in names))
+        # The findings, each on what it is about
+        vulnerabilities = document["vulnerabilities"]
+        self.assertEqual(len(vulnerabilities), len(snap["findings"]))
+        refs = set(by_ref)
+        for item in vulnerabilities:
+            self.assertIn(item["affects"][0]["ref"], refs)
+            self.assertEqual(item["source"], {"name": "MAST posture rules"})
+        self.assertEqual(vulnerabilities[0]["analysis"]["response"],
+                         ["will_not_fix"])
+        self.assertIn("the partner moves in January",
+                      vulnerabilities[0]["analysis"]["detail"])
+
     def test_each_format_through_the_queue(self):
         import csv
         import json

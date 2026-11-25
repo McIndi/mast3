@@ -392,11 +392,32 @@ the one of `--snapshot ID`) to a file:
     ./mast-crypto export -f xlsx      # a sheet each: certificates, keys, ...
     ./mast-crypto export -f csv -a prod-dp1
 
-The CBOM (cryptographic bill of materials) lists each certificate, key,
-credential, password alias and TLS profile as a `cryptographic-asset`,
-the algorithms of the certificates, each listener or service that uses
-them as an `application`, and the references as `dependencies`. The
-spreadsheet also has a sheet of the findings (see below). **Export**
+The CBOM (cryptographic bill of materials) has:
+
+* each appliance as a `device`, with its firmware as the version;
+* each certificate, key, credential, password alias and TLS profile as
+a `cryptographic-asset`, with its state (`mast:opState`) and the
+cipher suites of a profile by their IANA names. An object that one of
+them names but the configuration does not have, such as the built-in
+crypto profile `system-default`, is there too, with
+`mast:inConfiguration` false;
+* the algorithms of the certificates, and the key exchange group of
+each port that the probe reached;
+* each listener or service that uses them as an `application`, with
+its address and port (`mast:listen`);
+* each file of `cert:`, `pubcert:` and `sharedcert:` as a `file`, with
+the objects that use it (`mast:usedBy`), or `mast:unused`;
+* for each port of the newest `mast-crypto probe`, a `protocol` with
+what it negotiated, the certificates that it served (also those that
+no certificate object has, such as the one of the WebGUI) and what it
+accepted and refused (`mast:accepts`, `mast:refuses`);
+* the references as `dependencies`;
+* the findings of the posture rules as `vulnerabilities`, each on the
+component that it is about, with its severity and remediation. A finding
+with an exception has the analysis `exploitable` and the response
+`will_not_fix`, with the reason and the end of the exception.
+
+The spreadsheet also has a sheet of the findings (see below). **Export**
 on the Crypto page downloads the same files, made from the newest
 snapshots of every appliance, for any role.
 
