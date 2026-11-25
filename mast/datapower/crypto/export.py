@@ -19,11 +19,11 @@ _module_: `mast.datapower.crypto.export`
 `mast-crypto export`: write snapshots of the crypto inventory
 (`mast.datapower.crypto.inventory`) to a file.
 
-* `cbom`: a CycloneDX 1.6 JSON bill of materials of the cryptography,
-with a `cryptographic-asset` for each certificate, key, credential,
-password alias and TLS profile, the algorithms of the certificates,
-an `application` for each listener or service that uses them, and the
-references as `dependencies`.
+* `cbom`: a CycloneDX 1.6 JSON bill of materials of the cryptography
+(see `cbom`): the appliances, their certificates, keys, credentials,
+password aliases, TLS profiles and certificate files, the listeners
+and services that use them, what the TLS probe saw on each port, and
+the findings of the posture rules as `vulnerabilities`.
 * `xlsx`: one sheet each for the certificates, the keys, the
 credentials, the TLS profiles, the files and the findings of the
 posture rules (`mast.datapower.crypto.posture`).
@@ -35,6 +35,7 @@ import csv
 import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -61,6 +62,25 @@ PROFILES = ("SSLServerProfile", "SSLClientProfile", "SSLSNIServerProfile",
 _PROTOCOLS = (("SSLv3", "SSL 3.0"), ("TLSv1d0", "TLS 1.0"),
               ("TLSv1d1", "TLS 1.1"), ("TLSv1d2", "TLS 1.2"),
               ("TLSv1d3", "TLS 1.3"))
+# The NIST security category of each parameter set of ML-KEM (FIPS 203)
+_MLKEM = re.compile(r"MLKEM(512|768|1024)", re.I)
+_MLKEM_LEVELS = {"512": 1, "768": 3, "1024": 5}
+
+
+def _group_properties(group):
+    """
+    The `algorithmProperties` of a TLS key exchange group: `kem` with
+    the NIST security level of its ML-KEM for a group that has one (also
+    a hybrid such as X25519MLKEM768: its ML-KEM part is what makes it
+    quantum-safe), so that a tool that checks the CBOM, such as
+    CBOMKit, does not take it for classical. Else `key-agree`.
+    """
+    found = _MLKEM.search(group or "")
+    if not found:
+        return {"primitive": "key-agree"}
+    return {"primitive": "kem",
+            "nistQuantumSecurityLevel": _MLKEM_LEVELS[found.group(1)],
+            "parameterSetIdentifier": found.group(1)}
 
 
 def _iso(value):
@@ -88,8 +108,9 @@ def load(snapshot=None, appliances=()):
 
     The snapshot `snapshot`, or the newest snapshot that worked of each
     appliance (of `appliances`, if given), as a list of dicts with
-    `snapshot`, `appliance`, `objects`, `certs`, `files`, `edges` and
-    `findings` (dicts of `posture.findings_of`).
+    `snapshot`, `appliance`, `objects`, `certs`, `files`, `edges`,
+    `findings` (dicts of `posture.findings_of`) and `probes` (the newest
+    TLS probe of the appliance, from `probe.latest_results`).
     """
     from mast import registry
     from mast.jobs import db
@@ -117,8 +138,13 @@ def load(snapshot=None, appliances=()):
                 "edges": list(session.scalars(
                     select(CryptoEdge).where(CryptoEdge.snapshot_id == row.id))),
             })
+    from .probe import latest_results
+    probes = {}
+    for result in latest_results({s["snapshot"].appliance_id for s in found}):
+        probes.setdefault(result["appliance_id"], []).append(result)
     for snap in found:
         snap["findings"] = findings_of([snap["snapshot"].id])
+        snap["probes"] = probes.get(snap["snapshot"].appliance_id, [])
     return found
 
 
@@ -133,8 +159,12 @@ def _properties(snap, obj, **more):
              {"name": "mast:class", "value": obj.class_},
              {"name": "mast:adminState", "value": obj.admin_state or ""},
              {"name": "mast:saved", "value": str(obj.saved).lower()}]
+    if not obj.running:
+        found.append({"name": "mast:running", "value": "false"})
     if obj.has_plaintext_password:
         found.append({"name": "mast:plaintextPassword", "value": "true"})
+    more = dict({"opState": obj.op_state, "statusError": obj.status_error,
+                 "listen": obj.listen}, **more)
     for name, value in more.items():
         if value not in (None, "", []):
             found.append({"name": "mast:" + name, "value": str(value)})
@@ -152,15 +182,67 @@ def _as_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def _cipher(name):
+    """The IANA name of a cipher of DataPower: `ECDHE_RSA_WITH_...` is
+    `TLS_ECDHE_RSA_WITH_...`, and `AES_256_GCM_SHA384` (TLS 1.3) is
+    `TLS_AES_256_GCM_SHA384`."""
+    return name if name.startswith(("TLS_", "SSL_")) else "TLS_" + name
+
+
+def _references(attrs):
+    """The `(class, name, via)` of each object that `attrs` (the
+    configuration of an object) names."""
+    for via, value in (attrs or {}).items():
+        for item in _as_list(value):
+            if isinstance(item, dict) and item.get("class") and item.get("name"):
+                yield item["class"], item["name"], via
+
+
+def _get(item, key):
+    return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
+def _asset_type(class_):
+    """The `cryptoProperties` of an object of `class_` that is a key, a
+    credential or a password alias, or None."""
+    if class_ in KEYS or class_ in CREDENTIALS or class_ == "PasswordAlias":
+        kind = "private-key" if class_ == "CryptoKey" else \
+            "secret-key" if class_ == "CryptoSSKey" else \
+            "password" if class_ == "PasswordAlias" else "credential"
+        return {"assetType": "related-crypto-material",
+                "relatedCryptoMaterialProperties": {"type": kind}}
+    return None
+
+
 def cbom(snapshots, now=None):
     """
     _function_: `mast.datapower.crypto.export.cbom(snapshots, now=None)`
 
-    The CycloneDX 1.6 document (a dict) of what `load` returned.
+    The CycloneDX 1.6 document (a dict) of what `load` returned:
+
+    * a `device` for each appliance, with its firmware;
+    * a `cryptographic-asset` for each certificate, key, credential,
+    password alias and TLS profile, and for each object that one of
+    them names but the configuration does not have (a built-in crypto
+    profile, for example), marked `mast:inConfiguration` false;
+    * the algorithms of the certificates, and the key exchange groups
+    that the probe saw;
+    * an `application` for each listener or service that uses them;
+    * a `file` for each file of `cert:`, `pubcert:` and `sharedcert:`,
+    with the objects that use it (`mast:unused` if none does);
+    * a `protocol` for each port that the TLS probe reached, with what
+    it negotiated, the certificates it served and what it accepted;
+    * the references as `dependencies`;
+    * the findings of the posture rules as `vulnerabilities`.
     """
     from mast import __version__
+    from .rules import RULES
     now = now or datetime.now(timezone.utc)
-    components, dependencies, algorithms = [], {}, {}
+    components, dependencies, algorithms, certificates = [], {}, {}, {}
+    vulnerabilities = []
+
+    def depends(source, target):
+        dependencies.setdefault(source, set()).add(target)
 
     def algorithm(name, primitive, **extra):
         ref = "algorithm/{}".format(name)
@@ -173,55 +255,106 @@ def cbom(snapshots, now=None):
                                      "algorithmProperties": properties}}
         return ref
 
+    def key_algorithm(cert):
+        """The bom-ref of the algorithm of the key of a certificate (a
+        `CryptoCert` or one that the probe parsed), or None."""
+        key_alg, curve = _get(cert, "key_alg"), _get(cert, "curve")
+        bits = _get(cert, "key_bits")
+        if not key_alg:
+            return None
+        name = key_alg + ("-" + curve if curve else
+                          "-{}".format(bits) if bits else "")
+        return algorithm(
+            name, "signature" if key_alg not in ("RSA",) else "pke",
+            curve=curve, parameterSetIdentifier=str(bits or ""))
+
+    def certificate_details(cert):
+        """The `certificateProperties` of a certificate (a `CryptoCert`
+        or a certificate that the probe parsed), and its properties."""
+        details = {"certificateFormat": "X.509"}
+        if cert is None:
+            return details, {}
+        details.update({
+            "subjectName": _get(cert, "subject") or "",
+            "issuerName": _get(cert, "issuer") or "",
+            "notValidBefore": _iso(_get(cert, "not_before")),
+            "notValidAfter": _iso(_get(cert, "not_after"))})
+        details = {k: v for k, v in details.items() if v is not None}
+        if _get(cert, "sig_alg"):
+            details["signatureAlgorithmRef"] = algorithm(
+                _get(cert, "sig_alg"), "signature")
+        if key_algorithm(cert):
+            details["subjectPublicKeyRef"] = key_algorithm(cert)
+        self_signed = _get(cert, "self_signed")
+        more = {"sha256": _get(cert, "sha256"), "serial": _get(cert, "serial"),
+                "selfSigned": None if self_signed is None
+                else str(self_signed).lower(),
+                "subjectAltNames": ", ".join(_get(cert, "sans") or [])}
+        return details, more
+
     for snap in snapshots:
+        appliance = snap["appliance"]
+        snapshot = snap["snapshot"]
+        components.append({
+            "type": "device", "bom-ref": appliance, "name": appliance,
+            "version": snapshot.firmware or "",
+            "properties": [p for p in (
+                {"name": "mast:snapshot", "value": str(snapshot.id)},
+                {"name": "mast:collectedAt",
+                 "value": _iso(snapshot.collected_at) or ""},
+                {"name": "mast:method", "value": snapshot.method or ""})
+                if p["value"]]})
+        refs = {}  # object id -> bom-ref
+        # The certificate of each private key: an identification
+        # credential pairs them, so the key has the algorithm and the size
+        # of the certificate's public key
+        paired = {}
+        for edge in snap["edges"]:
+            if edge.via == "Certificate":
+                paired.setdefault(edge.from_object_id, {})["cert"] = \
+                    edge.to_object_id
+            elif edge.via == "Key":
+                paired.setdefault(edge.from_object_id, {})["key"] = \
+                    edge.to_object_id
+        key_certs = {}
+        for pair in paired.values():
+            cert = snap["certs"].get(pair.get("cert"))
+            if pair.get("key") is not None and cert is not None:
+                key_certs.setdefault(pair["key"], []).append(cert)
         for obj in snap["objects"].values():
             ref = _ref(snap, obj)
+            refs[obj.id] = ref
             component = {"bom-ref": ref, "name": obj.name}
             if obj.class_ == "CryptoCertificate":
                 cert = snap["certs"].get(obj.id)
-                details = {"certificateFormat": "X.509"}
-                more = {}
-                if cert is not None:
-                    details.update({
-                        "subjectName": cert.subject or "",
-                        "issuerName": cert.issuer or "",
-                        "notValidBefore": _iso(cert.not_before),
-                        "notValidAfter": _iso(cert.not_after)})
-                    if cert.sig_alg:
-                        details["signatureAlgorithmRef"] = algorithm(
-                            cert.sig_alg, "signature")
-                    if cert.key_alg:
-                        name = cert.key_alg + (
-                            "-" + cert.curve if cert.curve else
-                            "-{}".format(cert.key_bits) if cert.key_bits else "")
-                        details["subjectPublicKeyRef"] = algorithm(
-                            name, "signature" if cert.key_alg not in ("RSA",)
-                            else "pke", curve=cert.curve,
-                            parameterSetIdentifier=str(cert.key_bits or ""))
-                    more = {"sha256": cert.sha256, "serial": cert.serial,
-                            "selfSigned": str(cert.self_signed).lower(),
-                            "subjectAltNames": ", ".join(cert.sans or [])}
+                details, more = certificate_details(cert)
+                if cert is not None and cert.sha256:
+                    certificates.setdefault((appliance, cert.sha256), ref)
                 component.update({
                     "type": "cryptographic-asset",
                     "cryptoProperties": {"assetType": "certificate",
                                          "certificateProperties": details}})
                 component["properties"] = _properties(snap, obj, **more)
-            elif obj.class_ in KEYS or obj.class_ in CREDENTIALS \
-                    or obj.class_ == "PasswordAlias":
-                kind = "private-key" if obj.class_ == "CryptoKey" else \
-                    "secret-key" if obj.class_ == "CryptoSSKey" else \
-                    "password" if obj.class_ == "PasswordAlias" else "credential"
-                component.update({
-                    "type": "cryptographic-asset",
-                    "cryptoProperties": {
-                        "assetType": "related-crypto-material",
-                        "relatedCryptoMaterialProperties": {"type": kind}}})
+            elif _asset_type(obj.class_):
+                kind = _asset_type(obj.class_)
+                # A key paired with certificates whose keys agree
+                found = {(key_algorithm(c), _get(c, "key_bits"))
+                         for c in key_certs.get(obj.id, ())}
+                if obj.class_ == "CryptoKey" and len(found) == 1:
+                    algorithm_ref, bits = found.pop()
+                    material = kind["relatedCryptoMaterialProperties"]
+                    if algorithm_ref:
+                        material["algorithmRef"] = algorithm_ref
+                    if bits:
+                        material["size"] = bits
+                component.update({"type": "cryptographic-asset",
+                                  "cryptoProperties": kind})
                 component["properties"] = _properties(snap, obj)
             elif obj.class_ in PROFILES:
                 attrs = obj.attrs or {}
                 versions = _protocols(attrs)
                 protocol = {"type": "tls",
-                            "cipherSuites": [{"name": c} for c in
+                            "cipherSuites": [{"name": _cipher(c)} for c in
                                              _as_list(attrs.get("Ciphers"))]}
                 if versions:
                     protocol["version"] = versions[-1].split(" ")[-1]
@@ -231,6 +364,7 @@ def cbom(snapshots, now=None):
                                          "protocolProperties": protocol}})
                 component["properties"] = _properties(
                     snap, obj, protocols=", ".join(versions),
+                    ciphers=", ".join(_as_list(attrs.get("Ciphers"))),
                     kemAlgs=", ".join(_as_list(attrs.get("KEMAlgs"))),
                     ellipticCurves=", ".join(_as_list(attrs.get("EllipticCurves"))))
             else:
@@ -238,13 +372,159 @@ def cbom(snapshots, now=None):
                 component.update({"type": "application",
                                   "properties": _properties(snap, obj)})
             components.append(component)
+        own = set(refs.values())
         for edge in snap["edges"]:
-            source = snap["objects"].get(edge.from_object_id)
-            target = snap["objects"].get(edge.to_object_id)
-            if source is not None and target is not None:
-                dependencies.setdefault(_ref(snap, source), set()).add(
-                    _ref(snap, target))
-    return {
+            if edge.from_object_id in refs and edge.to_object_id in refs:
+                depends(refs[edge.from_object_id], refs[edge.to_object_id])
+        # What the objects name that the configuration does not have: a
+        # built-in object (the crypto profile system-default), or one
+        # that is missing
+        known = {(o.domain, o.class_, o.name) for o in snap["objects"].values()}
+        added = set()
+        for obj in snap["objects"].values():
+            for class_, name, _ in _references(obj.attrs):
+                if (obj.domain, class_, name) in known:
+                    continue
+                target = "{}/{}/{}/{}".format(appliance, obj.domain, class_, name)
+                if target not in added:
+                    added.add(target)
+                    kind = _asset_type(class_)
+                    component = {"bom-ref": target, "name": name,
+                                 "type": "cryptographic-asset" if kind
+                                 else "application",
+                                 "properties": [
+                                     {"name": "mast:appliance", "value": appliance},
+                                     {"name": "mast:domain", "value": obj.domain},
+                                     {"name": "mast:class", "value": class_},
+                                     {"name": "mast:inConfiguration",
+                                      "value": "false"}]}
+                    if kind:
+                        component["cryptoProperties"] = kind
+                    components.append(component)
+                depends(_ref(snap, obj), target)
+        for item in snap["files"]:
+            ref = "{}/{}/file/{}".format(appliance, item.domain, item.name)
+            properties = [{"name": "mast:appliance", "value": appliance},
+                          {"name": "mast:domain", "value": item.domain},
+                          {"name": "mast:location", "value": item.location}]
+            if item.size is not None:
+                properties.append({"name": "mast:size", "value": str(item.size)})
+            if item.modified:
+                properties.append({"name": "mast:modified",
+                                   "value": item.modified})
+            if item.users is not None:
+                properties.append(
+                    {"name": "mast:usedBy", "value": ", ".join(item.users)}
+                    if item.users else {"name": "mast:unused", "value": "true"})
+            components.append({"type": "file", "bom-ref": ref,
+                               "name": item.name, "properties": properties})
+            for user in item.users or ():
+                source = "{}/{}".format(appliance, user)
+                if source in own:
+                    depends(source, ref)
+        for probe in snap.get("probes", ()):
+            result = probe["result"] or {}
+            where = "{}:{}".format(probe["host"], probe["port"])
+            ref = "{}/probe/{}".format(appliance, where)
+            protocol = {"type": "tls"}
+            if result.get("protocol"):
+                protocol["version"] = result["protocol"].replace("TLSv", "")
+            if result.get("cipher"):
+                protocol["cipherSuites"] = [{"name": result["cipher"]}]
+            uses = []
+            if result.get("group"):
+                group = result["group"]
+                uses.append(algorithm(group, **_group_properties(group)))
+            for cert in result.get("chain") or ():
+                sha256 = cert.get("sha256")
+                if not sha256:
+                    continue
+                cert_ref = certificates.get((appliance, sha256))
+                if cert_ref is None:
+                    cert_ref = "{}/certificate/{}".format(appliance, sha256)
+                    certificates[(appliance, sha256)] = cert_ref
+                    details, more = certificate_details(cert)
+                    components.append({
+                        "type": "cryptographic-asset", "bom-ref": cert_ref,
+                        "name": cert.get("subject") or sha256,
+                        "cryptoProperties": {
+                            "assetType": "certificate",
+                            "certificateProperties": details},
+                        "properties": [{"name": "mast:appliance",
+                                        "value": appliance},
+                                       {"name": "mast:servedAt", "value": where}]
+                        + [{"name": "mast:" + k, "value": v}
+                           for k, v in more.items() if v]})
+                uses.append(cert_ref)
+                depends(ref, cert_ref)
+            if uses:
+                protocol["cryptoRefArray"] = uses
+            offers = result.get("offers") or {}
+            target = result.get("target") or {}
+            properties = [
+                {"name": "mast:appliance", "value": appliance},
+                {"name": "mast:probedAt", "value": _iso(probe["probed_at"])},
+                {"name": "mast:connected",
+                 "value": "true" if result.get("ok") else "false"}]
+            for name, value in (
+                    ("error", result.get("error")),
+                    ("group", result.get("group")),
+                    ("accepts", ", ".join(k for k, v in offers.items() if v)),
+                    ("refuses", ", ".join(k for k, v in offers.items()
+                                          if v is False)),
+                    ("target", "{}/{}".format(target.get("class"),
+                                              target.get("name"))
+                     if target.get("class") else target.get("name"))):
+                if value:
+                    properties.append({"name": "mast:" + name,
+                                       "value": str(value)})
+            components.append({
+                "type": "cryptographic-asset", "bom-ref": ref,
+                "name": "{} (probed)".format(where),
+                "cryptoProperties": {"assetType": "protocol",
+                                     "protocolProperties": protocol},
+                "properties": properties})
+            if target.get("kind") == "listener":
+                listener = "{}/{}/{}/{}".format(
+                    appliance, target.get("domain"), target.get("class"),
+                    target.get("name"))
+                if listener in own:
+                    depends(listener, ref)
+        files = {"{}/{}/file/{}".format(appliance, f.domain, f.name)
+                 for f in snap["files"]}
+        for finding in snap.get("findings", ()):
+            affects = refs.get(finding.get("object_id"))
+            if affects is None:
+                subject = "{}/{}/file/{}".format(
+                    appliance, finding.get("domain") or "default",
+                    finding.get("subject"))
+                affects = subject if subject in files else appliance
+            rule = RULES.get(finding["rule_id"])
+            vulnerability = {
+                "bom-ref": "finding/{}".format(finding["id"]),
+                "id": finding["rule_id"],
+                "source": {"name": "MAST posture rules"},
+                "ratings": [{"severity": finding["severity"],
+                             "method": "other",
+                             "source": {"name": "MAST posture rules"}}],
+                "description": finding["message"],
+                "recommendation": finding["remediation"],
+                "affects": [{"ref": affects}],
+                "properties": [p for p in (
+                    {"name": "mast:title", "value": finding.get("title") or ""},
+                    {"name": "mast:pack",
+                     "value": finding.get("pack") or getattr(rule, "pack", "")},
+                    {"name": "mast:subject", "value": finding["subject"]})
+                    if p["value"]]}
+            exception = finding.get("exception")
+            if exception:
+                vulnerability["analysis"] = {
+                    "state": "exploitable", "response": ["will_not_fix"],
+                    "detail": "Exception {} until {}: {}".format(
+                        exception["id"], str(exception["expires_at"])[:10],
+                        exception["reason"])}
+            vulnerabilities.append(vulnerability)
+    document = {
         "bomFormat": "CycloneDX", "specVersion": "1.6",
         "serialNumber": "urn:uuid:{}".format(uuid.uuid4()), "version": 1,
         "metadata": {
@@ -258,6 +538,9 @@ def cbom(snapshots, now=None):
         "dependencies": [{"ref": ref, "dependsOn": sorted(targets)}
                          for ref, targets in sorted(dependencies.items())],
     }
+    if vulnerabilities:
+        document["vulnerabilities"] = vulnerabilities
+    return document
 
 
 def _users(snap, obj):
