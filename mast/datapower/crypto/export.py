@@ -182,13 +182,6 @@ def _as_list(value):
     return value if isinstance(value, list) else [value]
 
 
-def _cipher(name):
-    """The IANA name of a cipher of DataPower: `ECDHE_RSA_WITH_...` is
-    `TLS_ECDHE_RSA_WITH_...`, and `AES_256_GCM_SHA384` (TLS 1.3) is
-    `TLS_AES_256_GCM_SHA384`."""
-    return name if name.startswith(("TLS_", "SSL_")) else "TLS_" + name
-
-
 def _references(attrs):
     """The `(class, name, via)` of each object that `attrs` (the
     configuration of an object) names."""
@@ -225,8 +218,11 @@ def cbom(snapshots, now=None):
     password alias and TLS profile, and for each object that one of
     them names but the configuration does not have (a built-in crypto
     profile, for example), marked `mast:inConfiguration` false;
-    * the algorithms of the certificates, and the key exchange groups
-    that the probe saw;
+    * the public key of each certificate (`related-crypto-material`,
+    which `subjectPublicKeyRef` names), with its algorithm and size;
+    * the algorithms of the certificates, of the cipher suites (see
+    `mast.datapower.crypto.suites`; each suite also has its IANA code)
+    and of the key exchange groups that the probe saw;
     * an `application` for each listener or service that uses them;
     * a `file` for each file of `cert:`, `pubcert:` and `sharedcert:`,
     with the objects that use it (`mast:unused` if none does);
@@ -236,10 +232,11 @@ def cbom(snapshots, now=None):
     * the findings of the posture rules as `vulnerabilities`.
     """
     from mast import __version__
+    from . import suites
     from .rules import RULES
     now = now or datetime.now(timezone.utc)
     components, dependencies, algorithms, certificates = [], {}, {}, {}
-    vulnerabilities = []
+    public_keys, vulnerabilities = {}, []
 
     def depends(source, target):
         dependencies.setdefault(source, set()).add(target)
@@ -268,9 +265,45 @@ def cbom(snapshots, now=None):
             name, "signature" if key_alg not in ("RSA",) else "pke",
             curve=curve, parameterSetIdentifier=str(bits or ""))
 
-    def certificate_details(cert):
+    def public_key(cert, owner):
+        """The bom-ref of the public key of a certificate (a `CryptoCert`
+        or one that the probe parsed), whose bom-ref is `owner`, or None.
+        The certificates with the same SHA-256 share it."""
+        algorithm_ref = key_algorithm(cert)
+        if algorithm_ref is None:
+            return None
+        sha256 = _get(cert, "sha256")
+        ref = "public-key/{}".format(sha256) if sha256 else \
+            "{}/public-key".format(owner)
+        if ref not in public_keys:
+            material = {"type": "public-key", "algorithmRef": algorithm_ref}
+            if _get(cert, "key_bits"):
+                material["size"] = _get(cert, "key_bits")
+            public_keys[ref] = {
+                "type": "cryptographic-asset", "bom-ref": ref,
+                "name": "public key of {}".format(_get(cert, "subject")
+                                                  or owner),
+                "cryptoProperties": {
+                    "assetType": "related-crypto-material",
+                    "relatedCryptoMaterialProperties": material}}
+        return ref
+
+    def cipher_suite(name):
+        """The `cipherSuites` item of the suite `name` (an IANA name):
+        with its algorithms and its IANA code where they are known."""
+        suite = {"name": name}
+        found = [algorithm(n, p, **extra)
+                 for n, p, extra in suites.algorithms(name)]
+        if found:
+            suite["algorithms"] = found
+        if suites.identifiers(name):
+            suite["identifiers"] = suites.identifiers(name)
+        return suite
+
+    def certificate_details(cert, owner):
         """The `certificateProperties` of a certificate (a `CryptoCert`
-        or a certificate that the probe parsed), and its properties."""
+        or a certificate that the probe parsed) whose bom-ref is `owner`,
+        and its properties."""
         details = {"certificateFormat": "X.509"}
         if cert is None:
             return details, {}
@@ -283,8 +316,8 @@ def cbom(snapshots, now=None):
         if _get(cert, "sig_alg"):
             details["signatureAlgorithmRef"] = algorithm(
                 _get(cert, "sig_alg"), "signature")
-        if key_algorithm(cert):
-            details["subjectPublicKeyRef"] = key_algorithm(cert)
+        if public_key(cert, owner):
+            details["subjectPublicKeyRef"] = public_key(cert, owner)
         self_signed = _get(cert, "self_signed")
         more = {"sha256": _get(cert, "sha256"), "serial": _get(cert, "serial"),
                 "selfSigned": None if self_signed is None
@@ -327,7 +360,7 @@ def cbom(snapshots, now=None):
             component = {"bom-ref": ref, "name": obj.name}
             if obj.class_ == "CryptoCertificate":
                 cert = snap["certs"].get(obj.id)
-                details, more = certificate_details(cert)
+                details, more = certificate_details(cert, ref)
                 if cert is not None and cert.sha256:
                     certificates.setdefault((appliance, cert.sha256), ref)
                 component.update({
@@ -354,8 +387,9 @@ def cbom(snapshots, now=None):
                 attrs = obj.attrs or {}
                 versions = _protocols(attrs)
                 protocol = {"type": "tls",
-                            "cipherSuites": [{"name": _cipher(c)} for c in
-                                             _as_list(attrs.get("Ciphers"))]}
+                            "cipherSuites": [
+                                cipher_suite(suites.iana_name(c))
+                                for c in _as_list(attrs.get("Ciphers"))]}
                 if versions:
                     protocol["version"] = versions[-1].split(" ")[-1]
                 component.update({
@@ -430,7 +464,8 @@ def cbom(snapshots, now=None):
             if result.get("protocol"):
                 protocol["version"] = result["protocol"].replace("TLSv", "")
             if result.get("cipher"):
-                protocol["cipherSuites"] = [{"name": result["cipher"]}]
+                protocol["cipherSuites"] = [
+                    cipher_suite(suites.iana_name(result["cipher"]))]
             uses = []
             if result.get("group"):
                 group = result["group"]
@@ -443,7 +478,7 @@ def cbom(snapshots, now=None):
                 if cert_ref is None:
                     cert_ref = "{}/certificate/{}".format(appliance, sha256)
                     certificates[(appliance, sha256)] = cert_ref
-                    details, more = certificate_details(cert)
+                    details, more = certificate_details(cert, cert_ref)
                     components.append({
                         "type": "cryptographic-asset", "bom-ref": cert_ref,
                         "name": cert.get("subject") or sha256,
@@ -533,8 +568,9 @@ def cbom(snapshots, now=None):
                                       "version": __version__}]},
             "properties": [{"name": "mast:snapshots", "value": ", ".join(
                 str(s["snapshot"].id) for s in snapshots)}]},
-        "components": components + sorted(algorithms.values(),
-                                          key=lambda a: a["bom-ref"]),
+        "components": components
+        + sorted(public_keys.values(), key=lambda k: k["bom-ref"])
+        + sorted(algorithms.values(), key=lambda a: a["bom-ref"]),
         "dependencies": [{"ref": ref, "dependsOn": sorted(targets)}
                          for ref, targets in sorted(dependencies.items())],
     }
