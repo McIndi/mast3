@@ -35,6 +35,7 @@ import csv
 import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -61,6 +62,25 @@ PROFILES = ("SSLServerProfile", "SSLClientProfile", "SSLSNIServerProfile",
 _PROTOCOLS = (("SSLv3", "SSL 3.0"), ("TLSv1d0", "TLS 1.0"),
               ("TLSv1d1", "TLS 1.1"), ("TLSv1d2", "TLS 1.2"),
               ("TLSv1d3", "TLS 1.3"))
+# The NIST security category of each parameter set of ML-KEM (FIPS 203)
+_MLKEM = re.compile(r"MLKEM(512|768|1024)", re.I)
+_MLKEM_LEVELS = {"512": 1, "768": 3, "1024": 5}
+
+
+def _group_properties(group):
+    """
+    The `algorithmProperties` of a TLS key exchange group: `kem` with
+    the NIST security level of its ML-KEM for a group that has one (also
+    a hybrid such as X25519MLKEM768: its ML-KEM part is what makes it
+    quantum-safe), so that a tool that checks the CBOM, such as
+    CBOMKit, does not take it for classical. Else `key-agree`.
+    """
+    found = _MLKEM.search(group or "")
+    if not found:
+        return {"primitive": "key-agree"}
+    return {"primitive": "kem",
+            "nistQuantumSecurityLevel": _MLKEM_LEVELS[found.group(1)],
+            "parameterSetIdentifier": found.group(1)}
 
 
 def _iso(value):
@@ -380,8 +400,7 @@ def cbom(snapshots, now=None):
             uses = []
             if result.get("group"):
                 group = result["group"]
-                uses.append(algorithm(group, "kem" if "MLKEM" in group.upper()
-                                      else "key-agree"))
+                uses.append(algorithm(group, **_group_properties(group)))
             for cert in result.get("chain") or ():
                 sha256 = cert.get("sha256")
                 if not sha256:

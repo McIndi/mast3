@@ -613,8 +613,12 @@ class TestExport(InventoryCase):
         self.assertEqual(protocol["cryptoRefArray"], [
             "algorithm/X25519MLKEM768", server_cert,
             "dp1/certificate/" + "ab" * 32])
+        # The hybrid group is quantum-safe by its ML-KEM-768, so that
+        # CBOMKit does not take it for classical
         self.assertEqual(by_ref["algorithm/X25519MLKEM768"]["cryptoProperties"]
-                         ["algorithmProperties"]["primitive"], "kem")
+                         ["algorithmProperties"], {
+                             "primitive": "kem", "nistQuantumSecurityLevel": 3,
+                             "parameterSetIdentifier": "768"})
         self.assertEqual(by_ref["dp1/certificate/" + "ab" * 32]["name"],
                          "CN=intermediate.test")
         self.assertIn({"name": "mast:refuses", "value": "TLSv1.0"},
@@ -638,6 +642,19 @@ class TestExport(InventoryCase):
                          ["will_not_fix"])
         self.assertIn("the partner moves in January",
                       vulnerabilities[0]["analysis"]["detail"])
+
+    def test_the_security_level_of_each_key_exchange_group(self):
+        from mast.datapower.crypto.export import _group_properties
+        for group, level in (("X25519MLKEM768", 3), ("SecP256r1MLKEM768", 3),
+                             ("SecP384r1MLKEM1024", 5), ("MLKEM512", 1),
+                             ("mlkem1024", 5)):
+            with self.subTest(group=group):
+                self.assertEqual(
+                    _group_properties(group)["nistQuantumSecurityLevel"], level)
+        for group in ("X25519", "secp384r1", "", None):
+            with self.subTest(group=group):
+                self.assertEqual(_group_properties(group),
+                                 {"primitive": "key-agree"})
 
     def test_each_format_through_the_queue(self):
         import csv
