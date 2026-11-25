@@ -413,5 +413,22 @@ class TestOutcome(unittest.TestCase):
         self.assertEqual(out.getvalue(), "it did not work\n")
 
 
+class TestListOptionHelp(unittest.TestCase):
+
+    def test_no_list_option_repeats_the_hint(self):
+        """The command line adds "Give the option again for each value."
+        to each list option, so its own help must not say it again."""
+        from mast.jobs import registry
+        repeats = []
+        for namespace in registry.namespaces():
+            for command in registry.cli_for(namespace).commands.values():
+                for spec in cli_params.options(command.model):
+                    if spec.kind == "list" and \
+                            "once for each" in (spec.help or "").lower():
+                        repeats.append("{}.{} {}".format(
+                            namespace, command.name, spec.name))
+        self.assertEqual(repeats, [])
+
+
 if __name__ == "__main__":
     unittest.main()

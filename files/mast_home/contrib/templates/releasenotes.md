@@ -247,6 +247,13 @@ policy, with examples.
 * `mast-ssh` wrote a line typed at a password prompt (a new password,
 for example) to its log and to the audit log. Such a line is now
 logged as `********`.
+* `mast-crypto inventory -a` with an environment made one child job
+for the whole environment, so its appliances were read one after the
+other and the result showed only the first one (the snapshots of the
+others were kept). Each appliance of an environment now has a child
+job of its own, with the credentials given for the environment.
+* The help of `mast-accounts add-group -A` and `mast-credentials add`
+and `rebind -b` said twice to give the option once for each value.
 
 # MAST Version 3.15.2.1
 

@@ -130,7 +130,7 @@ class Add(NameParams):
     bind: list[str] = Option(
         default_factory=list, short="b",
         help="An appliance or an environment that the credential may be "
-             "used for (see mast-appliances). Give it once for each.")
+             "used for (see mast-appliances).")
     description: str = Option("", short="d", help="A note for the admins.")
     password_stdin: bool = Option(
         False, help="Read the password from the first line of standard "
@@ -183,7 +183,7 @@ class Rebind(NameParams):
     bind: list[str] = Option(
         default_factory=list, short="b",
         help="An appliance or an environment that the credential may be "
-             "used for. Give it once for each. Without any, the "
+             "used for. Without any, the "
              "credential cannot be used.")
 
 
