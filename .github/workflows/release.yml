@@ -17,10 +17,49 @@ permissions:
   contents: read
 
 jobs:
+  # There are two release lines: main is 4.x and later, and version_3 is
+  # 3.x. A tag must be on the branch of its line, so that nothing is built
+  # from a commit of the other line.
+  line:
+    runs-on: ubuntu-latest
+    outputs:
+      latest: ${{ steps.line.outputs.latest }}
+      notes_start: ${{ steps.line.outputs.notes_start }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check that the tag is on the branch of its line
+        id: line
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then exit 0; fi
+          case "$GITHUB_REF_NAME" in
+            v3.*) branch=version_3; line="v3.*" ;;
+            *) branch=main; line="v[4-9].*" ;;
+          esac
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on $branch, the branch of its release line."
+            exit 1
+          fi
+          # Only the highest release (a tag without a -suffix) is Latest
+          # on GitHub, so that a 3.x fix after 4.0 does not take its place.
+          highest=$(git tag -l 'v*' | grep -v -e '-' | sort -V | tail -n 1)
+          if [ "$GITHUB_REF_NAME" = "$highest" ]; then
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          fi
+          # The notes list the changes since the previous release of the
+          # same line, not since a release of the other line.
+          previous=$(git describe --tags --abbrev=0 --match "$line" --exclude '*-*' "$GITHUB_SHA^" 2>/dev/null || true)
+          echo "notes_start=$previous" >> "$GITHUB_OUTPUT"
+
   tests:
+    needs: line
     uses: ./.github/workflows/tests.yml
 
   audit:
+    needs: line
     uses: ./.github/workflows/audit.yml
 
   build:
@@ -157,7 +196,7 @@ jobs:
           compression-level: 0
 
   release:
-    needs: build
+    needs: [line, build]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
@@ -176,14 +215,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          LATEST: ${{ needs.line.outputs.latest }}
+          NOTES_START: ${{ needs.line.outputs.notes_start }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           cp audit/pip-audit.json "dist/MAST-${version}_pip-audit.json"
           cp audit/sbom.cdx.json "dist/MAST-${version}_sbom.cdx.json"
           ls -l dist
           (cd dist && sha256sum *.zip *.json > SHA256SUMS)
-          prerelease=""
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          flags=("--latest=$LATEST")
+          case "$GITHUB_REF_NAME" in *-*) flags=(--prerelease --latest=false) ;; esac
+          if [ -n "$NOTES_START" ]; then flags+=(--notes-start-tag "$NOTES_START"); fi
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --verify-tag --generate-notes $prerelease \
+            --verify-tag --generate-notes "${flags[@]}" \
             --title "MAST $GITHUB_REF_NAME"
