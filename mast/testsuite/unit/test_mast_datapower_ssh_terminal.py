@@ -668,3 +668,78 @@ class TestMastSsh(TerminalCase):
         logged = "\n".join(r.getMessage() for r in records)
         self.assertIn("********", logged)
         self.assertNotIn("Typed-secret", logged)
+
+    def test_a_login_prompt_that_comes_late(self):
+        # The banner comes first and "login:" 0.3 s later. The username
+        # is sent only after the prompt, so each answer of the login is
+        # read with its own line, and the welcome is not in the answer
+        # of the first command.
+        import sys
+        from mast.datapower.datapower import DataPower
+        module = sys.modules["mast.datapower.datapower.DataPower"]
+
+        class Channel(object):
+            def __init__(self):
+                self.sent = []
+                now = time.monotonic()
+                self.chunks = [(now, b"Unauthorized access prohibited.\r\n"),
+                               (now + 0.3, b"login: ")]
+
+            def _due(self):
+                return bool(self.chunks) and \
+                    self.chunks[0][0] <= time.monotonic()
+
+            def recv_ready(self):
+                return self._due()
+
+            def recv(self, size):
+                if not self.chunks:
+                    raise AssertionError("read with nothing to come")
+                while not self._due():
+                    time.sleep(0.01)
+                return self.chunks.pop(0)[1]
+
+            def sendall(self, text):
+                self.sent.append(text)
+                answers = {
+                    "admin\n": [b"admin\r\n", b"Password: "],
+                    PASSWORD + "\n": [
+                        b"\r\n", b"Welcome to IBM DataPower Gateway "
+                        b"console configuration.\r\n\r\nidg# "],
+                }.get(text, [text.encode() + b"\r\n10:00:00\r\nidg# "])
+                # It answers after what it still has to send, as the
+                # appliance reads a line only at its prompt, and slower
+                # than ssh_issue_command looks (every 0.25 s)
+                start = max([time.monotonic()] +
+                            [due for due, _ in self.chunks])
+                self.chunks += [(start + 0.3 * (i + 1), answer)
+                                for i, answer in enumerate(answers)]
+
+        class Client(object):
+            def set_missing_host_key_policy(self, policy):
+                pass
+
+            def connect(self, *args, **kwargs):
+                pass
+
+            def get_transport(self):
+                return mock.Mock()
+
+            def invoke_shell(self):
+                # The clock of the banner starts here, not before the
+                # configuration is read
+                return Channel()
+
+        appliance = DataPower("dp1", "admin:" + PASSWORD)
+        with mock.patch.object(module.paramiko, "SSHClient", Client), \
+                mock.patch.object(DataPower, "ssh_is_connected",
+                                  return_value=True):
+            banner = appliance.ssh_connect(timeout=10)
+            clock = appliance.ssh_issue_command("show clock")
+        self.assertEqual(appliance._ssh_conn.sent,
+                         ["admin\n", PASSWORD + "\n", "show clock\n"])
+        self.assertIn("Welcome", banner)
+        self.assertTrue(banner.strip().endswith("idg#"), banner)
+        self.assertFalse(sessions.is_password_prompt(banner))
+        self.assertNotIn("Welcome", clock)
+        self.assertIn("10:00:00", clock)
