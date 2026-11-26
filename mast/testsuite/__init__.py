@@ -15,3 +15,10 @@
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 
 
+
+
+def program(argv):
+    """`mast selftest`: see `mast.testsuite.selftest`. The suites are
+    found only when it runs."""
+    from mast.testsuite import selftest
+    return selftest.program(argv)

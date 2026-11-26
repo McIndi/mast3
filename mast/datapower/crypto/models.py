@@ -17,7 +17,7 @@
 _module_: `mast.datapower.crypto.models`
 
 The tables of the crypto inventory, in the job database (migration
-0009). `mast-crypto inventory` writes one snapshot of each appliance at
+0009). `mast crypto inventory` writes one snapshot of each appliance at
 each run; nothing is changed afterwards.
 
 * `crypto_snapshots`: one run on one appliance.

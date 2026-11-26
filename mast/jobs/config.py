@@ -244,6 +244,6 @@ def retention_schedule():
 
     Return the cron expression (UTC) at which mastd prunes old jobs and
     files, or None if `[retention] schedule` is empty (prune only with
-    mast-jobs prune).
+    mast jobs prune).
     """
     return _get("retention", "schedule") or None

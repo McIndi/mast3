@@ -247,7 +247,7 @@ def _seen(result, name):
 @rule("pqc-probe-mismatch", "medium", "Probe and configuration disagree",
       pack="pqc")
 def probe_mismatch(view):
-    """A port whose probe (mast-crypto probe) accepted or refused a
+    """A port whose probe (mast crypto probe) accepted or refused a
     group or TLS 1.3 other than the configuration of its server profile
     predicts. The probe is taken as the truth: the configuration is not
     what runs, or another device answers on the port."""

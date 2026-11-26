@@ -268,7 +268,7 @@ async function refresh() {
         rows.replaceChildren(...appliances.map(applianceRow));
         if (!appliances.length) {
             rows.append(el("tr", {}, el("td", {colSpan: 8, className: "text-body-secondary"},
-                "No appliances yet. Add one below, or import hosts.conf and environments.conf with mast-appliances import.")));
+                "No appliances yet. Add one below, or import hosts.conf and environments.conf with mast targets import.")));
         }
         envRows.replaceChildren(...environments.map(environmentRow));
     } catch (error) {

@@ -17,7 +17,7 @@
 """
 _module_: `mast.jobs.cli`
 
-`mast-jobs`: look at the job queue from the command line.
+`mast jobs`: look at the job queue from the command line.
 
 * `list`: The newest jobs.
 * `show`: One job, with its progress and its result.
@@ -27,11 +27,11 @@ it does.
 * `workers`: The workers that are alive.
 * `downgrade-db`: Take the tables of the job database back to an older
 revision, to go back to an older MAST.
-* `schedule-add`, `schedule-update`, `schedule-enable`,
-`schedule-disable`, `schedule-remove`, `schedule-list`, `schedule-run`:
-The scheduled jobs (see `mast.jobs.schedules`).
 * `prune`: Delete old jobs, uses of credentials, audit events, uploads
 and logs now (see `mast.jobs.retention`).
+
+`mast schedules`: the scheduled jobs (see `mast.jobs.schedules`):
+`add`, `update`, `enable`, `disable`, `remove`, `list` and `run`.
 
 Where a command takes the id of a job, the first characters of the id
 are enough.
@@ -41,14 +41,19 @@ import sys
 from typing import Literal
 
 from mast.cli import Cli, Option, Params, Table, Text
+from mast.roots import CORE
 from mast.jobs import client, db, queue, retention, schedules
 from mast.jobs.auth import Forbidden
 from mast.jobs.models import (
     CANCELLED, FAILED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 
-__all__ = ["cli"]
+__all__ = ["jobs_cli", "schedules_cli"]
 
-cli = Cli(description="Look at the MAST job queue.", prog="mast-jobs")
+jobs_cli = Cli(description="Look at the MAST job queue.", provider=CORE,
+               prog="mast jobs", queued=False)
+schedules_cli = Cli(description="Manage the schedules: commands that the "
+                            "workers put in the job queue at set times.",
+                    provider=CORE, prog="mast schedules", queued=False)
 
 
 def _when(time):
@@ -78,7 +83,7 @@ class List(Params):
     limit: int = Option(20, short="n", help="How many jobs to show.")
 
 
-@cli.command("list")
+@jobs_cli.command("list", id="list-jobs")
 def list_jobs(params: List):
     """List the newest jobs, newest first."""
     jobs = queue.list_jobs(status=params.status or None, limit=params.limit)
@@ -95,7 +100,7 @@ class Show(JobParams):
              "responses, or the traceback of a failed job.")
 
 
-@cli.command("show")
+@jobs_cli.command("show", id="show-job")
 def show(params: Show):
     """Show one job: what it is, its progress and its result."""
     job_id = _job(params.job)
@@ -134,7 +139,7 @@ def show(params: Show):
     return Text("\n".join(lines))
 
 
-@cli.command("follow")
+@jobs_cli.command("follow", id="follow-job")
 def follow(params: JobParams):
     """Show a job until it ends: its progress, then its result.
 
@@ -144,7 +149,7 @@ def follow(params: JobParams):
         sys.exit(status)
 
 
-@cli.command("cancel")
+@jobs_cli.command("cancel", id="cancel-job")
 def cancel(params: JobParams):
     """Cancel a job.
 
@@ -157,12 +162,12 @@ def cancel(params: JobParams):
                 "step.".format(info.id))
 
 
-@cli.command("workers")
+@jobs_cli.command("workers", id="list-workers")
 def workers(params: Params):
     """List the workers that are alive."""
     found = queue.workers()
     if not found:
-        return Text("No worker is running. Start one with mast-worker. "
+        return Text("No worker is running. Start one with mast worker. "
                     "Without a worker, each command does its own job.")
     return Table(
         ("Worker", "Host", "PID", "Jobs at a time", "Started", "Last seen"),
@@ -181,15 +186,15 @@ class DowngradeDb(Params):
         help="Do it. Without this, only show what would change.")
 
 
-@cli.command("downgrade-db")
+@jobs_cli.command("downgrade-db", id="downgrade-db")
 def downgrade_db(params: DowngradeDb):
     """Take the tables of the job database back to an older revision,
     to go back to an older MAST. The tables and columns of the newer
     revisions are dropped, with what they hold (for example the users
     of the web UI). The jobs stay.
 
-    Stop every MAST process of this home first (mastd, mast-web,
-    mast-worker), and after this start only the older MAST: a newer
+    Stop every MAST process of this home first (mastd, mast web,
+    mast worker), and after this start only the older MAST: a newer
     MAST brings the tables up to date again when it starts."""
     current = db.revision()
     if current is None:
@@ -214,7 +219,7 @@ def _schedule_do(change, *args, **kwargs):
     try:
         return change(*args, **kwargs)
     except (schedules.ScheduleError, Forbidden) as exc:
-        print("mast-jobs: {}".format(exc), file=sys.stderr)
+        print("mast jobs: {}".format(exc), file=sys.stderr)
         sys.exit(1)
 
 
@@ -224,16 +229,16 @@ def _parse_params(text, pairs):
         try:
             values = json.loads(text)
         except ValueError as exc:
-            print("mast-jobs: --params is not JSON: {}".format(exc),
+            print("mast jobs: --params is not JSON: {}".format(exc),
                   file=sys.stderr)
             sys.exit(1)
         if not isinstance(values, dict):
-            print("mast-jobs: --params is a JSON object", file=sys.stderr)
+            print("mast jobs: --params is a JSON object", file=sys.stderr)
             sys.exit(1)
     for pair in pairs:
         key, sep, value = pair.partition("=")
         if not sep or not key.strip():
-            print("mast-jobs: --set is NAME=VALUE: {!r}".format(pair),
+            print("mast jobs: --set is NAME=VALUE: {!r}".format(pair),
                   file=sys.stderr)
             sys.exit(1)
         try:
@@ -291,7 +296,7 @@ class ScheduleAdd(ScheduleName):
     disabled: bool = Option(False, help="Add it paused.")
 
 
-@cli.command("schedule-add")
+@schedules_cli.command("add", id="add-schedule")
 def schedule_add(params: ScheduleAdd):
     """Add a schedule: a command that the workers put in the job queue
     when its cron expression is due. A command that talks to appliances needs
@@ -315,7 +320,7 @@ class ScheduleUpdate(ScheduleName):
     description: str | None = Option(None, short="d", help="A new description.")
 
 
-@cli.command("schedule-update")
+@schedules_cli.command("update", id="update-schedule")
 def schedule_update(params: ScheduleUpdate):
     """Change the cron expression, the parameters or the description of
     a schedule."""
@@ -328,14 +333,14 @@ def schedule_update(params: ScheduleUpdate):
     return Text("Updated\n" + _show_schedule(info))
 
 
-@cli.command("schedule-enable")
+@schedules_cli.command("enable", id="enable-schedule")
 def schedule_enable(params: ScheduleName):
     """Enable a paused schedule. It is checked again first."""
     info = _schedule_do(schedules.update, params.name, enabled=True)
     return Text("Enabled\n" + _show_schedule(info))
 
 
-@cli.command("schedule-disable")
+@schedules_cli.command("disable", id="disable-schedule")
 def schedule_disable(params: ScheduleName):
     """Pause a schedule. Its jobs that are queued or running go on."""
     info = _schedule_do(schedules.update, params.name, enabled=False)
@@ -346,7 +351,7 @@ class ScheduleRemove(ScheduleName):
     yes: bool = Option(False, short="y", help="Do not ask to confirm.")
 
 
-@cli.command("schedule-remove")
+@schedules_cli.command("remove", id="remove-schedule")
 def schedule_remove(params: ScheduleRemove):
     """Remove a schedule. Its jobs stay."""
     if not params.yes:
@@ -357,13 +362,13 @@ def schedule_remove(params: ScheduleRemove):
     return Text("Removed the schedule {}.".format(params.name))
 
 
-@cli.command("schedule-list")
+@schedules_cli.command("list", id="list-schedules")
 def schedule_list(params: Params):
     """List the schedules."""
     found = schedules.list_schedules()
     if not found:
-        return Text("There are no schedules. Add one with mast-jobs "
-                    "schedule-add, or in the web UI under Admin -> Schedules.")
+        return Text("There are no schedules. Add one with mast schedules "
+                    "add, or in the web UI under Admin -> Schedules.")
     rows = []
     for info in found:
         upcoming = schedules.next_runs(info.cron, count=1)
@@ -376,10 +381,10 @@ def schedule_list(params: Params):
                   "Last run", "Last job", "Note"), rows)
 
 
-@cli.command("schedule-run")
+@schedules_cli.command("run", id="run-schedule")
 def schedule_run(params: ScheduleName):
     """Queue the job of a schedule now, whatever its cron expression
-    says. Use mast-jobs follow to see it."""
+    says. Use mast jobs follow to see it."""
     job_id = _schedule_do(schedules.run_now, params.name)
     return Text("Queued the job {} of the schedule {}.".format(
         job_id, params.name))
@@ -394,7 +399,7 @@ class Prune(Params):
         False, short="d", help="Only count what would be deleted.")
 
 
-@cli.command("prune")
+@jobs_cli.command("prune", id="prune-jobs")
 def prune(params: Prune):
     """Delete the jobs, uses of credentials, audit events, uploads, log
     files, files in tmp/ and status of the appliances that are older

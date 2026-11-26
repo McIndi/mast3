@@ -56,7 +56,7 @@ class Files(Params):
 
 
 def make_cli():
-    cli = Cli(namespace="webtest")
+    cli = Cli(provider="webtest")
 
     @cli.command("copy", category="files")
     def copy(params: Files):
@@ -242,12 +242,18 @@ class TestCommandsApi(ApiCase):
     def test_every_command_is_listed(self):
         self.login("viewer")
         found = {c["id"]: c for c in self.get("/commands").get_json()["commands"]}
-        for command_id in ("test.work", "webtest.copy", "system.get-status",
-                           "backups.normal-backup", "accounts.list-users"):
+        for command_id in ("test.work", "webtest.copy", "datapower.get-status",
+                           "datapower.normal-backup", "datapower.list-users"):
             self.assertIn(command_id, found)
         work = found["test.work"]
-        self.assertEqual(work["namespace"], "test")
+        self.assertEqual(work["provider"], "test")
+        self.assertEqual(work["invocation"], "mast test work")
+        self.assertEqual(work["path"], "mast/test/work")
         self.assertTrue(work["queued"])
+        # The management commands of core have pages of their own
+        self.assertNotIn("core.add-target", found)
+        self.assertIn("core.crypto-inventory", found)
+        self.assertEqual(found["datapower.get-status"]["category"], "system")
         options = {o["name"]: o for o in work["options"]}
         self.assertEqual(options["seconds"]["type"], "float")
         self.assertEqual(options["fail"]["kind"], "flag")
@@ -747,7 +753,7 @@ if __name__ == "__main__":
 
 class TestConnectivity(ApiCase):
     """The Test button of the target bar: POST /api/v1/connectivity
-    runs a passive job of system.test-connectivity."""
+    runs a passive job of datapower.test-connectivity."""
 
     def setUp(self):
         super().setUp()
@@ -796,7 +802,7 @@ class TestConnectivity(ApiCase):
              "ssh": "no", "problem": "SSH: refused"}])
         job = jobs.get(found["job_id"])
         self.assertEqual((job.command, job.submitted_by),
-                         ("system.test-connectivity", "operator"))
+                         ("datapower.test-connectivity", "operator"))
         self.assertTrue(job.passive)
         self.assertNotIn(SECRET, answer.get_data(as_text=True))
 

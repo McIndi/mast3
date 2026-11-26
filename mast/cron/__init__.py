@@ -31,7 +31,7 @@ each followed by a command. The times are in UTC. The file is read at
 the start of each minute, without the need to reload mastd. See
 `mast.cron.Plugin` for how the tasks are run.
 
-The schedules of the job queue (`mast-jobs schedule-add`, Admin ->
+The schedules of the job queue (`mast schedules add`, Admin ->
 Schedules) are not in this file: the workers queue their jobs (see
 `mast.jobs.worker`). This module parses their cron expressions.
 """

@@ -277,6 +277,6 @@ def warn_legacy():
     message = (
         "MAST keeps the appliances and the environments in its database "
         "now, and no longer reads {}. Import them once with "
-        "`mast-appliances import`.".format(" and ".join(found)))
+        "`mast targets import`.".format(" and ".join(found)))
     make_logger("mast.registry").warning(message)
     print("Warning: " + message, file=sys.stderr)

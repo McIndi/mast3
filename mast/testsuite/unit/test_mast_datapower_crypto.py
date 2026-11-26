@@ -188,7 +188,9 @@ class TestCryptoCommands(unittest.TestCase):
         self.assertIn("Certificate Report (available at", text)
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(12, len(crypto.cli.commands))
+        # cert-audit, cert-file-audit, export-certs and collect-crypto.
+        # The others are mast crypto, of core.
+        self.assertEqual(4, len(crypto.cli.commands))
         for command in crypto.cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

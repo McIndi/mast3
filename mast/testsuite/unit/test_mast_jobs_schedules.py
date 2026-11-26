@@ -16,7 +16,7 @@
 """
 Unit tests for the scheduled jobs (mast.jobs.schedules, the cron
 helpers of mast.cron and the scheduler of the workers), passive jobs, retention (mast.jobs.retention),
-migration 0007, mast-jobs schedule-* and prune, and the schedule API.
+migration 0007, mast schedules, mast jobs prune, and the schedule API.
 """
 import contextlib
 import io
@@ -37,7 +37,7 @@ from mast.credentials import store
 from mast.credentials.models import AuditEvent, CredentialUse
 from mast.jobs import db, queue, retention, schedules
 from mast.jobs.auth import LOCAL, Forbidden, Principal
-from mast.jobs.cli import cli as jobs_cli
+from mast.jobs.cli import jobs_cli, schedules_cli
 from mast.jobs.models import Job, JobResult, Schedule
 from mast.jobs.worker import Plugin as WorkerPlugin, Worker
 from mast.testsuite.unit.test_mast_auth import fast_hashes
@@ -651,23 +651,21 @@ class TestRetention(RetentionCase):
         from mast.cli import params as cli_params
         from mast.jobs import registry as jobs_registry
         from mast.plugin_utils.params import BACKUPS_DIR, OUT_DIR
-        backups = {"backups.normal-backup", "backups.secure-backup",
-                   "developer.export", "deployment.del-file",
-                   "deployment.clean-up", "deployment.predeploy",
-                   "deployment.deploy", "system.firmware-upgrade",
-                   "system.del-file", "system.clean-up"}
+        backups = {"datapower.normal-backup", "datapower.secure-backup",
+                   "datapower.export", "datapower.del-file",
+                   "datapower.clean-up", "datapower.predeploy",
+                   "datapower.deploy", "datapower.firmware-upgrade"}
         found = {}
-        for namespace in jobs_registry.namespaces():
-            for command in jobs_registry.cli_for(namespace).commands.values():
-                for spec in cli_params.options(command.model):
-                    if spec.widget == OUT_DIR:
-                        found["{}.{}".format(namespace, command.name)] = spec.default
+        for command in jobs_registry.commands():
+            for spec in cli_params.options(command.model):
+                if spec.widget == OUT_DIR:
+                    found[command.id] = spec.default
         self.assertLessEqual(backups, set(found))
         for command_id, default in sorted(found.items()):
             with self.subTest(command=command_id):
                 if command_id in backups:
                     self.assertEqual(default, BACKUPS_DIR)
-                elif command_id == "deployment.git-deploy":
+                elif command_id == "datapower.git-deploy":
                     # Its own folder of results; git-deploy is not
                     # changed until it is redesigned
                     continue
@@ -754,48 +752,51 @@ class TestCommandLine(ScheduleCase):
         code = 0
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
                 mock.patch("builtins.input", return_value=answer):
+            # mast schedules NAME, or mast jobs NAME (prune)
+            cli = schedules_cli if args[0] in schedules_cli.commands \
+                else jobs_cli
             try:
-                jobs_cli.run(list(args))
+                cli.run(list(args))
             except SystemExit as exc:
                 code = exc.code or 0
         return code, out.getvalue() + err.getvalue()
 
     def test_add_list_run_disable_and_remove(self):
         code, out = self.run_cli(
-            "schedule-add", "-n", "look", "-c", "credtest.look", "-t", "0 2 * * *",
+            "add", "-n", "look", "-c", "credtest.look", "-t", "0 2 * * *",
             "-s", 'appliances=["lab"]', "-s", "credential=ro", "-d", "nightly")
         self.assertEqual(code, 0, out)
         self.assertIn("Next runs:", out)
         self.assertEqual(schedules.get("look").created_by, LOCAL.name)
-        code, out = self.run_cli("schedule-list")
+        code, out = self.run_cli("list")
         self.assertRegex(out, r"look +yes +0 2 \* \* \* +credtest.look")
-        code, out = self.run_cli("schedule-run", "-n", "look")
+        code, out = self.run_cli("run", "-n", "look")
         self.assertIn("Queued the job", out)
-        code, out = self.run_cli("schedule-run", "-n", "look")
+        code, out = self.run_cli("run", "-n", "look")
         self.assertEqual(code, 1)
         self.assertIn("still queued", out)
-        code, out = self.run_cli("schedule-update", "-n", "look", "-s",
+        code, out = self.run_cli("update", "-n", "look", "-s",
                                  'appliances=["dp1"]')
         self.assertEqual(schedules.get("look").params["appliances"], ["dp1"])
         self.assertEqual(schedules.get("look").params["credential"], "ro")
-        code, out = self.run_cli("schedule-disable", "-n", "look")
+        code, out = self.run_cli("disable", "-n", "look")
         self.assertIn("Paused", out)
-        code, out = self.run_cli("schedule-enable", "-n", "look")
+        code, out = self.run_cli("enable", "-n", "look")
         self.assertTrue(schedules.get("look").enabled)
-        code, out = self.run_cli("schedule-remove", "-n", "look", answer="n")
+        code, out = self.run_cli("remove", "-n", "look", answer="n")
         self.assertIn("Nothing was removed", out)
-        code, out = self.run_cli("schedule-remove", "-n", "look", "-y")
+        code, out = self.run_cli("remove", "-n", "look", "-y")
         self.assertEqual(schedules.list_schedules(), [])
 
     def test_errors_are_short(self):
         for args, message in (
-                (("schedule-add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
+                (("add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
                   "-p", "not json"), "--params is not JSON"),
-                (("schedule-add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
+                (("add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
                   "-s", "novalue"), "--set is NAME=VALUE"),
-                (("schedule-add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
+                (("add", "-n", "x", "-c", "credtest.look", "-t", "0 2 * * *",
                   "-s", 'appliances=["lab"]'), "needs a stored credential"),
-                (("schedule-run", "-n", "nothing"), "There is no schedule")):
+                (("run", "-n", "nothing"), "There is no schedule")):
             with self.subTest(message=message):
                 code, out = self.run_cli(*args)
                 self.assertEqual(code, 1)
@@ -838,7 +839,7 @@ class TestScheduleApi(WebCase):
                                 headers={"X-CSRF-Token": self.token()})
 
     def body(self, **changes):
-        body = {"name": "domains", "command": "system.list-domains",
+        body = {"name": "domains", "command": "datapower.list-domains",
                 "cron": "0 2 * * *", "description": "nightly",
                 "params": {"appliances": ["dp1"], "credential": "ro",
                            "timeout": 30}}
@@ -873,7 +874,7 @@ class TestScheduleApi(WebCase):
         self.assertEqual(self.client.get("/api/v1/jobs?schedule=nothing").status_code, 404)
         # The Jobs page shows by default only what people submitted,
         # and says how many jobs of schedules it leaves out
-        mine = jobs.submit("system.list-domains", {"appliances": ["dp1"]},
+        mine = jobs.submit("datapower.list-domains", {"appliances": ["dp1"]},
                            principal=Principal("admin", "admin"))
 
         def listed(query):
@@ -896,7 +897,7 @@ class TestScheduleApi(WebCase):
         store.create("rw", "admin", PASSWORD, "change", ["dp1"], principal=ADMIN)
         self.login("admin")
         answer = self.call("POST", "/schedules", self.body(
-            name="backup", command="backups.normal-backup", params={
+            name="backup", command="datapower.normal-backup", params={
                 "appliances": ["dp1"], "credential": "rw", "Domain": ["all-domains"],
                 "out_dir": "/etc"}))
         self.assertEqual(answer.status_code, 201, answer.get_json())
@@ -907,7 +908,7 @@ class TestScheduleApi(WebCase):
     def test_an_upload_cannot_be_scheduled(self):
         self.login("admin")
         answer = self.call("POST", "/schedules", self.body(
-            command="system.set-file", params={
+            command="datapower.set-file", params={
                 "appliances": ["dp1"], "credential": "ro", "file_in": "token"}))
         self.assertEqual(answer.status_code, 422)
         self.assertIn("uploaded file", json.dumps(answer.get_json()))

@@ -295,7 +295,7 @@ def _set_bindings(session, record, bindings):
             raise InvalidValue(
                 "{!r} is not a registered appliance or environment. A "
                 "credential can be bound only to those (see "
-                "mast-appliances).".format(name))
+                "mast targets).".format(name))
         rows.append(CredentialBinding(
             credential_id=record.id, appliance_id=appliance.id))
     session.execute(delete(CredentialBinding).where(
@@ -647,11 +647,11 @@ def check_targets(name, appliances):
             raise Forbidden(
                 "{} is not a registered appliance. A stored credential is "
                 "used only on registered appliances (see "
-                "mast-appliances).".format(target.name))
+                "mast targets).".format(target.name))
         if target.id not in bound:
             raise Forbidden(
                 "The credential {} is not bound to the appliance {}. An "
-                "admin can bind it (mast-credentials rebind).".format(
+                "admin can bind it (mast credentials rebind).".format(
                     name, target.name))
         if target.tls_mode == "none":
             raise Forbidden(

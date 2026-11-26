@@ -31,7 +31,9 @@ from mast.plugin_utils.results import ActionResults, Report, history
 from mast.plugin_utils.steps import perform, save_config
 
 
-cli = Cli(namespace="network")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("network")
 
 
 def _change(params, action, description, **kwargs):
@@ -80,7 +82,7 @@ def _flush(params, action, **kwargs):
 
 
 @logged("mast.datapower.network")
-@cli.command('check-connectivity', category='network tests')
+@cli.command('check-connectivity', group='network tests')
 def check_connectivity(params: ApplianceParams):
     """Check the connectivity of the three mgmt interfaces (xml, web and cli)
 on the specified appliances."""
@@ -111,7 +113,7 @@ class TCPConnectionTest(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('tcp-connection-test', category='network tests')
+@cli.command('tcp-connection-test', group='network tests')
 def tcp_connection_test(params: TCPConnectionTest):
     """Perform a TCP Connection Test from each appliance to each remote
 host at each remote port."""
@@ -161,7 +163,7 @@ host at each remote port."""
 #
 
 @logged("mast.datapower.network")
-@cli.command("display-routing-table", category="network config", exclusive=False)
+@cli.command("display-routing-table", group="network config", exclusive=False)
 def display_routing_table(params: ApplianceParams):
     """Display the routing table for the specified appliances
 
@@ -236,7 +238,7 @@ class DisplayEthernetInterface(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('display-ethernet-interface', category='network config', exclusive=False)
+@cli.command('display-ethernet-interface', group='network config', exclusive=False)
 def display_ethernet_interface(params: DisplayEthernetInterface):
     """This will display the details of the specified ethernet interface
 on the specified appliances."""
@@ -257,7 +259,7 @@ on the specified appliances."""
 
 
 @logged("mast.datapower.network")
-@cli.command('list-host-aliases', category='network config', exclusive=False)
+@cli.command('list-host-aliases', group='network config', exclusive=False)
 def list_host_aliases(params: ApplianceParams):
     """Lists the host aliases of the specified appliances as well as
 the host aliases common to all specified appliances."""
@@ -293,7 +295,7 @@ class AddHostAlias(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('add-host-alias', category='network config')
+@cli.command('add-host-alias', group='network config')
 def add_host_alias(params: AddHostAlias):
     """Adds a host alias to the specified appliances."""
     return _change(
@@ -309,7 +311,7 @@ class DelHostAlias(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('del-host-alias', category='network config')
+@cli.command('del-host-alias', group='network config')
 def del_host_alias(params: DelHostAlias):
     """Removes a host alias from the specified appliances."""
     return _change(
@@ -325,7 +327,7 @@ class ListSecondaryAddresses(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('list-secondary-addresses', category='network config', exclusive=False)
+@cli.command('list-secondary-addresses', group='network config', exclusive=False)
 def list_secondary_addresses(params: ListSecondaryAddresses):
     """This will list the secondary IP Addresses on the specified
 Ethernet Interface for the specified appliances."""
@@ -350,7 +352,7 @@ class AddSecondaryAddress(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('add-secondary-address', category='network config')
+@cli.command('add-secondary-address', group='network config')
 def add_secondary_address(params: AddSecondaryAddress):
     """Adds a secondary IP address to the specified appliances on the
 specified ethernet interface"""
@@ -374,7 +376,7 @@ class DelSecondaryAddress(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('del-secondary-address', category='network config')
+@cli.command('del-secondary-address', group='network config')
 def del_secondary_address(params: DelSecondaryAddress):
     """Removes a secondary IP address from the specified appliances on the
 specified ethernet interface"""
@@ -387,7 +389,7 @@ specified ethernet interface"""
 
 
 @logged("mast.datapower.network")
-@cli.command('list-static-hosts', category='network config', exclusive=False)
+@cli.command('list-static-hosts', group='network config', exclusive=False)
 def list_static_hosts(params: ApplianceParams):
     """This will list the static hosts on the specified appliances."""
     env = params.environment()
@@ -406,7 +408,7 @@ class AddStaticHost(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('add-static-host', category='network config')
+@cli.command('add-static-host', group='network config')
 def add_static_host(params: AddStaticHost):
     """Adds a static host to the specified appliances"""
     return _change(
@@ -421,7 +423,7 @@ class DelStaticHost(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('del-static-host', category='network config')
+@cli.command('del-static-host', group='network config')
 def del_static_host(params: DelStaticHost):
     """Removes a static host from the specified appliances"""
     return _change(
@@ -437,7 +439,7 @@ class ListStaticRoutes(ApplianceParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('list-static-routes', category='network config', exclusive=False)
+@cli.command('list-static-routes', group='network config', exclusive=False)
 def list_static_routes(params: ListStaticRoutes):
     """This will list all of the static routes on the specified
 EthernetInterface on the specified appliances."""
@@ -472,7 +474,7 @@ class AddStaticRoute(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('add-static-route', category='network config')
+@cli.command('add-static-route', group='network config')
 def add_static_route(params: AddStaticRoute):
     """Adds a static route to the specified appliance on the specified
 ethernet interface"""
@@ -496,7 +498,7 @@ class DelStaticRoute(SaveConfigParams):
 
 
 @logged("mast.datapower.network")
-@cli.command('del-static-route', category='network config')
+@cli.command('del-static-route', group='network config')
 def del_static_route(params: DelStaticRoute):
     """Removes a static route from the specified appliance on the specified
 ethernet interface"""
@@ -508,55 +510,3 @@ ethernet interface"""
         destination=params.destination)
 #
 # ~#~#~#~#~#~#~#
-
-
-# ~#~#~#~#~#~#~#
-# Caches
-# ======
-#
-# These functions are meant to be used to flush the caches that DataPower
-# maintains.
-#
-# Current Commands:
-# ----------------
-#
-# FlushArpCache()
-# FlushDNSCache()
-# FlushNDCache()
-# FlushPDPCache(XACMLPDP)
-#
-
-@logged("mast.datapower.network")
-@cli.command('flush-arp-cache', category='caches')
-def flush_arp_cache(params: ApplianceParams):
-    """This will flush the ARP Cache on the specified appliances."""
-    return _flush(params, 'FlushArpCache')
-
-
-@logged("mast.datapower.network")
-@cli.command('flush-dns-cache', category='caches')
-def flush_dns_cache(params: ApplianceParams):
-    """This will flush the DNS Cache for the specified appliances."""
-    return _flush(params, 'FlushDNSCache')
-
-
-@logged("mast.datapower.network")
-@cli.command('flush-nd-cache', category='caches')
-def flush_nd_cache(params: ApplianceParams):
-    """This will flush the ND cache on the specified appliances."""
-    return _flush(params, 'FlushNDCache')
-
-
-class FlushPDPCache(ApplianceParams):
-    XACMLPDP: str = Option(
-        "", short="X", widget=configured("XACMLPDP"),
-        help="The XACMLPDP for which to flush the PDP cache")
-
-
-@logged("mast.datapower.network")
-@cli.command('flush-pdp-cache', category='caches')
-def flush_pdp_cache(params: FlushPDPCache):
-    """This will flush the PDP cache on the specified appliances
-for the specified XACMLPDP."""
-    return _flush(params, 'FlushPDPCache', XACMLPDP=params.XACMLPDP)
-

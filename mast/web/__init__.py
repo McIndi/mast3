@@ -29,10 +29,10 @@ There are two ways to start the web UI:
 
 1. `mastd` (a service on Windows, a daemon on Linux and macOS) hosts it
 in a thread, with the `mastd_plugin` `Plugin` below.
-2. `mast-web` (`mast-web.bat` on Windows) serves it until Ctrl-C.
+2. `mast web` (`mast.bat web` on Windows) serves it until Ctrl-C.
 
 Every page needs a login. Add the first user with
-`mast-users add -u NAME -r admin`.
+`mast users add -u NAME -r admin`.
 """
 import threading
 
@@ -74,10 +74,10 @@ class Plugin(threading.Thread):
         `mast.web.server.StartupError`), log why; `mastd` goes on with
         its other plugins.
 
-        Logs to: `mast.datapower.web.log`
+        Logs to: `mast.web.log`
         """
         from mast.web.server import StartupError, main
-        logger = make_logger("mast.datapower.web")
+        logger = make_logger("mast.web")
         logger.info("Attempting to start web gui.")
         try:
             main()

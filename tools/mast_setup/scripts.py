@@ -2,7 +2,7 @@
 Make the console scripts of a home relocatable.
 
 uv writes the absolute path of the interpreter into each console script
-(`mast-system`, `flask`, `pip` ...): the header of a script on Linux
+(`mast`, `flask`, `pip` ...): the header of a script on Linux
 and macOS (a `#!` line, or a `/bin/sh` header when the path is long or
 has a space), and a resource of the `.exe` launcher on Windows. That path
 is in the build folder, so the scripts fail once the installer is

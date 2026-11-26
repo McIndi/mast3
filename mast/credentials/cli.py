@@ -17,7 +17,7 @@
 """
 _module_: `mast.credentials.cli`
 
-`mast-credentials`: the stored credentials (see `mast.credentials`).
+`mast credentials`: the stored credentials (see `mast.credentials`).
 
 * `add`, `replace`, `update`, `rebind`, `delete`: Store a credential,
 give it a new password, change its description or purpose, change the
@@ -33,7 +33,7 @@ from the first line of standard input with `--password-stdin`. It is
 never an option, so that it is not in the history of the shell or in
 the list of processes.
 
-Whoever can run `mast-credentials` on the MAST host can read the
+Whoever can run `mast credentials` on the MAST host can read the
 database and the key file, so it needs no login; it is an admin.
 """
 import getpass
@@ -42,19 +42,20 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from mast.cli import Cli, Option, Params, Table, Text
+from mast.roots import CORE
 from mast.credentials import TEST_COMMAND, keys, store, testing
 from mast.jobs.auth import LOCAL, Forbidden
 
 __all__ = ["cli"]
 
 cli = Cli(description="Manage the stored credentials of MAST.",
-          prog="mast-credentials")
+          provider=CORE, prog="mast credentials", queued=False)
 
 Purpose = Literal["collect", "change"]
 
 
 def _fail(message):
-    print("mast-credentials: {}".format(message), file=sys.stderr)
+    print("mast credentials: {}".format(message), file=sys.stderr)
     sys.exit(1)
 
 
@@ -130,14 +131,14 @@ class Add(NameParams):
     bind: list[str] = Option(
         default_factory=list, short="b",
         help="An appliance or an environment that the credential may be "
-             "used for (see mast-appliances).")
+             "used for (see mast targets).")
     description: str = Option("", short="d", help="A note for the admins.")
     password_stdin: bool = Option(
         False, help="Read the password from the first line of standard "
                     "input, for scripts.")
 
 
-@cli.command("add")
+@cli.command("add", id="add-credential")
 def add(params: Add):
     """Store a new credential. The password is asked for."""
     password = _password(params.password_stdin)
@@ -155,7 +156,7 @@ class Replace(NameParams):
                     "input, for scripts.")
 
 
-@cli.command("replace")
+@cli.command("replace", id="replace-credential")
 def replace(params: Replace):
     """Give a credential a new password (and a new user name). The
     result of its last test is cleared."""
@@ -171,7 +172,7 @@ class Update(NameParams):
     purpose: Purpose | None = Option(None, short="p", help="A new purpose.")
 
 
-@cli.command("update")
+@cli.command("update", id="update-credential")
 def update(params: Update):
     """Change the description or the purpose of a credential."""
     return Text("Updated " + _show(_do(
@@ -187,7 +188,7 @@ class Rebind(NameParams):
              "credential cannot be used.")
 
 
-@cli.command("rebind")
+@cli.command("rebind", id="rebind-credential")
 def rebind(params: Rebind):
     """Change the appliances and environments that a credential may be
     used for."""
@@ -199,7 +200,7 @@ class Delete(NameParams):
     yes: bool = Option(False, short="y", help="Do not ask to confirm.")
 
 
-@cli.command("delete")
+@cli.command("delete", id="delete-credential")
 def delete(params: Delete):
     """Delete a credential. A queued job that names it fails when it
     starts."""
@@ -218,7 +219,7 @@ class ListParams(Params):
              "appliances or environments.")
 
 
-@cli.command("list")
+@cli.command("list", id="list-credentials")
 def list_credentials(params: ListParams):
     """List the credentials (never a password)."""
     found = _do(store.list_credentials, params.appliances or None)
@@ -231,7 +232,7 @@ def list_credentials(params: ListParams):
          for c in found])
 
 
-@cli.command("show")
+@cli.command("show", id="show-credential")
 def show(params: NameParams):
     """Show one credential (never its password)."""
     return Text(_show(_do(store.get, params.name)))
@@ -242,7 +243,7 @@ class Test(NameParams):
         short="a", help="The registered appliance to test it on.")
 
 
-@cli.command("test")
+@cli.command("test", id="test-credential")
 def test(params: Test):
     """Test a credential on one appliance, through the job queue: read the
     firmware version, and find out whether the user can change the
@@ -275,7 +276,7 @@ class RotateKey(Params):
     yes: bool = Option(False, short="y", help="Do not ask to confirm.")
 
 
-@cli.command("rotate-key")
+@cli.command("rotate-key", id="rotate-credential-key")
 def rotate_key(params: RotateKey):
     """Make a new key for the credential store, encrypt every credential
     again with it, and drop the keys older than the one before it. Copy
@@ -308,7 +309,7 @@ class Uses(NameParams):
              "2026-11-22 or 2026-11-22T08:00.")
 
 
-@cli.command("uses")
+@cli.command("uses", id="list-credential-uses")
 def uses(params: Uses):
     """List the jobs that used a credential, the newest first."""
     found = _do(store.uses, params.name, since=_since(params.since))
@@ -322,7 +323,7 @@ class AuditParams(Params):
         None, short="n", help="Only the changes to this credential.")
 
 
-@cli.command("audit")
+@cli.command("audit", id="credential-audit")
 def audit(params: AuditParams):
     """List the changes to the credential store, the newest first."""
     found = _do(store.audit_events, params.name)

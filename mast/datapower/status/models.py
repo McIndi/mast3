@@ -17,7 +17,7 @@
 _module_: `mast.datapower.status.models`
 
 The tables of the status of the appliances, in the job database
-(migration 0008). `mast-status collect` writes them, the Appliances
+(migration 0008). `mast datapower collect-status` writes them, the Appliances
 page reads them, and `mast.jobs.retention` prunes them.
 
 * `status_latest`: the last poll of each registered appliance.

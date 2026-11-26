@@ -17,7 +17,7 @@
 _module_: `mast.datapower.status.page`
 
 The Appliances page of the web UI: the status of every appliance, from
-the last poll of `mast-status collect`. It is the first page after the
+the last poll of `mast datapower collect-status`. It is the first page after the
 login. The script (`static/appliances.js`) asks these routes:
 
 * `GET /api/v1/appliances-status`: every appliance of the registry with
@@ -44,7 +44,7 @@ from mast.web.page import Page
 
 __all__ = ["page", "COMMAND", "SCHEDULE"]
 
-COMMAND = "status.collect"
+COMMAND = "datapower.collect-status"
 SCHEDULE = "status-poll"
 MAX_HOURS = 24 * 400
 

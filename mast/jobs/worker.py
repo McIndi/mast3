@@ -19,7 +19,7 @@ _module_: `mast.jobs.worker`
 
 The worker: a process that takes jobs from the queue and runs them.
 
-Start one with `mast-worker`. `mastd` also hosts one, unless
+Start one with `mast worker`. `mastd` also hosts one, unless
 `jobs.conf` says otherwise. Any number of workers can use one
 database. They can be started and stopped at any time.
 
@@ -403,7 +403,10 @@ def main(params: Main):
         raise SystemExit(1)
 
 
-if __name__ == "__main__":
-    import sys
-    sys.argv[0] = "mast-worker"
-    Cli(main=main).run()
+def program(argv):
+    """
+    _function_: `mast.jobs.worker.program(argv)`
+
+    `mast worker`: run a worker with the options in `argv`.
+    """
+    Cli(main=main, prog="mast worker").run(argv)

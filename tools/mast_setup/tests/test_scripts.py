@@ -45,8 +45,8 @@ class TestPosixScripts(unittest.TestCase):
         return path
 
     def test_absolute_first_line_is_replaced(self):
-        script = self.write("mast-version", "#!{}".format(self.bin / "python3"), mode=0o750)
-        self.assertEqual(scripts.relocate_posix(self.bin), ["mast-version"])
+        script = self.write("mast", "#!{}".format(self.bin / "python3"), mode=0o750)
+        self.assertEqual(scripts.relocate_posix(self.bin), ["mast"])
         text = script.read_text()
         self.assertTrue(text.startswith(scripts.POSIX_HEADER.format(name="python3")))
         self.assertTrue(text.endswith(SCRIPT_BODY))

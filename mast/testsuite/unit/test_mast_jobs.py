@@ -48,7 +48,7 @@ from sqlalchemy import func, select, text
 from mast import jobs
 from mast.cli import Cli, Option, Params, Table, Text, checkpoint, say
 from mast.jobs import client, config, db, queue, registry, runner, secrets
-from mast.jobs.cli import cli as jobs_cli
+from mast.jobs.cli import jobs_cli, schedules_cli
 from mast.jobs.models import Base, Job, JobTarget
 # The users table is in the same database (and in Base.metadata)
 import mast.auth.models  # noqa: F401
@@ -60,7 +60,7 @@ from mast.jobs.worker import Plugin, Worker
 
 POSTGRES_URL = os.environ.get("MAST_TEST_JOBS_DB_URL")
 
-# What accounts.list-users prints when it is given no appliance
+# What datapower.list-users prints when it is given no appliance
 NO_USERS = "\nCommon\n======"
 
 
@@ -96,7 +96,7 @@ seen = []
 
 
 def make_cli():
-    cli = Cli(namespace="test")
+    cli = Cli(provider="test")
 
     @cli.command("work")
     def work(params: Work):
@@ -380,7 +380,7 @@ class TestSubmit(SqliteCase):
                 jobs.submit(command, {})
 
     def test_a_command_of_a_mast_plugin_is_found(self):
-        command = jobs.resolve("system.xor")
+        command = jobs.resolve("datapower.xor")
         self.assertEqual(command.name, "xor")
 
     def test_secret_parameters_are_stored_encrypted(self):
@@ -980,7 +980,7 @@ class TestRunner(SqliteCase):
         def stop():
             raise Stop()
 
-        command = jobs.resolve("accounts.add-user")
+        command = jobs.resolve("datapower.add-user")
         params = command.model(
             appliances=["dp.example.test"], credentials=["user:pass"],
             username="new", password="hunter2", privileged=True)
@@ -1335,7 +1335,7 @@ class TestWorkerProcess(SqliteCase):
     def spawn(self, *args):
         env = dict(os.environ, MAST_JOBS_DB_URL=self.url)
         process = subprocess.Popen(
-            [sys.executable, "-m", "mast.jobs.worker", "-p", "0.05"]
+            [sys.executable, "-m", "mast", "worker", "-p", "0.05"]
             + list(args),
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True)
@@ -1356,7 +1356,7 @@ class TestWorkerProcess(SqliteCase):
 
     def test_a_worker_runs_a_command_of_a_plugin(self):
         # With no appliance, the command talks to nothing
-        job_id = jobs.submit("accounts.list-users", {})
+        job_id = jobs.submit("datapower.list-users", {})
         process = self.spawn("--drain")
         self.assertEqual(process.wait(60), 0, process.stdout.read())
         self.assertEqual(jobs.get(job_id).status, jobs.SUCCEEDED)
@@ -1554,7 +1554,7 @@ class TestCommandLine(CliCase):
         self.assertEqual((status, out), (0, job.id + "\n"))
         self.assertEqual(job.status, jobs.QUEUED)
         self.assertIn("No worker is running", err)
-        self.assertIn("mast-jobs show -j " + job.id[:8], err)
+        self.assertIn("mast jobs show -j " + job.id[:8], err)
 
     def test_a_detached_job_does_not_hold_up_a_command_with_no_worker(self):
         self.run_cli("work", "-a", "dp1", "--detach")
@@ -1586,7 +1586,7 @@ class TestCommandLine(CliCase):
         status, _, err = self.run_cli("work", "--detach", cli=cli)
         self.assertEqual(status, 2)
         with self.assertRaises(ValueError):
-            Cli(main=work, namespace="test")
+            Cli(main=work, provider="test")
 
     def test_a_job_waits_for_its_appliance(self):
         ahead = submit("dp1")
@@ -1736,26 +1736,22 @@ class TestCommandLine(CliCase):
 
     def test_only_one_git_deploy_runs_at_a_time(self):
         self.assertEqual(
-            jobs.resolve("deployment.git-deploy").resources, ["git-deploy"])
+            jobs.resolve("datapower.git-deploy").resources, ["git-deploy"])
 
     def test_commands_that_only_read_are_not_exclusive(self):
         self.run_cli("look", "-a", "dp1", "--detach")
         self.assertFalse(self.only_job().exclusive)
-        self.assertFalse(jobs.resolve("system.get-status").exclusive)
-        self.assertFalse(jobs.resolve("accounts.list-users").exclusive)
-        self.assertTrue(jobs.resolve("system.save").exclusive)
-        self.assertTrue(jobs.resolve("backups.normal-backup").exclusive)
+        self.assertFalse(jobs.resolve("datapower.get-status").exclusive)
+        self.assertFalse(jobs.resolve("datapower.list-users").exclusive)
+        self.assertTrue(jobs.resolve("datapower.save").exclusive)
+        self.assertTrue(jobs.resolve("datapower.normal-backup").exclusive)
 
     def test_every_plugin_command_can_be_a_job(self):
-        import importlib
-        for plugin in ("accounts", "backups", "crypto", "deployment",
-                       "developer", "network", "system"):
-            module = importlib.import_module("mast.datapower." + plugin)
-            self.assertEqual(module.cli.namespace, plugin)
-            for name in module.cli.commands:
-                self.assertIs(
-                    jobs.resolve("{}.{}".format(plugin, name)),
-                    module.cli.commands[name])
+        from mast.datapower.commands import cli
+        self.assertEqual(cli.provider, "datapower")
+        for name in cli.commands:
+            self.assertIs(jobs.resolve("datapower." + name),
+                          cli.commands[name])
 
 
 class TestMastJobs(CliCase):
@@ -1846,39 +1842,40 @@ class TestMastJobs(CliCase):
 
 class TestCommandLineProcess(SqliteCase):
     def mast(self, *argv):
+        """Run `mast ARGV` (python -m mast)."""
         return subprocess.run(
-            [sys.executable, "-m"] + list(argv), text=True,
+            [sys.executable, "-m", "mast"] + list(argv), text=True,
             capture_output=True, timeout=120,
             env=dict(os.environ, MAST_JOBS_DB_URL=self.url))
 
     def test_a_plugin_command_is_a_job(self):
-        done = self.mast("mast.datapower.accounts", "list-users")
+        done = self.mast("datapower", "list-users")
         self.assertEqual(
             (done.returncode, done.stdout, done.stderr),
             (0, NO_USERS + "\n", ""))
         job = jobs.list_jobs()[0]
         self.assertEqual((job.command, job.status),
-                         ("accounts.list-users", jobs.SUCCEEDED))
-        listed = self.mast("mast.jobs", "list")
+                         ("datapower.list-users", jobs.SUCCEEDED))
+        listed = self.mast("jobs", "list")
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertIn(job.id, listed.stdout)
-        self.assertIn("accounts.list-users", listed.stdout)
+        self.assertIn("datapower.list-users", listed.stdout)
 
     def test_a_command_that_is_not_queued_makes_no_job(self):
         from mast.xor import xorencode
-        done = self.mast("mast.datapower.system", "xor", "-s", "user:pass")
+        done = self.mast("datapower", "xor", "-s", "user:pass")
         self.assertEqual(
             (done.returncode, done.stdout, done.stderr),
             (0, xorencode("user:pass") + "\n", ""))
         self.assertEqual(jobs.list_jobs(), [])
 
     def test_a_detached_job_is_done_by_a_worker(self):
-        done = self.mast("mast.datapower.accounts", "list-users", "--detach")
+        done = self.mast("datapower", "list-users", "--detach")
         job_id = done.stdout.strip()
         self.assertEqual(jobs.get(job_id).status, jobs.QUEUED)
-        worker = self.mast("mast.jobs.worker", "--drain", "-p", "0.05")
+        worker = self.mast("worker", "--drain", "-p", "0.05")
         self.assertEqual(worker.returncode, 0, worker.stdout + worker.stderr)
-        shown = self.mast("mast.jobs", "follow", "-j", job_id[:8])
+        shown = self.mast("jobs", "follow", "-j", job_id[:8])
         self.assertEqual(
             (shown.returncode, shown.stdout),
             (0, NO_USERS + "\n"))

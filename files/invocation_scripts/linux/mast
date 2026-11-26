@@ -1,8 +1,9 @@
 #!/bin/bash
 
+# The mast command of this installation: mast ROOT [ARGUMENTS ...]
 export MAST_HOME="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$MAST_HOME" || exit 1
 source ./set-env
 
-exec "python/$PYTHON_VERSION/bin/python3" "$@"
+exec "python/$PYTHON_VERSION/bin/python3" -m mast "$@"

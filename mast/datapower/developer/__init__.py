@@ -23,7 +23,3 @@ import os
 from .developer import *
 from .developer import _import
 from mast import __version__
-
-if __name__ == "__main__":
-    cli.run()
-

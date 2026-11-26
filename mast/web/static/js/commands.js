@@ -1,4 +1,4 @@
-// The Commands page: choose a namespace and a command, fill in the form
+// The Commands page: choose a section and a command, fill in the form
 // that forms.js makes from its options, and submit it. A job opens on the
 // Jobs page.
 //
@@ -56,6 +56,13 @@ function valuesFrom(command, job) {
     return {values, notes};
 }
 
+// The section of a command: its provider and its category, such as
+// "datapower · system". The list shows the commands of one section,
+// under the headings of their group.
+function section(command) {
+    return command.category ? command.provider + " · " + command.category : command.provider;
+}
+
 function drawList() {
     const namespace = namespaceSelect.value;
     const needle = search.value.trim().toLowerCase();
@@ -64,10 +71,10 @@ function drawList() {
     for (const command of commands) {
         if (needle) {
             if (!command.id.includes(needle) && !command.doc.toLowerCase().includes(needle)) continue;
-        } else if (command.namespace !== namespace) {
+        } else if (section(command) !== namespace) {
             continue;
         }
-        const heading = needle ? command.namespace : command.category;
+        const heading = needle ? section(command) : command.group;
         if (heading !== category) {
             category = heading;
             list.append(el("div", {className: "list-group-item small text-body-secondary fw-semibold border-0 pt-2"}, heading || "other"));
@@ -94,8 +101,8 @@ function show(commandId) {
         formBox.textContent = "Choose a command.";
         return;
     }
-    if (namespaceSelect.value !== command.namespace && !search.value) {
-        namespaceSelect.value = command.namespace;
+    if (namespaceSelect.value !== section(command) && !search.value) {
+        namespaceSelect.value = section(command);
         drawList();
     }
     markActive();
@@ -105,6 +112,9 @@ function show(commandId) {
     const button = el("button", {type: "submit", className: "btn btn-primary"}, command.queued ? "Run" : "Run now");
     formBox.append(
         el("h1", {className: "h4"}, el("code", {}, command.id)),
+        el("p", {className: "small text-body-secondary mb-1"},
+            "Command line: ", el("code", {}, command.invocation),
+            " · Permission path: ", el("code", {}, command.path)),
         el("p", {className: "mast-help small"}, summary));
     if (!command.exclusive) {
         formBox.append(el("p", {className: "small text-body-secondary"}, "This command only reads."));
@@ -156,9 +166,9 @@ async function start() {
         showError(errorBox, error);
         return;
     }
-    const namespaces = [...new Set(commands.map((c) => c.namespace))];
-    for (const namespace of namespaces) {
-        namespaceSelect.append(el("option", {value: namespace}, namespace));
+    const sections = [...new Set(commands.map(section))];
+    for (const name of sections) {
+        namespaceSelect.append(el("option", {value: name}, name));
     }
     const from = new URLSearchParams(window.location.search).get("from");
     let fromError = null;
@@ -171,7 +181,7 @@ async function start() {
     }
     const wanted = decodeURIComponent(window.location.hash.slice(1));
     const first = commands.find((c) => c.id === wanted);
-    if (first) namespaceSelect.value = first.namespace;
+    if (first) namespaceSelect.value = section(first);
     drawList();
     show(wanted);
     if (fromError) showError(errorBox, fromError);

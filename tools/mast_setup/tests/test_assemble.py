@@ -82,10 +82,10 @@ class TestLayout(FakeRepoTestCase):
         assemble.write_launchers(self.repo, home, "3.14.10", "linux")
         self.assertEqual((home / "set-env").read_text(),
                          "export PYTHON_VERSION=3.14.10\n")
-        self.assertEqual((home / "mast-version").read_text(),
-                         (self.repo / "files/invocation_scripts/linux/mast-version").read_text())
+        self.assertEqual((home / "mast").read_text(),
+                         (self.repo / "files/invocation_scripts/linux/mast").read_text())
         if sys.platform != "win32":
-            self.assertEqual(stat.S_IMODE((home / "mast-version").stat().st_mode), 0o750)
+            self.assertEqual(stat.S_IMODE((home / "mast").stat().st_mode), 0o750)
 
     def test_archive_name(self):
         self.assertEqual(assemble.archive_name("3.14.10", "3.14.10", "linux", "x86_64"),

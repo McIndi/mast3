@@ -32,7 +32,9 @@ from mast.plugin_utils.results import Report, SeeDownload, StatusResults
 from mast.timestamp import Timestamp
 from mast.logging import make_logger, logged
 
-cli = Cli(namespace="deployment")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("deployment")
 
 
 def system_call(
@@ -56,189 +58,6 @@ def system_call(
         shell=shell)
     stdout, stderr = pipe.communicate()
     return stdout, stderr
-
-
-class SetFile(ApplianceParams):
-    file_in: str = Option(
-        short="f", widget=UPLOAD,
-        help="The path and filename of the file to upload")
-    destination: str = Option(
-        short="d",
-        help="Should be the path and filename of the file once "
-             "uploaded to the DataPower **NOTE: file_out should "
-             "contain the filename ie. local:/test.txt**")
-    Domain: str = Option(
-        'default', short="D", widget=configured("Domain"),
-        help="The domain to which to upload the file")
-    overwrite: bool = Option(
-        True,
-        help="If specified this program will exit with an error "
-             "rather than overwrite a file")
-
-
-@logged('mast.datapower.deployment')
-@cli.command('set-file', category='file management')
-def set_file(params: SetFile):
-    """Uploads a file to the specified appliances"""
-    env = params.environment()
-    kwargs = {
-        'file_in': params.file_in,
-        'file_out': params.destination,
-        'domain': params.Domain,
-        'overwrite': params.overwrite}
-    resp = env.perform_async_action('set_file', **kwargs)
-    return StatusResults(
-        {host: "Succeeded" if r else "Failed" for host, r in resp.items()},
-        env, suffix="set_file")
-
-
-class GetFile(ApplianceParams):
-    location: str = Option(
-        short="l",
-        help="The location of the file (on DataPower) you would like "
-             "to get")
-    Domain: str = Option(
-        'default', short="D", widget=configured("Domain"),
-        help="The domain from which to get the file")
-    out_dir: str = Option(
-        'tmp', short="o", widget=OUT_DIR,
-        help="The directory you would like to save the file to")
-
-
-@logged('mast.datapower.deployment')
-@cli.command('get-file', category='file management')
-def get_file(params: GetFile):
-    """Retrieves a file from the specified appliances"""
-    t = Timestamp()
-    env = params.environment()
-    kwargs = {'domain': params.Domain, 'filename': params.location}
-    responses = env.perform_async_action('getfile', **kwargs)
-
-    os.makedirs(params.out_dir, exist_ok=True)
-
-    for hostname, fin in list(responses.items()):
-        filename = params.location.split('/')[-1]
-        filename = os.path.join(
-            params.out_dir,
-            '%s-%s-%s' % (hostname, t.timestamp, filename))
-        with open(filename, 'wb') as fout:
-            fout.write(fin)
-        say("Wrote {} from {} to {}".format(
-            params.location, hostname, filename))
-    return SeeDownload(responses, env, suffix="get_file")
-
-
-class DeleteFile(ApplianceParams):
-    Domain: str = Option(
-        "", short="D", widget=configured("Domain"),
-        help="The domain from which to delete the file")
-    filename: str = Option(
-        "", short="f",
-        help="The name of the file (on DataPower) you would like to "
-             "delete")
-    backup: bool = Option(
-        False, short="b",
-        help="Whether to backup the file before deleting")
-    out_dir: str = Option(
-        BACKUPS_DIR, short="o", widget=OUT_DIR,
-        help="The directory you would like to save the file to")
-
-
-@logged('mast.datapower.deployment')
-@cli.command('del-file', category="file management")
-def delete_file(params: DeleteFile):
-    """Deletes a file from the specified appliances"""
-    env = params.environment()
-    if params.backup:
-        resp = {}
-        for appliance in env.appliances:
-            _out_dir = os.path.join(params.out_dir, appliance.hostname)
-            if not os.path.exists(_out_dir):
-                os.makedirs(_out_dir)
-            resp[appliance.hostname] = appliance.del_file(
-                filename=params.filename, domain=params.Domain,
-                backup=True, local_dir=_out_dir)
-    else:
-        resp = env.perform_action(
-            "del_file", filename=params.filename, domain=params.Domain)
-    return StatusResults(
-        {host: "Success" if r else "Error" for host, r in resp.items()}, env)
-
-
-class CleanUp(ApplianceParams):
-    Domain: str = Option(
-        'default', short="D", widget=configured("Domain"),
-        help="The domain whose filesystem you would like to clean up")
-    checkpoints: bool = Option(
-        False, short="C",
-        help="If specified, all checkpoints will be removed from the "
-             "domain")
-    export: bool = Option(
-        False, short="e",
-        help="If specified all exports will be removed from the domain")
-    error_reports: bool = Option(
-        False, short="E",
-        help="If specified, all error reports will be removed from the "
-             "appliance(s)")
-    recursive: bool = Option(
-        False, short="r",
-        help="If specified, directories will be cleaned recursively")
-    logtemp: bool = Option(
-        False, short="l",
-        help="If specified, all files in `logtemp:` will be removed "
-             "from the domain")
-    logstore: bool = Option(
-        False, short="L",
-        help="If specified, all files in `logstore:` will be removed")
-    backup_files: bool = Option(
-        True,
-        help="If specified, files will not be backed up before "
-             "deleting")
-    out_dir: str = Option(
-        BACKUPS_DIR, short="o", widget=OUT_DIR,
-        help="The directory to save backed up files")
-
-
-@logged('mast.datapower.deployment')
-@cli.command('clean-up', category='maintenance')
-def clean_up(params: CleanUp):
-    """This will clean up the specified appliances filesystem optionally
-(defaults to True) taking copies of the files as backups."""
-    env = params.environment()
-
-    t = Timestamp()
-    dirs = []
-    if params.checkpoints:
-        dirs.append('chkpoints:/')
-    if params.export:
-        dirs.append('export:/')
-    if params.logtemp:
-        dirs.append('logtemp:/')
-    if params.logstore:
-        dirs.append('logstore:/')
-
-    rows = []
-    for appliance in env.appliances:
-        rows.append((appliance.hostname, ))
-        for _dir in dirs:
-            _clean_dir(
-                appliance,
-                _dir,
-                params.Domain,
-                params.recursive,
-                params.backup_files,
-                t.timestamp,
-                params.out_dir)
-            rows.append(("", _dir, "Cleaned"))
-        if params.error_reports:
-            _clean_error_reports(
-                appliance, params.Domain,
-                params.backup_files, t.timestamp,
-                params.out_dir)
-            rows.append(("", "ErrorReports", "Cleaned"))
-    report = Report(env)
-    report.add(Table(["Appliance", "Location", "Action"], rows))
-    return report
 
 
 @logged('mast.datapower.deployment')
@@ -376,7 +195,7 @@ class Predeploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('predeploy', category='deployment')
+@cli.command('predeploy', group='deployment')
 def predeploy(params: Predeploy):
     """Perform routine pre-deployment actions. Everything is optional, but if
 you wish to perform an action, you must provide the necessary arguments.
@@ -568,7 +387,7 @@ class Deploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('deploy', category='deployment')
+@cli.command('deploy', group='deployment')
 def deploy(params: Deploy):
     """Perform a deployment/migration of a service/object to an IBM DataPower
 appliance. This script will try to perform the deployment/migration in a
@@ -704,7 +523,7 @@ class Postdeploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('postdeploy', category='deployment')
+@cli.command('postdeploy', group='deployment')
 def postdeploy(params: Postdeploy):
     """This is a simple script which will allow you to unquiesce
 your domain or appliances after you quiesce them for a deployment.
@@ -770,7 +589,7 @@ DO NOT RUN AS ROOT!!!"""
 
 
 git_deploy = cli.command(
-    'git-deploy', category='deployment',
+    'git-deploy', group='deployment',
     resources=["git-deploy"])(git_deploy)
 
 def _result_lines(response):
@@ -832,7 +651,7 @@ class AddPasswordMapAlias(DelPasswordMapAlias):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('add-password-map-alias', category='password map aliases')
+@cli.command('add-password-map-alias', group='password map aliases')
 def add_password_map_alias(params: AddPasswordMapAlias):
     """create a password map alias on the specified appliances"""
     return _password_map_alias(
@@ -841,13 +660,9 @@ def add_password_map_alias(params: AddPasswordMapAlias):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('del-password-map-alias', category='password map aliases')
+@cli.command('del-password-map-alias', group='password map aliases')
 def del_password_map_alias(params: DelPasswordMapAlias):
     """delete a password map alias on the specified appliances"""
     return _password_map_alias(
         params, "DeletePasswordMap", "DeletePasswordMapAlias",
         "Attempting to remove Password Map Alias")
-
-
-if __name__ == '__main__':
-    cli.run()

@@ -22,8 +22,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mast"
 # The MAST version is only set here. mast.__version__ reads it from the
-# installed package metadata.
-version = "3.15.2.1"
+# installed package metadata. From 4.0, it does not follow the bundled
+# Python.
+version = "4.0.0.dev0"
 description = "A utility to help manage multiple IBM DataPower appliances"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -68,28 +69,14 @@ dev = [
 [project.urls]
 Homepage = "http://github.com/mcindi/mast"
 
-# One console script for each launcher of the installer. Each one finds
-# MAST_HOME (see mast/home.py), changes to it and runs the same module as
-# the launcher. The installer does not use these scripts.
+# The one command of MAST, `mast` (see mast/main.py). The installer has
+# its own launcher of the same name.
 [project.scripts]
-mast-accounts = "mast._entry:accounts"
-mast-appliances = "mast._entry:appliances"
-mast-backups = "mast._entry:backups"
-mast-credentials = "mast._entry:credentials"
-mast-crypto = "mast._entry:crypto"
-mast-deployment = "mast._entry:deployment"
-mast-developer = "mast._entry:developer"
-mast-jobs = "mast._entry:jobs"
-mast-network = "mast._entry:network"
-mast-ssh = "mast._entry:ssh"
-mast-status = "mast._entry:status"
-mast-system = "mast._entry:system"
-mast-users = "mast._entry:users"
-mast-version = "mast._entry:version"
-mast-web = "mast._entry:web"
-mast-worker = "mast._entry:worker"
-mastd = "mast._entry:daemon"
-test-mast = "mast._entry:testsuite"
+mast = "mast.main:entry"
+
+# The plugins: each one is a provider of commands, see mast/plugins.py
+[project.entry-points.mast_plugin]
+datapower = "mast.datapower.plugin:manifest"
 
 # The pages of the web UI, see mast/web/page.py
 [project.entry-points.mast_web_page]

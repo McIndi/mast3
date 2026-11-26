@@ -163,23 +163,6 @@ class TestAccountsCommands(unittest.TestCase):
         self.assertEqual(1, html.count("Failed"))
         self.assertEqual(1, html.count("Succeeded"))
 
-    def test_flush_caches(self):
-        cases = (
-            (accounts.flush_aaa_cache, {"Domain": "d", "aaa_policy": "a"},
-             "FlushAAACache", {"PolicyName": "a", "domain": "d"}),
-            (accounts.flush_ldap_pool_cache,
-             {"Domain": "d", "xml_manager": "m"},
-             "FlushLDAPPoolCache", {"XMLManager": "m", "domain": "d"}),
-            (accounts.flush_rbm_cache, {"Domain": "d"},
-             "FlushRBMCache", {"domain": "d"}),
-        )
-        for command, kwargs, action, expected in cases:
-            with self.subTest(action=action):
-                result, messages = self.call(command, **kwargs)
-                self.assertIsInstance(result, ActionResults)
-                self.assertEqual([(action, expected)], result.env.actions)
-                self.assertEqual(1, len(messages))
-
     def test_required_parameters(self):
         with self.assertRaises(ValueError):
             accounts.add_group(appliances=["dp1"])
@@ -232,7 +215,7 @@ class TestAccountsCommands(unittest.TestCase):
         self.assertIn("\nCommon\n======\n\tadmin", text)
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(14, len(cli.commands))
+        self.assertEqual(11, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

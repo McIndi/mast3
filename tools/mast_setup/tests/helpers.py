@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-LAUNCHER = "#!/bin/bash\n\nexport MAST_HOME=$(dirname $0)\n\ncd $MAST_HOME\n\n./mast -m mast\n"
+LAUNCHER = "#!/bin/bash\n\nexport MAST_HOME=$(dirname $0)\n\ncd $MAST_HOME\n\n./mast-python -m mast\n"
 
 HOME_FILES = {
     "etc/default/server.conf": "[server]\n",
@@ -41,7 +41,7 @@ class FakeRepoTestCase(unittest.TestCase):
         scripts = self.repo / "files" / "invocation_scripts" / "linux"
         scripts.mkdir(parents=True)
         (scripts / "set-env").write_text("export PYTHON_VERSION={PYTHON_VERSION}\n")
-        (scripts / "mast-version").write_text(LAUNCHER)
+        (scripts / "mast").write_text(LAUNCHER)
         (self.repo / "uv.lock").write_text("version = 1\n")
         (self.repo / "pyproject.toml").write_text("[project]\nname = 'mast'\n")
         git(self.repo, "add", "-A")

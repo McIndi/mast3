@@ -19,7 +19,7 @@ Tests of `mastd` as a Windows service, with the installed product.
 
 They install the service `mastd` from the home in MAST_TEST_HOME (an
 unzipped installer), start it, run jobs through it and stop it, as an
-administrator does with `mastd.bat` and `sc.exe`. They change the
+administrator does with `mast.bat daemon` and `sc.exe`. They change the
 computer: they install and remove a service, and they write
 `etc/local` and `etc/crontab` in the home. So they only run when
 MAST_TEST_WINDOWS_SERVICE is `true`, as an administrator, on a
@@ -92,15 +92,15 @@ class TestWindowsService(unittest.TestCase):
         cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
         cls.cwd = os.path.dirname(cls.home)
         # MAST keeps the appliances in its database
-        out = cls.run_mast("mast-appliances.bat", "import")
+        out = cls.run_mast("mast.bat", "targets", "import")
         if "Added the environment lab" not in out.stdout:
-            raise AssertionError("mast-appliances import failed:\n"
+            raise AssertionError("mast targets import failed:\n"
                                  + out.stdout)
 
-        out = cls.run_mast("mastd.bat", "install")
+        out = cls.run_mast("mast.bat", "daemon", "install")
         if state() is None:
             raise AssertionError(
-                "mastd.bat install did not install the service:\n{}".format(
+                "mast.bat daemon install did not install the service:\n{}".format(
                     out.stdout))
         print(out.stdout)
         print(sc("qc", SERVICE))
@@ -110,7 +110,7 @@ class TestWindowsService(unittest.TestCase):
         if state() not in (None, "STOPPED"):
             sc("stop", SERVICE)
             cls.wait_state("STOPPED", TIMEOUT, fail=False)
-        print(cls.run_mast("mastd.bat", "remove").stdout)
+        print(cls.run_mast("mast.bat", "daemon", "remove").stdout)
         for fake in getattr(cls, "fakes", []):
             fake.__exit__(None, None, None)
         os.remove(os.path.join(cls.home, "etc", "crontab"))
@@ -179,7 +179,7 @@ class TestWindowsService(unittest.TestCase):
             fake.delay = seconds
 
     def workers(self):
-        return self.run_mast("mast-jobs.bat", "workers").stdout
+        return self.run_mast("mast.bat", "jobs", "workers").stdout
 
     def wait_for_worker(self):
         return self.wait_until(
@@ -187,20 +187,20 @@ class TestWindowsService(unittest.TestCase):
             "the worker of the service")
 
     def newest_job(self):
-        out = self.run_mast("mast-jobs.bat", "list", "-n", "1").stdout
+        out = self.run_mast("mast.bat", "jobs", "list", "-n", "1").stdout
         rows = [line.split() for line in out.splitlines()[2:]
                 if line.strip()]
         return rows[0][0] if rows else None
 
     def status(self, job_id):
-        out = self.run_mast("mast-jobs.bat", "show", "-j", job_id).stdout
+        out = self.run_mast("mast.bat", "jobs", "show", "-j", job_id).stdout
         fields = dict(re.findall(r"^(\w+):\s+(.*?)\s*$", out, re.M))
         return fields.get("Status", "").split()[0] if fields.get(
             "Status") else None
 
     def detach(self):
         proc = self.run_mast(
-            "mast-system.bat", "list-domains", "-a", "lab", "-c",
+            "mast.bat", "datapower", "list-domains", "-a", "lab", "-c",
             CREDENTIALS, "-n", "-t", "30", "--detach")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         return proc.stdout.split()[0]
@@ -208,7 +208,7 @@ class TestWindowsService(unittest.TestCase):
     def test_1_the_service_runs_a_job(self):
         self.wait_for_worker()
         job_id = self.detach()
-        follow = self.run_mast("mast-jobs.bat", "follow", "-j", job_id)
+        follow = self.run_mast("mast.bat", "jobs", "follow", "-j", job_id)
         self.assertEqual(follow.returncode, 0, follow.stdout)
         self.assertIn(DOMAINS[1], follow.stdout)
 

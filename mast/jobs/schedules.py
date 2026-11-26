@@ -31,7 +31,7 @@ no longer submit jobs, the schedule is paused (`enabled` false).
 * **One firing:** each run is claimed in a transaction that compares
 `last_fired_at`, so two workers on one database do not both submit it.
 
-`mast-jobs schedule ...` and Admin -> Schedules manage them (the
+`mast schedules ...` and Admin -> Schedules manage them (the
 action `manage-schedule`, admins).
 """
 import re
@@ -157,7 +157,7 @@ def _check(command, params, principal, name):
         if spec.secret and value:
             raise ScheduleError(
                 "A schedule cannot hold a password ({}). Store the "
-                "credential with mast-credentials and give its name "
+                "credential with mast credentials and give its name "
                 "(credential).".format(spec.name))
     field, credential = queue.stored_credential(cmd.model, model)
     if _SECRET_WIDGET in widgets and not credential:

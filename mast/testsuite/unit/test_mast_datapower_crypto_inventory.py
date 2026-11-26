@@ -423,7 +423,7 @@ class TestCommands(InventoryCase):
         self.addCleanup(patcher.stop)
 
     def test_a_child_for_each_appliance(self):
-        parent = jobs.submit("crypto.inventory", {"credentials": ["u:p"],
+        parent = jobs.submit("core.crypto-inventory", {"credentials": ["u:p"],
                                                   "request_delay": 0})
         self.assertTrue(jobs.get(parent).passive)
         self.assertEqual(jobs.get(parent).params["appliances"], ["dp1", "dp2"])
@@ -443,7 +443,7 @@ class TestCommands(InventoryCase):
 
     def test_an_environment_has_a_child_for_each_member(self):
         registry.env_add("lab", members=["dp1", "dp2"])
-        parent = jobs.submit("crypto.inventory", {
+        parent = jobs.submit("core.crypto-inventory", {
             "appliances": ["lab"], "credentials": ["u:p"],
             "request_delay": 0})
         jobs.run_next("w1")
@@ -487,7 +487,7 @@ class TestCommands(InventoryCase):
         registry.remove("dp1")
         registry.remove("dp2")
         with self.assertRaises(Exception) as found:
-            jobs.submit("crypto.inventory", {"credentials": ["u:p"]})
+            jobs.submit("core.crypto-inventory", {"credentials": ["u:p"]})
         self.assertIn("no registered appliance", str(found.exception))
 
 
@@ -772,7 +772,7 @@ class TestExport(InventoryCase):
         directory = tempfile.mkdtemp(dir=self.tmp)
         for name in ("cbom", "xlsx", "csv"):
             out = os.path.join(directory, "inventory")
-            job = jobs.submit("crypto.export", {"format": name, "out_file": out,
+            job = jobs.submit("core.crypto-export", {"format": name, "out_file": out,
                                                 "snapshot": self.first})
             jobs.run_next("w1")
             self.assertEqual(jobs.get(job).status, jobs.SUCCEEDED,
@@ -799,9 +799,9 @@ class TestExport(InventoryCase):
 
     def test_nothing_to_export(self):
         with self.assertRaises(Exception):
-            jobs.submit("crypto.export", {"format": "pdf"})
+            jobs.submit("core.crypto-export", {"format": "pdf"})
         registry.remove("dp1")
-        job = jobs.submit("crypto.export", {"format": "csv"})
+        job = jobs.submit("core.crypto-export", {"format": "csv"})
         jobs.run_next("w1")
         self.assertIn("no snapshot", jobs.get(job).error)
 

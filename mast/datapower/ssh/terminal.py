@@ -26,7 +26,9 @@ from mast.plugin_utils.params import APPLIANCES, STORED_CREDENTIAL
 
 __all__ = ["cli", "Terminal", "terminal"]
 
-cli = Cli(namespace="ssh")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("terminal")
 
 
 class Terminal(Params):
@@ -38,7 +40,7 @@ class Terminal(Params):
         help="The stored credential of the session, if it has one.")
 
 
-@cli.command("terminal", category="terminal", exclusive=False, passive=True,
+@cli.command("terminal", group="terminal", exclusive=False, passive=True,
              internal=True)
 def terminal(params: Terminal):
     """A session of the Terminal page of the web UI: its lines and the

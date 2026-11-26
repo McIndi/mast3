@@ -47,7 +47,7 @@ what it had. So what get-config returns is what counts.
 * 11.0.0.3 returns `classical` as the list of the classical groups
 (`brainpoolP512` ... `x25519`); 10.6.x returns the word.
 
-A probe of the port (`mast-crypto probe`) is the final word.
+A probe of the port (`mast crypto probe`) is the final word.
 """
 import re
 from dataclasses import dataclass

@@ -23,7 +23,7 @@ MAST has run in large financial services and healthcare DataPower estates for ov
 - Certificate audits across domains and appliances
 
 **Tooling**
-- A multi-appliance SSH client (`mast-ssh`)
+- A multi-appliance SSH client (`mast datapower ssh`)
 - Automated PMR (IBM support case) information gathering
 - A web UI
 
@@ -38,7 +38,7 @@ MAST ships a SOMA spec file for each of these DataPower versions. Each one was t
 | 10.6.6.0 | CD | `etc/v10.6.6.0-C.xml` |
 | 11.0.0.3 | LTS | `etc/v11.0.0.3-C.xml` |
 
-The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, give it with `mast-appliances update -n NAME --soma-spec-file etc/v10.6.0.11-C.xml`.
+The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, give it with `mast targets update -n NAME --soma-spec-file etc/v10.6.0.11-C.xml`.
 
 ## Quick start
 
@@ -61,7 +61,7 @@ Every package in `uv.lock` is checked for known vulnerabilities with [pip-audit]
 
 ### 2. Install
 
-Unzip the archive from `dist/` wherever you want MAST to live. That folder is `MAST_HOME`. Run the launchers in it (`mast-system`, `mast-backups` and so on, or `mast-system.bat` on Windows). No separate Python install is needed.
+Unzip the archive from `dist/` wherever you want MAST to live. That folder is `MAST_HOME`. Run `mast` in it (`./mast datapower list-domains ...`, or `mast.bat datapower ...` on Windows); `./mast` alone lists the roots and the plugins. No separate Python install is needed.
 
 The console scripts in `MAST_HOME/python/<version>/bin` (`Scripts` on Windows) also work, from any directory and with no `MAST_HOME` set, for example through a link in `/usr/local/bin`. On macOS they need macOS 13 or newer.
 
@@ -70,12 +70,12 @@ The console scripts in `MAST_HOME/python/<version>/bin` (`Scripts` on Windows) a
 MAST keeps the appliances and the environments in its database:
 
 ```shell
-./mast-appliances add -n dp1 -A 192.168.0.10
-./mast-appliances add -n dp2 -A 192.168.0.20
-./mast-appliances env-add -n lab -m dp1 -m dp2
+./mast targets add -n dp1 -A 192.168.0.10
+./mast targets add -n dp2 -A 192.168.0.20
+./mast fleets add -n lab -m dp1 -m dp2
 ```
 
-A setting that an appliance does not have takes the default of `[global]` in `etc/default/appliances.conf`. Coming from MAST 3.15.2 or older, run `./mast-appliances import` once to move `hosts.conf`, `environments.conf` and the per-appliance sections of `appliances.conf` into the database; `./mast-appliances export` writes them back.
+A setting that an appliance does not have takes the default of `[global]` in `etc/default/appliances.conf`. Coming from MAST 3.15.2 or older, run `./mast targets import` once to move `hosts.conf`, `environments.conf` and the per-appliance sections of `appliances.conf` into the database; `./mast targets export` writes them back.
 
 ### 4. Run a command against the whole environment
 
@@ -83,14 +83,14 @@ On Linux and macOS:
 
 ```shell
 MAST_CREDS=username:password
-./mast-ssh -a lab -c "$MAST_CREDS" -d default
+./mast datapower ssh -a lab -c "$MAST_CREDS" -d default
 ```
 
 On Windows:
 
 ```bat
 set MAST_CREDS=username:password
-mast-ssh -a lab -c %MAST_CREDS% -d default
+mast datapower ssh -a lab -c %MAST_CREDS% -d default
 ```
 
 `-a` takes an environment name or a list of appliances, so the same command runs against one box or the whole fleet.
@@ -98,28 +98,28 @@ mast-ssh -a lab -c %MAST_CREDS% -d default
 An admin can also store a credential once, for operators to use by name; the password never leaves the MAST server:
 
 ```shell
-./mast-credentials add -n collector -u mastread -p collect -b lab
-./mast-system list-domains -a lab --credential collector
+./mast credentials add -n collector -u mastread -p collect -b lab
+./mast datapower list-domains -a lab --credential collector
 ```
 
 ## The web GUI
 
-`mast-web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast-users add -u NAME -r admin`, which asks for the password. The Appliances page shows the status of every appliance, which `mast-status collect` polls on a schedule. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances (with their pinned certificates and SSH host keys), the stored credentials and the schedules. The Installation Guide has the steps of a first run, and the Operator's Guide a short tour, the roles, and what MAST protects and what it does not.
+`mast web` (or `mastd`) serves the web GUI on `https://127.0.0.1:5000/`. Every page needs a login; add the first admin with `mast users add -u NAME -r admin`, which asks for the password. The Appliances page shows the status of every appliance, which `mast datapower collect-status` polls on a schedule. The Jobs page shows the job queue live, the Commands page has a form for every command, and Admin manages the users, the appliances (with their pinned certificates and SSH host keys), the stored credentials and the schedules. The Installation Guide has the steps of a first run, and the Operator's Guide a short tour, the roles, and what MAST protects and what it does not.
 
 The Crypto page has the crypto inventory, its posture and its PQC readiness, and the Terminal page the DataPower CLI of several appliances at once, recorded as jobs. The classic GUI of earlier releases is gone; the release notes list what replaced each of its tabs.
 
 ## The job queue
 
-Each command of `mast-accounts`, `mast-backups`, `mast-crypto`, `mast-deployment`, `mast-developer`, `mast-network` and `mast-system`, and each form that you submit in the web UI, is recorded as a job in a database, with its progress and its result. `mast-ssh`, the scripts in `contrib` and `mast-system xor` are not jobs. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
+Each command of `mast datapower` and `mast crypto`, and each form that you submit in the web UI, is recorded as a job in a database, with its progress and its result. `mast datapower ssh`, the scripts in `contrib` and `mast datapower xor` are not jobs. Jobs for one appliance run one at a time, in the order in which they were submitted. Commands that only read (`list-users`, `get-status` and so on) can run at the same time as each other.
 
 You do not have to set anything up. If no worker is running, the command does its own job and you see the same output as before.
 
 To have jobs done by a worker process, start one or more workers. `mastd` also hosts one, unless `mastd = false` is in the `[worker]` section of `etc/local/jobs.conf`.
 
 ```shell
-mast-worker             # run jobs until Ctrl-C
-mast-worker -c 4        # up to four jobs at the same time
-mast-worker -d          # stop when no job waits in the queue
+mast worker             # run jobs until Ctrl-C
+mast worker -c 4        # up to four jobs at the same time
+mast worker -d          # stop when no job waits in the queue
 ```
 
 To stop a worker, press Ctrl-C or send it SIGTERM. It takes no more jobs and stops when its running jobs end. A second Ctrl-C or SIGTERM stops it at once: its running jobs become `lost`, and its exit status is 1.
@@ -127,15 +127,15 @@ To stop a worker, press Ctrl-C or send it SIGTERM. It takes no more jobs and sto
 With a worker running, a command waits for the worker to do its job and shows the progress as before. With `--local` the command does its own job, also when a worker is running. With `--detach` it returns at once and leaves the job to the worker:
 
 ```shell
-mast-backups normal-backup -a lab -c admin:password -D default --detach
-mast-jobs list          # the newest jobs
-mast-jobs show -j 3f2a  # one job: progress and result (the start of the id is enough)
-mast-jobs follow -j 3f2a
-mast-jobs cancel -j 3f2a
-mast-jobs workers
+mast datapower normal-backup -a lab -c admin:password -D default --detach
+mast jobs list          # the newest jobs
+mast jobs show -j 3f2a  # one job: progress and result (the start of the id is enough)
+mast jobs follow -j 3f2a
+mast jobs cancel -j 3f2a
+mast jobs workers
 ```
 
-The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link. A worker does the job if one is running. If none is, the web server does it, also when the last worker stops before it takes the job. You can close the browser: the job goes on. If the web server (`mast-web` or `mastd`) stops before the job starts, the job is cancelled.
+The web UI works the same way. A form that you submit becomes a job, the page shows the progress of the job while it runs, and then its output. Each running job has a Cancel link. A worker does the job if one is running. If none is, the web server does it, also when the last worker stops before it takes the job. You can close the browser: the job goes on. If the web server (`mast web` or `mastd`) stops before the job starts, the job is cancelled.
 
 Most commands do not stop when one appliance refuses an action: they continue with the other appliances and show what happened on each one. The status of the job tells you how that went.
 
@@ -149,7 +149,7 @@ Most commands do not stop when one appliance refuses an action: they continue wi
 
 **Change from earlier versions:** a command now exits with status 1 when an appliance refuses an action. Before, the exit status was 0 unless the command stopped with an error. Check the scripts that call MAST and test `$?`. Commands whose result is a download or a table of their own (`fetch-logs`, `check-connectivity` and others) do not report a failure this way yet, and neither do the steps of `git-deploy`.
 
-Ctrl-C in a command cancels its job. A job that is running stops at its next step, before its next request to an appliance, and what it did before that is not undone. A job that runs in the same program stops at once after Ctrl-C. A job that is cancelled with `mast-jobs cancel` or the Cancel link of the web GUI stops within about a second (`cancel_poll_seconds` in the `[worker]` section of `jobs.conf`). A request to an appliance that has started is completed first.
+Ctrl-C in a command cancels its job. A job that is running stops at its next step, before its next request to an appliance, and what it did before that is not undone. A job that runs in the same program stops at once after Ctrl-C. A job that is cancelled with `mast jobs cancel` or the Cancel link of the web GUI stops within about a second (`cancel_poll_seconds` in the `[worker]` section of `jobs.conf`). A request to an appliance that has started is completed first.
 
 If a worker cannot reach the database for longer than its lease (`lease_seconds`, 60 by default), its job is marked `lost` and the next job for the same appliances can start. The worker stops a lost job at its next step. A lost job is never run again, because nobody knows how much of it was done. Look at the appliance before you run the command again.
 
@@ -174,12 +174,12 @@ uv run pytest mast/testsuite/unit mast/testsuite/regression tools
 
 ```shell
 ./mast-setup --development-mode
-.dev/mast_home/mast-system list-domains -a lab -c ...
+.dev/mast_home/mast datapower list-domains -a lab -c ...
 ```
 
 - MAST is installed editable, so a change to the code is live.
 - The files of `files/mast_home` that git tracks (`etc/default`, the SOMA specs, the web templates and static files) are links to the checkout, so a change to them is live too.
-- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your local configuration in `.dev/mast_home/etc/local`, and your appliances in the registry with `.dev/mast_home/mast-appliances`.
+- What MAST writes (`etc/local`, `var/log`, `tmp` and so on) stays in `.dev/mast_home` and never shows in `git status`. Put your local configuration in `.dev/mast_home/etc/local`, and your appliances in the registry with `.dev/mast_home/mast targets`.
 - Run the command again after you pull: it links new files, removes stale links, and updates the libraries when `uv.lock` changed. `--recreate` starts from an empty home.
 - On Windows, links need developer mode. Without it the files are copied, and you run the command again after you change them.
 
@@ -218,11 +218,11 @@ Without that variable, or without a container runtime, the integration tests are
 | `MAST_TEST_DATAPOWER_KEEP` | Set to `true` to keep the container (`mast-test-keep`) and use it again in the next run. |
 | `MAST_TEST_DATAPOWER_TIMEOUT` | Seconds to wait for the gateway to start. The default is 300. |
 | `MAST_TEST_CONTAINER_RUNTIME` | `podman` or `docker`. The default is the first one found. |
-| `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast-system` and so on), as users do. Without it they run `python -m` with the interpreter of the tests, and the tests of the installed product are skipped. |
+| `MAST_TEST_HOME` | A MAST home: a development home (`.dev/mast_home`, made by `./mast-setup --development-mode`) or an unzipped installer. The command line tests then run the launchers of a copy of that home (`mast datapower` and so on), as users do. Without it they run `python -m` with the interpreter of the tests, and the tests of the installed product are skipped. |
 
 ### Tests of the installed product
 
-`mast/testsuite/integration/test_installed.py` runs a MAST home as users do: through its launchers, from another directory, in a folder whose name has a space. It checks the launchers, the exit statuses, cancelled jobs (Ctrl-C, `mast-jobs cancel`, a job that waits) and workers that stop (SIGTERM once and twice, `--drain`), and that the web GUI answers. It needs no DataPower: the appliances are local servers that answer like SOMA after a delay. It runs on Linux and macOS, and only when `MAST_TEST_HOME` is set:
+`mast/testsuite/integration/test_installed.py` runs a MAST home as users do: through its launchers, from another directory, in a folder whose name has a space. It checks the launchers, the exit statuses, cancelled jobs (Ctrl-C, `mast jobs cancel`, a job that waits) and workers that stop (SIGTERM once and twice, `--drain`), and that the web GUI answers. It needs no DataPower: the appliances are local servers that answer like SOMA after a delay. It runs on Linux and macOS, and only when `MAST_TEST_HOME` is set:
 
 ```shell
 ./mast-setup

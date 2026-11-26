@@ -18,7 +18,7 @@
 _module_: `mast.credentials`
 
 The credential store: user names and passwords for appliances, which
-an admin stores once (`mast-credentials`, or Admin → Credentials in the
+an admin stores once (`mast credentials`, or Admin → Credentials in the
 web UI) and operators then use by name. A job names its credential
 (`--credential NAME`, `-C NAME`); the worker decrypts it just before
 the command runs, and the password is never in the job's parameters,
@@ -28,7 +28,7 @@ its progress, its result, a log or an answer of the API.
 appliances and environments, their uses, and the audit trail.
 * `mast.credentials.keys`: Where the keys come from (a key file in
 `etc/local`, see `[credentials]` in `jobs.conf`).
-* `mast.credentials.cli`: The `mast-credentials` program.
+* `mast.credentials.cli`: The `mast credentials` program.
 
 A credential is tested with the command `TEST_COMMAND`: it reads the
 firmware version of the appliance, and tries an action that changes
@@ -40,4 +40,4 @@ change` (`yes` or `no` in each).
 __all__ = ["TEST_COMMAND"]
 
 # The command that tests a credential, see mast.datapower.system
-TEST_COMMAND = "system.check-credentials"
+TEST_COMMAND = "datapower.check-credentials"

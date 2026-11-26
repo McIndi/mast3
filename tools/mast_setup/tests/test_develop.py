@@ -59,7 +59,7 @@ class TestDevelop(DevelopTestCase):
             self.assertEqual(list(path.iterdir()), [], relative)
         # The folders that hold links are real folders.
         self.assertFalse((self.home / "etc" / "default").is_symlink())
-        self.assertTrue((self.home / "mast-version").is_file())
+        self.assertTrue((self.home / "mast").is_file())
         self.assertEqual(self.warnings, [])
 
     def test_an_edit_in_the_checkout_is_live(self):
@@ -149,7 +149,7 @@ class TestUsage(unittest.TestCase):
     def test_usage_names_the_home(self):
         lines = develop.usage(Path.cwd(), Path.cwd() / ".dev" / "mast_home", "linux")
         self.assertTrue(lines[0].startswith("Development home: "))
-        self.assertIn(".dev/mast_home/mast-system list-domains", lines[1])
+        self.assertIn(".dev/mast_home/mast datapower list-domains", lines[1])
 
 
 if __name__ == "__main__":

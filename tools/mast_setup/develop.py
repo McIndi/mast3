@@ -208,9 +208,9 @@ def usage(repo, home, platform):
     except ValueError:
         shown = home
     if platform == "windows":
-        command = f"{shown}\\mast-system.bat list-domains -a lab -c ..."
+        command = f"{shown}\\mast.bat datapower list-domains -a lab -c ..."
     else:
-        command = f"{shown}/mast-system list-domains -a lab -c ..."
+        command = f"{shown}/mast datapower list-domains -a lab -c ..."
     return [
         f"Development home: {home} (code: {repo}, editable)",
         f"Run:  {command}",

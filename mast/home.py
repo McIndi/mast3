@@ -22,7 +22,7 @@ This module finds `MAST_HOME`, the folder that holds the configuration
 installed MAST, the Python interpreter and the launchers.
 
 MAST runs with its home as the current directory. The launchers
-(`mast-system`, `mast-web` and so on) set `MAST_HOME` and change to
+(`mast datapower`, `mast web` and so on) set `MAST_HOME` and change to
 it before they start Python, and some paths in the configuration are
 relative to it (for example `soma_spec_file` in `appliances.conf` and
 the `out_dir` defaults). `enter()` does the same as the launchers, for
@@ -102,7 +102,7 @@ def find_home():
     3. The home that contains the interpreter (`sys.executable`). The
     Python of an installer or of a development home is in
     `MAST_HOME/python`, so its console scripts (for example
-    `MAST_HOME/python/3.15.2/bin/mast-system`) work from any directory.
+    `MAST_HOME/python/3.15.2/bin/mast datapower`) work from any directory.
 
     Raise `MastHomeNotFound` if none of these gives a home.
     """

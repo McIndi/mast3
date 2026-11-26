@@ -15,7 +15,7 @@
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 """
 mast ssh: the DataPower CLI over SSH, on several appliances at once:
-`mast-ssh` on the command line (`__main__`), and the Terminal page of
+`mast datapower ssh` on the command line (`__main__`), and the Terminal page of
 the web UI (`page`, `sessions`), whose sessions are jobs of the command
 `ssh.terminal` (`terminal`).
 """

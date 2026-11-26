@@ -68,7 +68,7 @@ class TestBuild(unittest.TestCase):
             self.assertRegex(zips[0].name, r"^MAST-{}_py3\.\d+\.\d+_(linux|windows|darwin-\w+)\.zip$".format(
                 re.escape(mast_version())))
             names = set(zipfile.ZipFile(zips[0]).namelist())
-            launcher = "mast-version.bat" if sys.platform == "win32" else "mast-version"
+            launcher = "mast.bat" if sys.platform == "win32" else "mast"
             for expected in (launcher, "etc/default/server.conf", "etc/default/ssh.conf",
                              "etc/local/.empty", "contrib/getconfig.py"):
                 self.assertIn(expected, names)
@@ -92,13 +92,13 @@ class TestBuild(unittest.TestCase):
                 home = tmp / "unzipped"
                 subprocess.run(["unzip", "-q", str(zips[0]), "-d", str(home)], check=True)
                 scripts = next(home.glob("python/*/bin"))
-                for command in ([home / "mast-version"], [scripts / "mast-version"],
+                for command in ([home / "mast", "version"], [scripts / "mast", "version"],
                                 [scripts / "pip3", "--version"]):
                     with self.subTest(command=command[0].name):
                         result = subprocess.run([str(c) for c in command], capture_output=True,
                                                 text=True, cwd="/", env=clean_environment())
                         self.assertEqual(result.returncode, 0, result.stderr)
-                        if command[0].name == "mast-version":
+                        if command[0].name == "mast":
                             self.assertIn("Version {}".format(mast_version()), result.stdout)
 
 
@@ -117,7 +117,7 @@ class TestDevelopmentMode(unittest.TestCase):
                       "--cache-directory", REPO / "build-cache",
                       "--build-directory", tmp / "build", repo=clone)
 
-            result = subprocess.run([str(home / "mast-version")], capture_output=True,
+            result = subprocess.run([str(home / "mast"), "version"], capture_output=True,
                                     text=True, cwd="/", env=clean_environment())
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Version {}".format(mast_version()), result.stdout)
@@ -128,7 +128,8 @@ class TestDevelopmentMode(unittest.TestCase):
             self.assertIn(old, text)
             system.write_text(text.replace(
                 old, '    """Live docstring check. This will xor encode the given string', 1))
-            result = subprocess.run([str(home / "mast-system"), "-h"], capture_output=True,
+            result = subprocess.run([str(home / "mast"), "datapower", "xor", "-h"],
+                                    capture_output=True,
                                     text=True, cwd="/", env=clean_environment())
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Live docstring check", result.stdout)

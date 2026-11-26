@@ -40,7 +40,7 @@ __all__ = ["choices", "is_choice", "UnknownWidget", "STATUS_PROVIDERS",
 # The command that lists the objects of a class on appliances, as a
 # table whose first two columns are the name and whether every
 # appliance has it (mast.datapower.system.list_objects)
-LOOKUP_COMMAND = "system.list-objects"
+LOOKUP_COMMAND = "datapower.list-objects"
 
 
 class UnknownWidget(ValueError):

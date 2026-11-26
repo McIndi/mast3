@@ -245,7 +245,7 @@ async function refresh() {
         rows.replaceChildren(...credentials.map(credentialRow));
         if (!credentials.length) {
             rows.append(el("tr", {}, el("td", {colSpan: 8, className: "text-body-secondary"},
-                "No credentials yet. Add one below, or with mast-credentials add.")));
+                "No credentials yet. Add one below, or with mast credentials add.")));
         }
         if (!form.elements.original.value) {
             const checked = [...bindingsBox.querySelectorAll("input:checked")].map((i) => ({name: i.value}));

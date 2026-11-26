@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# The Python of this installation, with MAST_HOME set
+export MAST_HOME="$(cd "$(dirname "$0")" && pwd)"
+
+cd "$MAST_HOME" || exit 1
+source ./set-env
+
+exec "python/$PYTHON_VERSION/bin/python3" "$@"

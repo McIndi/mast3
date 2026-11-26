@@ -239,7 +239,7 @@ def redactor(model, values, extra=()):
     A value is found as it was given, base64 encoded, and escaped for
     XML or HTML (once or twice).
 
-    Credentials can be given xor encoded (the output of `mast-system
+    Credentials can be given xor encoded (the output of `mast datapower
     xor`), and the command decodes them before it uses them. Such a
     value is decoded here too, and the decoded `user:password` is
     found in the same forms. It is decoded with the key in `xor.conf`

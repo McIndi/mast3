@@ -30,7 +30,7 @@ if it is dead, it will be restarted. This process will continue until
 When `mastd` is stopped, it takes no more jobs and starts no more
 scheduled tasks, and it exits when the running ones end. On Linux,
 stopping it a second time (a second SIGTERM, or Ctrl-C while
-`mastd stop` waits) makes it exit now; its running jobs then become
+`mast daemon stop` waits) makes it exit now; its running jobs then become
 lost.
 """
 import os

@@ -597,7 +597,7 @@ class DataPower(object):
         Parameters:
 
         * `hostname`: Can be a hostname, IP Address, or the name of an
-        appliance in the registry (`mast-appliances`)
+        appliance in the registry (`mast targets`)
         * `credentials`: should be a string that is a username and password
         seperated by a colon (ie. "user:pass")
         * `domain`: The initial domain to start in.

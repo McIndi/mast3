@@ -4,6 +4,74 @@
 
 [TOC]
 
+# MAST 4.0 (in development)
+
+MAST 4.0 is a breaking release: see the design in `docs/design/mast-4.0.md`.
+It is built on `main` in steps; MAST 3.x continues on the branch
+`version_3`. This section grows with each step. The sections after it
+are the changes of 3.x that 4.0 also has.
+
+## Changes that need your attention
+
+* **One command: `mast`.** The launchers of 3.x (`mast-system`,
+`mast-appliances`, `mastd` ...) are gone. Each one is a root of `mast`:
+
+    | 3.x | 4.0 |
+    |---|---|
+    | `mast-system`, `mast-backups`, `mast-deployment`, `mast-accounts`, `mast-network`, `mast-developer` | `mast datapower` |
+    | `mast-crypto inventory`, `export`, `posture`, `rules`, `exception-add`, `exception-remove`, `exceptions`, `probe` | `mast crypto ...` |
+    | `mast-crypto cert-audit`, `cert-file-audit`, `export-certs` | `mast datapower ...` |
+    | `mast-crypto inventory-appliance` | `mast datapower collect-crypto` |
+    | `mast-status collect` | `mast datapower collect-status` |
+    | `mast-ssh` | `mast datapower ssh` |
+    | `mast-appliances add`, `update`, `remove`, `list`, `pin`, `unpin`, `import`, `export` | `mast targets ...` |
+    | `mast-appliances env-add`, `env-update`, `env-set-members`, `env-remove`, `env-list` | `mast fleets add`, `update`, `set-members`, `remove`, `list` |
+    | `mast-jobs schedule-add` ... `schedule-run` | `mast schedules add` ... `run` |
+    | `mast-jobs` (the other commands) | `mast jobs ...` |
+    | `mast-credentials`, `mast-users` | `mast credentials`, `mast users` |
+    | `mast-web`, `mast-worker`, `mast-version`, `test-mast` | `mast web`, `mast worker`, `mast version`, `mast selftest` |
+    | `mastd start`, `stop`, `restart`, `status` (Windows: `install`, `remove` ...) | `mast daemon ...` |
+
+    `mast` alone lists the roots and the installed plugins, and
+    `mast ROOT --help` the commands of a root. In the installer,
+    `./mast` (`mast.bat` on Windows) is the command; the interpreter that
+    was `./mast` is now `./mast-python` (`mast-python.bat`), for example
+    `./mast-python contrib/gen-cert.py`. `mast --home PATH ROOT ...` runs
+    MAST in another home. The Windows service is still named `mastd`.
+* **The ids of the commands changed.** The id of every DataPower
+command is `datapower.NAME` (`system.get-status` is now
+`datapower.get-status`), and the commands of core are `core.NAME`
+(`crypto.inventory` is `core.crypto-inventory`). Jobs and schedules
+store these ids. `mast/v3.py` maps every 3.x id to its 4.0 id; the
+import of a 3.x installation (a later step) uses it.
+* **Thirteen duplicate commands are one command each.** 3.x had the same
+command in two namespaces: `flush-aaa-cache`, `flush-ldap-pool-cache`,
+`flush-rbm-cache` (accounts and system), `flush-arp-cache`,
+`flush-dns-cache`, `flush-nd-cache`, `flush-pdp-cache` (network and
+system), `flush-document-cache`, `flush-stylesheet-cache` (developer and
+system), and `set-file`, `get-file`, `del-file`, `clean-up` (deployment
+and system). 4.0 keeps the one that was in `mast-system`, with two
+differences:
+    * `flush-pdp-cache` takes `-X`/`--XACMLPDP`, as `mast-network
+    flush-pdp-cache` did (`mast-system` had `--XACML_PDP`).
+    * `clean-up` backs up the files only with `-b`/`--backup-files`, as
+    `mast-system clean-up` did. `mast-deployment clean-up` backed them
+    up unless it was given `--backup-files`.
+* **The log of the web server** is `mast.web.log`, not
+`mast.datapower.web.log`.
+* **The version** of MAST no longer follows the bundled Python. The
+development version is `4.0.0.dev0`.
+
+## New
+
+* `mast plugins list`: the installed plugins, and each plugin that was
+left out with the reason. A plugin is a distribution with an entry
+point `mast_plugin`; one that cannot be loaded does not stop the rest of
+MAST.
+* The Commands page groups the commands by provider and category
+(`datapower · system`), and shows the command line and the permission
+path of each command.
+
 # Next Release
 
 This release adds users and a login to the web GUI, and a new web UI

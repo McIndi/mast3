@@ -261,21 +261,19 @@ class TestProgramName(unittest.TestCase):
             cli.parser.parse_args(list(argv) + ["--help"])
         return out.getvalue().splitlines()[0]
 
-    def test_a_plugin_is_named_after_its_launcher(self):
-        # A plugin module is imported by `python -m` before Python knows
-        # its name, so argparse would say "-m"
-        cli = Cli(namespace="backups")
+    def test_a_provider_is_named_after_its_command_line(self):
+        cli = Cli(provider="backups")
 
         @cli.command("normal-backup")
         def normal_backup(params: Greet):
             pass
 
-        self.assertTrue(self.usage(cli).startswith("usage: mast-backups "))
+        self.assertTrue(self.usage(cli).startswith("usage: mast backups "))
         self.assertTrue(self.usage(cli, "normal-backup").startswith(
-            "usage: mast-backups normal-backup "))
+            "usage: mast backups normal-backup "))
 
     def test_prog_is_used_as_given(self):
-        cli = Cli(namespace="backups", prog="other")
+        cli = Cli(provider="backups", prog="other")
         self.assertTrue(self.usage(cli).startswith("usage: other "))
 
 
@@ -420,13 +418,11 @@ class TestListOptionHelp(unittest.TestCase):
         to each list option, so its own help must not say it again."""
         from mast.jobs import registry
         repeats = []
-        for namespace in registry.namespaces():
-            for command in registry.cli_for(namespace).commands.values():
-                for spec in cli_params.options(command.model):
-                    if spec.kind == "list" and \
-                            "once for each" in (spec.help or "").lower():
-                        repeats.append("{}.{} {}".format(
-                            namespace, command.name, spec.name))
+        for command in registry.commands():
+            for spec in cli_params.options(command.model):
+                if spec.kind == "list" and \
+                        "once for each" in (spec.help or "").lower():
+                    repeats.append("{} {}".format(command.id, spec.name))
         self.assertEqual(repeats, [])
 
 

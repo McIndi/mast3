@@ -16,7 +16,7 @@
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
 Unit tests for mast.credentials: the key file, the store, the checks of
-the queue and the runner, mast-credentials, and the API and the page of
+the queue and the runner, mast credentials, and the API and the page of
 the web UI.
 """
 import base64
@@ -66,7 +66,7 @@ class Look(ApplianceOptions):
 
 
 def make_cli():
-    cli = Cli(namespace="credtest")
+    cli = Cli(provider="credtest")
 
     @cli.command("look", exclusive=False)
     def look(params: Look):
@@ -572,7 +572,7 @@ class TestTesting(CredentialsCase):
 
 
 class TestCheckCredentialsCommand(unittest.TestCase):
-    """The rows of system.check-credentials, with a fake appliance."""
+    """The rows of datapower.check-credentials, with a fake appliance."""
 
     def appliance(self, version="IDG.11.0.0.3", ping="OK", fail=None):
         from lxml import etree
@@ -674,7 +674,7 @@ class TestMastCredentials(CredentialsCase):
             "add", "-n", "ro", "-u", "reader", "-p", "collect", "-b",
             "nothing", "--password-stdin", stdin=PASSWORD + "\n")
         self.assertEqual(code, 1)
-        self.assertIn("mast-credentials: 'nothing' is not a registered", err)
+        self.assertIn("mast credentials: 'nothing' is not a registered", err)
         code, out, err = self.run_cli("show", "-n", "nothing")
         self.assertEqual(code, 1)
         self.assertIn("There is no stored credential nothing", err)
