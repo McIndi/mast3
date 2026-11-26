@@ -396,13 +396,18 @@ The CBOM (cryptographic bill of materials) has:
 
 * each appliance as a `device`, with its firmware as the version;
 * each certificate, key, credential, password alias and TLS profile as
-a `cryptographic-asset`, with its state (`mast:opState`) and the
-cipher suites of a profile by their IANA names. An object that one of
-them names but the configuration does not have, such as the built-in
-crypto profile `system-default`, is there too, with
+a `cryptographic-asset`, with its state (`mast:opState`). An object
+that one of them names but the configuration does not have, such as
+the built-in crypto profile `system-default`, is there too, with
 `mast:inConfiguration` false;
-* the algorithms of the certificates, and the key exchange group of
-each port that the probe reached;
+* the public key of each certificate, with its algorithm and size
+(the certificate's `subjectPublicKeyRef` names it);
+* the cipher suites of each TLS profile by their IANA names, each
+with its IANA code and its algorithms: the key exchange, the
+signature, the cipher and the MAC or the hash. A TLS 1.3 suite names
+only its cipher and its hash;
+* the algorithms of the certificates and of the cipher suites, and the
+key exchange group of each port that the probe reached;
 * each listener or service that uses them as an `application`, with
 its address and port (`mast:listen`);
 * each file of `cert:`, `pubcert:` and `sharedcert:` as a `file`, with

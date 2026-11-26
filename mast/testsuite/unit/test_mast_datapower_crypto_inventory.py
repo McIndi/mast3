@@ -567,8 +567,16 @@ class TestExport(InventoryCase):
         self.assertEqual(cert["certificateProperties"]["subjectName"],
                          "CN=lab.example.test")
         refs = {c["bom-ref"] for c in document["components"]}
-        self.assertEqual(cert["certificateProperties"]["subjectPublicKeyRef"],
-                         "algorithm/RSA-2048")
+        # subjectPublicKeyRef names the public key, which names its
+        # algorithm
+        by_ref = {c["bom-ref"]: c for c in document["components"]}
+        key = by_ref[cert["certificateProperties"]["subjectPublicKeyRef"]]
+        self.assertEqual(key["cryptoProperties"], {
+            "assetType": "related-crypto-material",
+            "relatedCryptoMaterialProperties": {
+                "type": "public-key", "algorithmRef": "algorithm/RSA-2048",
+                "size": 2048}})
+        self.assertEqual(key["name"], "public key of CN=lab.example.test")
         self.assertIn("algorithm/RSA-2048", refs)
         profile = by_name["lab-server-profile"]["cryptoProperties"]
         self.assertEqual(profile["protocolProperties"]["version"], "1.3")
@@ -644,8 +652,20 @@ class TestExport(InventoryCase):
         probed = by_ref["dp1/probe/10.0.0.1:443"]["cryptoProperties"]
         protocol = probed["protocolProperties"]
         self.assertEqual(protocol["version"], "1.3")
-        self.assertEqual(protocol["cipherSuites"],
-                         [{"name": "TLS_AES_256_GCM_SHA384"}])
+        self.assertEqual(protocol["cipherSuites"], [{
+            "name": "TLS_AES_256_GCM_SHA384",
+            "algorithms": ["algorithm/AES-256-GCM", "algorithm/SHA-384"],
+            "identifiers": ["0x13", "0x02"]}])
+        self.assertEqual(by_ref["algorithm/AES-256-GCM"]["cryptoProperties"]
+                         ["algorithmProperties"], {
+                             "primitive": "ae", "parameterSetIdentifier": "256",
+                             "mode": "gcm"})
+        # A certificate that only the probe saw has its public key too
+        self.assertEqual(
+            by_ref["public-key/" + "ab" * 32]["cryptoProperties"]
+            ["relatedCryptoMaterialProperties"],
+            {"type": "public-key", "algorithmRef": "algorithm/EC-secp384r1",
+             "size": 384})
         server_cert = "dp1/{}/CryptoCertificate/lab-server-cert".format(DOMAIN)
         self.assertEqual(protocol["cryptoRefArray"], [
             "algorithm/X25519MLKEM768", server_cert,
@@ -674,11 +694,15 @@ class TestExport(InventoryCase):
             "cryptoProperties"]["relatedCryptoMaterialProperties"],
             {"type": "private-key"})
         # The cipher suites of a profile have their IANA names
-        names = [c["name"] for c in by_ref[
-            "dp1/{}/SSLServerProfile/lab-server-profile".format(DOMAIN)]
-            ["cryptoProperties"]["protocolProperties"]["cipherSuites"]]
-        self.assertTrue(names)
-        self.assertTrue(all(n.startswith("TLS_") for n in names))
+        # and the algorithms and IANA code of each, all in the document
+        found = by_ref["dp1/{}/SSLServerProfile/lab-server-profile".format(
+            DOMAIN)]["cryptoProperties"]["protocolProperties"]["cipherSuites"]
+        self.assertTrue(found)
+        for suite in found:
+            self.assertTrue(suite["name"].startswith("TLS_"))
+            self.assertEqual(len(suite["identifiers"]), 2)
+            self.assertTrue(suite["algorithms"])
+            self.assertTrue(set(suite["algorithms"]) <= set(by_ref))
         # The findings, each on what it is about
         vulnerabilities = document["vulnerabilities"]
         self.assertEqual(len(vulnerabilities), len(snap["findings"]))
@@ -703,6 +727,43 @@ class TestExport(InventoryCase):
             with self.subTest(group=group):
                 self.assertEqual(_group_properties(group),
                                  {"primitive": "key-agree"})
+
+    def test_the_parts_of_each_cipher_suite(self):
+        from mast.datapower.crypto import suites
+        # The names of DataPower, OpenSSL and IANA
+        for name, iana in (
+                ("ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+                 "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"),
+                ("AES_256_GCM_SHA384", "TLS_AES_256_GCM_SHA384"),
+                ("ECDHE-RSA-AES256-GCM-SHA384",
+                 "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"),
+                ("SSL_RSA_WITH_3DES_EDE_CBC_SHA",
+                 "TLS_RSA_WITH_3DES_EDE_CBC_SHA"),
+                ("TLS_AES_128_GCM_SHA256", "TLS_AES_128_GCM_SHA256")):
+            with self.subTest(name=name):
+                self.assertEqual(suites.iana_name(name), iana)
+        self.assertEqual(suites.identifiers(
+            "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"), ["0xC0", "0x30"])
+        self.assertEqual(suites.identifiers("TLS_NOT_A_SUITE"), [])
+        names = lambda suite: [a[:2] for a in suites.algorithms(suite)]
+        self.assertEqual(names("TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"), [
+            ("ECDHE", "key-agree"), ("ECDSA", "signature"),
+            ("AES-128-GCM", "ae"), ("SHA-256", "hash")])
+        # RSA key transport: no signature, and HMAC for a CBC cipher
+        self.assertEqual(names("TLS_RSA_WITH_3DES_EDE_CBC_SHA"), [
+            ("RSA", "pke"), ("3DES-EDE-CBC", "block-cipher"),
+            ("HMAC-SHA1", "mac")])
+        self.assertEqual(names("TLS_DHE_DSS_WITH_AES_256_CBC_SHA256"), [
+            ("DHE", "key-agree"), ("DSA", "signature"),
+            ("AES-256-CBC", "block-cipher"), ("HMAC-SHA256", "mac")])
+        # TLS 1.3 names only the cipher and the hash
+        self.assertEqual(names("TLS_CHACHA20_POLY1305_SHA256"), [
+            ("ChaCha20-Poly1305", "ae"), ("SHA-256", "hash")])
+        self.assertEqual(names("TLS_RSA_WITH_NULL_SHA"), [
+            ("RSA", "pke"), ("HMAC-SHA1", "mac")])
+        for name in ("TLS_bogus", "bogus", "", None, "TLS_PSK_WITH_AES"):
+            with self.subTest(name=name):
+                self.assertEqual(suites.algorithms(name), [])
 
     def test_each_format_through_the_queue(self):
         import csv
