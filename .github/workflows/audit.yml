@@ -6,9 +6,12 @@ name: audit
 # check, and so stops a release. It runs each week too, because a
 # package that did not change can get a known vulnerability.
 on:
+  # main is the 4.x line and version_3 is the 3.x line.
   push:
-    branches: [main]
+    branches: [main, version_3]
   pull_request:
+  # GitHub runs a schedule only from the default branch (main), so the
+  # weekly run checks the uv.lock of each line itself.
   schedule:
     - cron: "17 6 * * 1"
   # release.yml calls this workflow and attaches the report and the SBOM
@@ -17,9 +20,17 @@ on:
 
 jobs:
   pip-audit:
+    name: pip-audit${{ matrix.ref && format(' ({0})', matrix.ref) || '' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # An empty ref checks out the commit of the event.
+        ref: ${{ github.event_name == 'schedule' && fromJSON('["main", "version_3"]') || fromJSON('[""]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.15"
@@ -51,7 +62,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: audit
+          # release.yml downloads the artifact named audit.
+          name: audit${{ matrix.ref && format('-{0}', matrix.ref) || '' }}
           path: |
             pip-audit.json
             sbom.cdx.json

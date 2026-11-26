@@ -1,8 +1,9 @@
 name: tests
 
 on:
+  # main is the 4.x line and version_3 is the 3.x line.
   push:
-    branches: [main]
+    branches: [main, version_3]
   pull_request:
   # release.yml calls this workflow, so that installers are only built from
   # a commit that passes the tests.

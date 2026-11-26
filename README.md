@@ -57,7 +57,7 @@ The dependencies come from `uv.lock`, and the Python runtime is the python-build
 
 You do not have to build a release yourself. When a tag that starts with `v` is pushed (for example `v3.15.2`), GitHub Actions runs the tests, builds the installers for Windows, Linux and macOS, and publishes them as a GitHub release. The tag must match the version in `pyproject.toml`.
 
-Every package in `uv.lock` is checked for known vulnerabilities with [pip-audit](https://pypi.org/project/pip-audit/) on each pull request, on each push to `main`, each week, and before a release (`.github/workflows/audit.yml`). A known vulnerability fails the check and stops the release. Each release has the report of the check (`MAST-<version>_pip-audit.json`) and a software bill of materials of those packages in CycloneDX format (`MAST-<version>_sbom.cdx.json`), next to the installers and in `SHA256SUMS`. The packages of every platform are in both files, so `pywin32` is listed although only the Windows installer has it.
+Every package in `uv.lock` is checked for known vulnerabilities with [pip-audit](https://pypi.org/project/pip-audit/) on each pull request, on each push to `main` (the 4.x line) and `version_3` (the 3.x line), each week for both lines, and before a release (`.github/workflows/audit.yml`). A known vulnerability fails the check and stops the release. Each release has the report of the check (`MAST-<version>_pip-audit.json`) and a software bill of materials of those packages in CycloneDX format (`MAST-<version>_sbom.cdx.json`), next to the installers and in `SHA256SUMS`. The packages of every platform are in both files, so `pywin32` is listed although only the Windows installer has it.
 
 ### 2. Install
 
