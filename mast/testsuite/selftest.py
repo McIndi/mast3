@@ -13,9 +13,27 @@
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
+"""
+_module_: `mast.testsuite.selftest`
+
+`mast selftest`: run the tests of MAST in this installation.
+
+The tests never run in the home itself. They submit jobs, register
+appliances and write to the database, and in a home that is in use
+those are its database, its registered appliances and the jobs that its
+workers run. `mast selftest` makes a temporary copy of the files of the
+home (`contrib`, `doc`, `etc`, `bin` and `usrbin`, without `etc/local`
+and the private keys), and runs the tests in a new process in that
+copy, with an empty database and no appliances. The copy is removed
+when the tests end.
+"""
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
+
 from mast import __version__
 from mast.cli import Cli
 from mast.cli import Params, Option
@@ -23,20 +41,14 @@ from mast.logging import make_logger
 
 here = os.path.dirname(__file__)
 
-unittest_dir = os.path.join(here, "unit")
-unittest_suite = unittest.defaultTestLoader.discover(
-    start_dir=unittest_dir,
-    top_level_dir=unittest_dir)
+# Set in the process that runs the tests, to the home that it copied
+ISOLATED = "MAST_SELFTEST_ISOLATED"
 
-integration_dir = os.path.join(here, "integration")
-integration_suite = unittest.defaultTestLoader.discover(
-    start_dir=integration_dir,
-    top_level_dir=integration_dir)
+# What of the home the copy has: the configuration and the files that
+# come with MAST. Not the database and logs (var), tmp, the interpreter
+# (python) or the launchers.
+COPIED = ("bin", "contrib", "doc", "etc", "usrbin")
 
-regression_dir = os.path.join(here, "regression")
-regression_suite = unittest.defaultTestLoader.discover(
-    start_dir=regression_dir,
-    top_level_dir=regression_dir)
 
 class Main(Params):
     out_file: str = Option(
@@ -59,38 +71,107 @@ class Main(Params):
         help='Print version number and exit')
 
 
+def _ignore(source, names):
+    """What `copy_home` leaves out of one directory."""
+    parts = os.path.normpath(source).split(os.sep)
+    if parts[-1] == "etc":
+        return [name for name in names if name == "local"]
+    if parts[-2:] == ["crypto", "private"]:
+        return list(names)
+    return []
+
+
+def copy_home(home, into):
+    """
+    _function_: `mast.testsuite.selftest.copy_home(home, into)`
+
+    Copy what the tests need of the MAST home `home` into the new folder
+    `into`, and return its path: the configuration without
+    `etc/local`, and none of the database, the logs, the private keys or
+    the interpreter.
+    """
+    target = os.path.join(into, "mast_home")
+    os.makedirs(target)
+    for name in COPIED:
+        source = os.path.join(home, name)
+        if os.path.isdir(source):
+            shutil.copytree(source, os.path.join(target, name),
+                            ignore=_ignore)
+    for name in ("etc/local", "tmp", "var/log", "var/jobs"):
+        os.makedirs(os.path.join(target, *name.split("/")), exist_ok=True)
+    return target
+
+
+def suites(params):
+    """The test suites that `params` asks for."""
+    names = []
+    if params.unit or params.All:
+        names.append("unit")
+    if params.integration or params.All:
+        names.append("integration")
+    if params.regression or params.All:
+        names.append("regression")
+    found = []
+    for name in names:
+        start = os.path.join(here, name)
+        found.append(unittest.defaultTestLoader.discover(
+            start_dir=start, top_level_dir=start))
+    return found
+
+
+def run_tests(params):
+    """Run the suites in this process (the copy of the home). Return
+    True if every test passed."""
+    suite = unittest.TestSuite(suites(params))
+    if params.out_file == "stdout":
+        result = unittest.TextTestRunner(
+            stream=sys.stdout, verbosity=0).run(suite)
+    else:
+        with open(params.out_file, "w") as fp_out:
+            result = unittest.TextTestRunner(
+                stream=fp_out, verbosity=0).run(suite)
+    return result.wasSuccessful()
+
+
 def main(params: Main):
     """mast.testsuite
 
-A testsuite for MAST for IBM DataPower. This module is executable
-from mast, the following options can be specified:"""
-    out_file = params.out_file
-    unit = params.unit
-    integration = params.integration
-    regression = params.regression
-    All = params.All
-    version = params.version
-    if version:
+A testsuite for MAST for IBM DataPower. It runs in a temporary copy of
+this MAST home, with an empty database and no registered appliances,
+so that it never changes the home or talks to its appliances. The
+following options can be specified:"""
+    global failed
+    if params.version:
         print("mast.testsuite - version {}".format(__version__))
         sys.exit(0)
-    suites = []
-    if unit:
-        suites.append(unittest_suite)
-    if integration:
-        suites.append(integration_suite)
-    if regression:
-        suites.append(regression_suite)
-    if All:
-        suites = [unittest_suite, integration_suite, regression_suite]
-
-    suite = unittest.TestSuite(suites)
-    if out_file == "stdout":
-        result = unittest.TextTestRunner(stream=sys.stdout, verbosity=0).run(suite)
-    else:
-        with open(out_file, "w") as fp_out:
-            result = unittest.TextTestRunner(stream=fp_out, verbosity=0).run(suite)
-    global failed
-    failed = not result.wasSuccessful()
+    if not suites(params) and not os.environ.get(ISOLATED):
+        print("Give -u, -i, -r or -A to choose the tests to run.")
+        return
+    if os.environ.get(ISOLATED):
+        failed = not run_tests(params)
+        return
+    home = os.environ["MAST_HOME"]
+    out_file = params.out_file
+    if out_file != "stdout":
+        out_file = os.path.abspath(out_file)
+    work = tempfile.mkdtemp(prefix="mast-selftest-")
+    try:
+        copy = copy_home(home, work)
+        env = dict(os.environ, MAST_HOME=copy)
+        env[ISOLATED] = home
+        args = ["-o", out_file]
+        for flag, wanted in (("-u", params.unit), ("-i", params.integration),
+                             ("-r", params.regression), ("-A", params.All)):
+            if wanted:
+                args.append(flag)
+        print("Running the tests in a copy of this home: {}".format(copy),
+              flush=True)
+        done = subprocess.run(
+            [sys.executable, "-m", "mast.testsuite.selftest"] + args,
+            cwd=copy, env=env)
+        failed = done.returncode != 0
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 # Set by main. mast selftest exits with 1 when a test failed, so that a
@@ -107,6 +188,14 @@ def program(argv):
         if exc.code not in (None, 0):
             raise
     except Exception:
-        make_logger("error").exception("An unhandled exception occurred during execution")
+        make_logger("error").exception(
+            "An unhandled exception occurred during execution")
         raise
     return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    # The process in the copy of the home (see main)
+    from mast import home as _home
+    _home.enter(os.environ["MAST_HOME"])
+    sys.exit(program(sys.argv[1:]))

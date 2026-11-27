@@ -21,6 +21,7 @@ on what a DataPower 11.0.0.3 container answered for the domain of
 import hashlib
 import os
 import tempfile
+import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -529,10 +530,17 @@ SCHEMAS = Path(__file__).resolve().parents[1] / "data" / "cyclonedx"
 
 
 def cyclonedx_errors(document):
-    """The errors of `document` against the CycloneDX 1.6 schema."""
+    """The errors of `document` against the CycloneDX 1.6 schema. The
+    test is skipped where jsonschema, a development dependency, is not
+    installed (`mast selftest` in an installed home)."""
     import json
-    from jsonschema import Draft7Validator
-    from referencing import Registry, Resource
+    try:
+        from jsonschema import Draft7Validator
+        from referencing import Registry, Resource
+    except ImportError:
+        raise unittest.SkipTest(
+            "jsonschema is not installed: the CycloneDX schema is checked "
+            "only in a development checkout")
     schemas = {name: json.loads((SCHEMAS / name).read_text())
                for name in ("bom-1.6.schema.json", "spdx.schema.json",
                             "jsf-0.82.schema.json")}

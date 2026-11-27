@@ -1627,7 +1627,10 @@ from all-domains."""
             params.out_dir, hostname, 'object_audit', t.timestamp)
         os.makedirs(filename)
         filename = os.path.join(filename, 'object-audit.xml')
-        with open(filename, 'w') as fout:
+        # The appliance answers with the XML as bytes
+        if isinstance(audit, str):
+            audit = audit.encode("utf-8")
+        with open(filename, 'wb') as fout:
             fout.write(audit)
         say("Wrote the object audit of {} to {}".format(hostname, filename))
     return SeeDownload(results, env, suffix="object_audit")
