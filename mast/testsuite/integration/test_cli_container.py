@@ -312,7 +312,7 @@ class TestDeveloperCLI(CLITestCase):
     def test_export_and_import(self):
         self.fresh_domain("cli_dev")
         self.mast(
-            "developer", "export", "-D", "cli_dev",
+            "export", "-D", "cli_dev",
             "-o", "all-objects", "-O", "all-classes",
             "-C", "cli export", "--out-dir", "tmp/export")
         exports = glob.glob(
@@ -322,7 +322,7 @@ class TestDeveloperCLI(CLITestCase):
             self.assertIn(b"cli export", archive.read("export.xml"))
 
         self.mast(
-            "developer", "import", "-D", "cli_dev",
+            "import", "-D", "cli_dev",
             "-f", exports[0], "-o", "tmp/import")
 
 
@@ -333,7 +333,7 @@ class TestDeploymentCLI(CLITestCase):
         local = self.local_file("deployed.txt", b"deployed\n")
         self.dp.set_file(local, "local:", "cli_deploy")
         self.mast(
-            "deployment", "get-file", "-D", "cli_deploy",
+            "get-file", "-D", "cli_deploy",
             "-l", "local:///deployed.txt", "-o", "tmp/deploy")
         found = glob.glob(
             self.path("tmp", "deploy", "**", "*deployed.txt"), recursive=True)
