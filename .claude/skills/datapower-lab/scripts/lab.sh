@@ -26,8 +26,14 @@
 #   lab.sh status    show what runs
 #   lab.sh destroy   remove the containers and the home
 #
+# Options may come before or after the command. build can run again:
+# it skips what is registered already.
+#
 # MAST_REPO is the checkout (default: the one holding this script).
-# MAST_LAB_HOME is the lab's MAST home (default: ~/mast-lab).
+# MAST_LAB_HOME is the lab's MAST home (default: ~/mast-lab/home).
+# build marks the home it makes with a .mast-lab file. It refuses a
+# folder that has files but no marker, and destroy refuses to delete a
+# folder without the marker.
 #
 # build and up create or start IBM DataPower containers, which run
 # IBM's software under IBM's license for the developers-limited image
@@ -39,12 +45,17 @@
 # inside these loopback-only containers.
 set -euo pipefail
 
-COMMAND="${1:-}"
+COMMAND=""
 ACCEPT_LICENSE=false
-for arg in "${@:2}"; do
+for arg in "$@"; do
   case "$arg" in
     --accept-datapower-license) ACCEPT_LICENSE=true ;;
-    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+    -*) echo "Unknown option: $arg" >&2; exit 2 ;;
+    *)
+      if [ -n "$COMMAND" ]; then
+        echo "One command only, got: $COMMAND $arg" >&2; exit 2
+      fi
+      COMMAND=$arg ;;
   esac
 done
 
@@ -63,9 +74,29 @@ EOF
 
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 REPO="${MAST_REPO:-$(cd "$SCRIPTS/../../../.." && pwd)}"
-HOME_DIR="${MAST_LAB_HOME:-$HOME/mast-lab}"
+HOME_DIR="${MAST_LAB_HOME:-$HOME/mast-lab/home}"
+MARKER="$HOME_DIR/.mast-lab"
 MAST="$HOME_DIR/mast"
 WEB_PORT=5088
+
+# Refuse a folder that is not a lab home, so build cannot write into
+# it and destroy cannot delete it.
+require_lab_home() {
+  if [ -f "$MARKER" ]; then return; fi
+  if [ "$COMMAND" = build ] && { [ ! -e "$HOME_DIR" ] ||
+      [ -z "$(ls -A "$HOME_DIR")" ]; }; then
+    mkdir -p "$HOME_DIR"
+    touch "$MARKER"
+    return
+  fi
+  cat >&2 <<EOF
+$HOME_DIR is not a lab home made by lab.sh: it has no .mast-lab
+marker. Set MAST_LAB_HOME to an empty or new folder. If it is a lab
+home from an earlier lab script, and you want lab.sh to manage (and
+destroy) it, run: touch "$MARKER"
+EOF
+  exit 4
+}
 
 # name image soma web ssh
 APPLIANCES=(
@@ -138,6 +169,7 @@ daemon() { (cd "$HOME_DIR" && "$MAST" daemon "$@"); }
 case "$COMMAND" in
   build)
     require_license
+    require_lab_home
     if [ ! -x "$MAST" ]; then
       (cd "$REPO" && uv run --locked python mast-setup --development-mode \
         --home "$HOME_DIR")
@@ -146,28 +178,39 @@ case "$COMMAND" in
         > "$HOME_DIR/etc/local/server.conf"
     fi
     appliances_up
+    # Each step below is skipped when an earlier build did it
     for line in "${APPLIANCES[@]}"; do
       read -r name image soma web ssh <<<"$line"
-      "$MAST" targets add -n "$name" -k datapower -A 127.0.0.1 \
-        -s "soma_port=$soma" -s "web_port=$web" -s "ssh_port=$ssh" \
-        --notes "lab: $image"
-      # The containers have self-signed certificates: pin every endpoint
-      "$MAST" targets pin -n "$name" --yes
+      if ! "$MAST" targets show -n "$name" >/dev/null 2>&1; then
+        "$MAST" targets add -n "$name" -k datapower -A 127.0.0.1 \
+          -s "soma_port=$soma" -s "web_port=$web" -s "ssh_port=$ssh" \
+          --notes "lab: $image"
+        # The containers have self-signed certificates: pin every
+        # endpoint
+        "$MAST" targets pin -n "$name" --yes
+      fi
     done
-    "$MAST" fleets add -n lab -k datapower -m dp1 -m dp2
+    if ! "$MAST" fleets list | grep -qE '(^|[[:space:]|])lab([[:space:]|]|$)'
+    then
+      "$MAST" fleets add -n lab -k datapower -m dp1 -m dp2
+    fi
     # A credential that may change the appliances (the limited images
     # start with admin/admin)
-    echo admin | "$MAST" credentials add -n lab-admin -u admin -p change \
-      -b lab --password-stdin -d "admin of the lab appliances"
+    if ! "$MAST" credentials show -n lab-admin >/dev/null 2>&1; then
+      echo admin | "$MAST" credentials add -n lab-admin -u admin \
+        -p change -b lab --password-stdin -d "admin of the lab appliances"
+    fi
     # A DataPower user that may only read, and a credential for it
-    "$MAST" datapower add-group -a lab --credential lab-admin \
-      -N readers -A '*/*/*?Access=r' -s
-    "$MAST" datapower add-user -a lab --credential lab-admin \
-      -u reader -p 'LabReader-2026x' -g readers \
-      --supress-force-password-change -s
-    echo 'LabReader-2026x' | "$MAST" credentials add -n lab-read \
-      -u reader -p collect -b lab --password-stdin \
-      -d "a DataPower user that may only read"
+    if ! "$MAST" credentials show -n lab-read >/dev/null 2>&1; then
+      "$MAST" datapower add-group -a lab --credential lab-admin \
+        -N readers -A '*/*/*?Access=r' -s
+      "$MAST" datapower add-user -a lab --credential lab-admin \
+        -u reader -p 'LabReader-2026x' -g readers \
+        --supress-force-password-change -s
+      echo 'LabReader-2026x' | "$MAST" credentials add -n lab-read \
+        -u reader -p collect -b lab --password-stdin \
+        -d "a DataPower user that may only read"
+    fi
     "$MAST" credentials test -n lab-read -a dp1
     echo "Next: lab.sh up, then add a web user (mast users)."
     ;;
@@ -189,6 +232,7 @@ case "$COMMAND" in
     daemon status || true
     ;;
   destroy)
+    require_lab_home
     daemon stop 2>/dev/null || true
     for line in "${APPLIANCES[@]}"; do
       read -r name _ <<<"$line"
@@ -197,5 +241,5 @@ case "$COMMAND" in
     rm -rf "$HOME_DIR"
     ;;
   *)
-    sed -n '18,30p' "$0"; exit 2 ;;
+    sed -n '18,36p' "$0"; exit 2 ;;
 esac

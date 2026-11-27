@@ -12,7 +12,9 @@ Everything is in `scripts/lab.sh` next to this file. Run it, do not retype its s
 ## Before you start
 
 - Needs podman, bash, curl and uv, and about 4 GB RAM per appliance. A cloud session container usually cannot run nested containers. If `podman info` fails, say so and stop.
-- `MAST_REPO` defaults to this checkout. `MAST_LAB_HOME` (the lab's MAST home) defaults to `~/mast-lab`, outside the repo.
+- `MAST_REPO` defaults to this checkout. `MAST_LAB_HOME` (the lab's MAST home) defaults to `~/mast-lab/home`, outside the repo.
+- `build` writes a `.mast-lab` marker into the home it makes. It refuses a folder that has files but no marker, and `destroy` refuses a folder without the marker (exit code 4). A home from an earlier lab script has no marker. Only the person who owns it decides whether `lab.sh` may manage and destroy it (`touch <home>/.mast-lab`); an agent never adds the marker itself.
+- Another lab that uses the container names `mast-lab-dp1` and `mast-lab-dp2` shares its appliances with this one: `destroy` removes them for both.
 
 ## The DataPower license
 
@@ -26,6 +28,8 @@ Only the person running the lab can accept that license. If you are an agent, ne
    - registers them (`mast targets add -k datapower`) and pins their certificates (`mast targets pin --yes`),
    - makes the fleet `lab` (`mast fleets add -k datapower`),
    - stores two credentials: `lab-admin` (may change the appliances) and `lab-read` (a DataPower user that may only read), and tests `lab-read`.
+
+   `build` can run again: it skips each registration step that an earlier run finished. Options can come before or after the command.
 2. `lab.sh up --accept-datapower-license` starts the appliances and mastd (web UI on http://127.0.0.1:5088). Add a web user with `mast users`: it reads the password interactively, so a person runs it.
 3. `lab.sh status`, `lab.sh down` (nothing is lost), `lab.sh destroy` (removes the containers and the home).
 
