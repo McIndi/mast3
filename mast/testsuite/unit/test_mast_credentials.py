@@ -1057,6 +1057,57 @@ class TestCredentialTypes(CredentialsCase):
         store.create("both", "ops", "pw", bindings=["lab", "web1"],
                      principal=ADMIN)
 
+    def test_a_host_that_takes_only_keys_now(self):
+        # Provisioning: a password puts the key on the host, then the
+        # host takes no passwords
+        store.create("setup", "ops", "pw", bindings=["web1"],
+                     principal=ADMIN)
+        store.create("deploy", "ops", type=store.SSH_KEY,
+                     private_key=ssh_key(), bindings=["web1"],
+                     principal=ADMIN)
+        self.assertEqual(registry.credential_types_of(registry.get("web1")),
+                         {"password", "ssh-key"})
+        store.check_targets("setup", ["web1"])
+        before = registry.get("web1").revision
+        found = registry.update("web1", credential_types=["ssh-key"])
+        self.assertEqual(found.credential_types, ["ssh-key"])
+        self.assertEqual(found.revision, before + 1)
+        with self.assertRaises(Forbidden) as caught:
+            store.check_targets("setup", ["web1"])
+        self.assertIn("The target web1 takes only ssh-key credentials now",
+                      str(caught.exception))
+        store.check_targets("deploy", ["web1"])
+        # Its bindings stay, and can be given again
+        store.rebind("setup", ["web1"], principal=ADMIN)
+        # Every type of the kind again
+        found = registry.update("web1", credential_types=None)
+        self.assertIsNone(found.credential_types)
+        store.check_targets("setup", ["web1"])
+
+    def test_the_types_that_a_target_can_be_set_to(self):
+        for name, types in (("web1", ["token"]), ("web1", []),
+                            ("dp1", ["ssh-key"])):
+            with self.subTest(name=name, types=types):
+                with self.assertRaises(registry.InvalidValue):
+                    registry.update(name, credential_types=types)
+        found = registry.add("web2", "linux", credential_types=["ssh-key"])
+        self.assertEqual(found.credential_types, ["ssh-key"])
+        with self.assertRaises(registry.InvalidValue):
+            registry.add("web3", "linux", credential_types=["token"])
+
+    def test_the_command_line_of_a_target(self):
+        from mast.registry.cli import targets
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            targets.run(["update", "-n", "web1", "--credential-type",
+                         "ssh-key"])
+        self.assertIn("credential types: ssh-key (set on the target)",
+                      out.getvalue())
+        with contextlib.redirect_stdout(out):
+            targets.run(["update", "-n", "web1", "--any-credential-type"])
+        self.assertIn("credential types: password, ssh-key\n",
+                      out.getvalue())
+
     def test_a_key_is_not_given_to_a_command_that_takes_a_password(self):
         store.create("deploy", "ops", type=store.SSH_KEY,
                      private_key=ssh_key(), bindings=["web1"],

@@ -67,6 +67,7 @@ __all__ = [
     "fleet_remove", "fleet_get", "fleet_by_name", "fleet_list", "is_fleet",
     "members", "which_fleets", "resolve", "is_address", "kinds_of", "is_a",
     "capabilities_of", "accepts", "check_attributes", "TLS_MODES",
+    "credential_types_of",
     "SSH_MODES",
 ]
 
@@ -172,6 +173,9 @@ class Target(BaseModel):
     kind: str
     address: str
     attributes: dict = {}
+    # The types of stored credential that it takes, or None for all that
+    # its kinds take (see credential_types_of)
+    credential_types: list[str] | None = None
     schema_version: int = 1
     revision: int = 1
     notes: str = ""
@@ -393,6 +397,8 @@ def _view(session, record):
     return Target(
         id=record.id, name=record.name, kind=record.kind,
         address=record.address, attributes=dict(record.attributes or {}),
+        credential_types=None if record.credential_types is None
+        else list(record.credential_types),
         schema_version=record.schema_version, revision=record.revision,
         notes=record.notes, extensions=extensions, trust=trust,
         fleets=list(fleets), created_at=record.created_at,
@@ -484,10 +490,11 @@ def _ports_changed(kind, before, after):
             if before.get(e.port) != after.get(e.port)]
 
 
-def add(name, kind, address=None, attributes=None, notes=""):
+def add(name, kind, address=None, attributes=None, notes="",
+        credential_types=None):
     """
     _function_: `mast.registry.add(name, kind, address=None,
-    attributes=None, notes="")`
+    attributes=None, notes="", credential_types=None)`
 
     Add a target and return its `Target`.
 
@@ -498,6 +505,8 @@ def add(name, kind, address=None, attributes=None, notes=""):
     default is `name`.
     * `attributes`: The values of the attributes of the kind (see
     `mast plugins kinds`); the others take their defaults.
+    * `credential_types`: The types of stored credential that it takes,
+    of those of the kind; None for all of them.
     """
     _check_name(name)
     found = plugins.kinds().get(kind)
@@ -513,6 +522,7 @@ def add(name, kind, address=None, attributes=None, notes=""):
             "extension (mast targets extend).".format(
                 kind, found.extends, plugins.base_of(kind)))
     values = check_attributes(kind, attributes)
+    credential_types = _check_credential_types([kind], credential_types)
     address = _check_address(address or name)
     now = _now()
     with db.session() as session:
@@ -520,6 +530,7 @@ def add(name, kind, address=None, attributes=None, notes=""):
             raise NameTaken("The name {} is taken.".format(name))
         record = TargetRecord(
             name=name, kind=kind, address=address, attributes=values,
+            credential_types=credential_types,
             schema_version=found.version, revision=1, notes=notes or "",
             created_at=now, updated_at=now)
         session.add(record)
@@ -529,15 +540,24 @@ def add(name, kind, address=None, attributes=None, notes=""):
         return _view(session, record)
 
 
-def update(name, address=None, attributes=None, notes=None):
+_ALL = object()
+
+
+def update(name, address=None, attributes=None, notes=None,
+           credential_types=_ALL):
     """
     _function_: `mast.registry.update(name, address=None,
-    attributes=None, notes=None)`
+    attributes=None, notes=None, credential_types=...)`
 
     Change the address, attributes (a value of None sets one back to
     its default) or notes of a target, and return its `Target`. A new
     address marks every pinned endpoint for review; a new port marks
     that endpoint.
+
+    `credential_types` sets the types of stored credential that the
+    target takes, as it is configured now (a list of the types of its
+    kinds; None for all of them). A credential of another type is then
+    refused on it.
     """
     with db.session() as session:
         record = _require(session, name)
@@ -557,6 +577,9 @@ def update(name, address=None, attributes=None, notes=None):
                             "the address changed from {} to {}".format(
                                 record.address, address))
                 record.address = address
+        if credential_types is not _ALL:
+            record.credential_types = _check_credential_types(
+                kinds_of(_view(session, record)), credential_types)
         if notes is not None:
             record.notes = notes
         _touch(record)
@@ -930,6 +953,47 @@ def is_a(target, kind):
         if own == kind or kind in plugins.lineage(own):
             return True
     return False
+
+
+def _kind_credential_types(kinds):
+    found = set()
+    for kind in kinds:
+        found.update(plugins.credential_types(kind))
+    return found
+
+
+def credential_types_of(target):
+    """
+    _function_: `mast.registry.credential_types_of(target)`
+
+    Return the types of stored credential that a `Target` takes: those
+    that it is set to take (how it is configured: a host whose SSH
+    takes only keys), or all that its kinds take.
+    """
+    taken = _kind_credential_types(kinds_of(target))
+    if target.credential_types is None:
+        return frozenset(taken)
+    return frozenset(set(target.credential_types) & taken)
+
+
+def _check_credential_types(kinds, values):
+    """The types of credential to set on a target of `kinds`: a list
+    that its kinds take, or None for all of them. Raises
+    `InvalidValue`."""
+    if values is None:
+        return None
+    if isinstance(values, str):
+        values = [values]
+    taken = _kind_credential_types(kinds)
+    values = sorted(set(values))
+    wrong = [v for v in values if v not in taken]
+    if wrong or not values:
+        raise InvalidValue(
+            "A target of {} takes the credential types {}; {} is not one "
+            "of them.".format(" + ".join(kinds),
+                              ", ".join(sorted(taken)) or "none",
+                              ", ".join(wrong) or "none of them"))
+    return values
 
 
 def capabilities_of(target):

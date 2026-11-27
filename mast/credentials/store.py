@@ -294,6 +294,22 @@ def _check_type(credential_type, kinds, what):
                 ", ".join(sorted(taken)) or "no credentials"))
 
 
+def _check_target_type(credential_type, target):
+    """Raise `InvalidValue` unless the `mast.registry.Target` takes
+    credentials of `credential_type`: its kinds do, and it is not set
+    to take only others (a host whose SSH takes only keys)."""
+    from mast import registry
+    _check_type(credential_type, registry.kinds_of(target),
+                "The target {}".format(target.name))
+    taken = registry.credential_types_of(target)
+    if credential_type not in taken:
+        raise InvalidValue(
+            "The target {} takes only {} credentials now. An admin sets "
+            "this with mast targets update -n {} --credential-type "
+            "TYPE.".format(target.name, ", ".join(sorted(taken)),
+                           target.name))
+
+
 def _check_purpose(purpose):
     if purpose not in PURPOSES:
         raise InvalidValue("The purpose is one of {}.".format(
@@ -372,6 +388,8 @@ def _set_bindings(session, record, bindings):
             raise InvalidValue(
                 "{!r} is not a registered target or fleet. A credential can "
                 "be bound only to those (see mast targets).".format(name))
+        # The kinds decide what can be bound; how the target is set up
+        # now (credential_types) is checked when the credential is used
         _check_type(record.type,
                     registry.kinds_of(registry.by_id(target.id)),
                     "The target {}".format(name))
@@ -731,8 +749,7 @@ def check_targets(name, appliances):
         bound = _bound_ids(session, _record(session, name))
     for target in targets:
         try:
-            _check_type(credential.type, registry.kinds_of(target),
-                        "The target {}".format(target.name))
+            _check_target_type(credential.type, target)
         except InvalidValue as exc:
             raise Forbidden(str(exc)) from None
         if target.id not in bound:

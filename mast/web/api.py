@@ -693,6 +693,7 @@ def _target_json(target):
     from mast import registry
     data = target.model_dump(mode="json")
     data["kinds"] = registry.kinds_of(target)
+    data["takes"] = sorted(registry.credential_types_of(target))
     return data
 
 
@@ -703,6 +704,7 @@ def _kind_json(kind):
         "base": plugins.base_of(kind.name),
         "provider": plugins.provider_of(kind.name),
         "capabilities": sorted(plugins.capabilities(kind.name)),
+        "credential_types": sorted(plugins.credential_types(kind.name)),
         "attributes": [
             {"name": a.name, "type": a.type, "default": a.default,
              "help": a.help, "choices": list(a.choices),
@@ -760,7 +762,8 @@ def add_target():
     """
     _function_: `mast.web.api.add_target()`
 
-    Add a target: `{name, kind, address, attributes, notes}`.
+    Add a target: `{name, kind, address, attributes, notes,
+    credential_types}`.
 
     Exposed at: `/api/v1/targets` via POST
     """
@@ -771,7 +774,7 @@ def add_target():
         found = registry.add(
             str(body.get("name") or ""), str(body.get("kind") or ""),
             body.get("address") or None, _attributes(body),
-            str(body.get("notes") or ""))
+            str(body.get("notes") or ""), body.get("credential_types"))
     except (registry.RegistryError, ValueError) as exc:
         return _registry_error(exc)
     _changed("Added the target {}".format(found.name))
@@ -783,8 +786,10 @@ def change_target(name):
     """
     _function_: `mast.web.api.change_target(name)`
 
-    Change `address`, `attributes` (null sets one back to its default)
-    or `notes` of a target, or rename it with `rename`.
+    Change `address`, `attributes` (null sets one back to its default),
+    `notes` or `credential_types` (the types of stored credential that
+    it takes now; null for every type of its kinds) of a target, or
+    rename it with `rename`.
 
     Exposed at: `/api/v1/targets/<name>` via PATCH
     """
@@ -792,9 +797,12 @@ def change_target(name):
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
     try:
+        extra = {}
+        if "credential_types" in body:
+            extra["credential_types"] = body["credential_types"]
         found = registry.update(
             name, address=body.get("address") or None,
-            attributes=_attributes(body), notes=body.get("notes"))
+            attributes=_attributes(body), notes=body.get("notes"), **extra)
         if body.get("rename"):
             found = registry.rename(name, str(body["rename"]))
     except (registry.RegistryError, ValueError) as exc:

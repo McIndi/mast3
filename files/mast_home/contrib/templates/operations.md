@@ -688,7 +688,12 @@ each). A job can use it only on **registered** targets that it is bound
 to, directly or through a fleet. A hostname that is not in the registry
 is refused, so that nobody can send it to a host of their own. A
 credential can be bound only to targets whose kind takes its type
-(`mast plugins kinds`): a DataPower appliance takes passwords.
+(`mast plugins kinds`): a DataPower appliance takes passwords. A target
+can also be set to take fewer types than its kind, as it is configured
+now: once a host takes only SSH keys,
+`mast targets update -n NAME --credential-type ssh-key` makes MAST
+refuse a password credential on it (its bindings stay), and
+`--any-credential-type` undoes that.
 * The purpose `collect` is for a DataPower user that may only read: it
 is used only by commands whose effect is `read` (the Commands page and
 `--help` say "This command only reads"). Some of these read secrets:
