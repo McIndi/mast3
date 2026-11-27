@@ -149,6 +149,18 @@ extension.
 
 ## New
 
+* **Permission sets and groups.** Rules over the paths of commands
+and resources (`mast/datapower/list-*`, `mast/credentials/dp-reader`)
+with `r`, `w` and `x`, scoped to all targets, some targets or some
+fleets, in permission sets that groups of users have:
+`mast permissions` (`add`, `add-rule`, `check`, `effective` ...),
+`mast groups`, and the API under `/api/v1/permission-sets`,
+`/api/v1/groups` and `/api/v1/permissions/check`. MAST makes the groups
+`viewer`, `operator` and `admin` and keeps each user in those of their
+role. A plugin defines groups with their sets, which MAST makes
+without members: DataPower's `datapower-reader` and
+`datapower-operator`. The roles still decide what a user may do in this release;
+`mast permissions check` shows what the rules would decide.
 * **Plugin API 1.** A plugin is a distribution with an entry point
 `mast_plugin` that names its manifest: its provider, version, plugin
 API, the versions of MAST that it works with, its kinds of target and

@@ -72,6 +72,7 @@ checkout, so a change to the code is live:
 | Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `choices` (the choice lists of the web forms). |
 | The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), the CSRF token, the session key and the security headers (`security`), the JSON API (`api`, `catalog`, `uploads`), the pages (`page`, `pages`) and their templates and scripts. |
 | The registry | `mast/registry` | The targets (a base kind, attributes, extensions, a revision) and the fleets (of one kind), and the trust of each endpoint, in the job database. `resolve` turns the names that users type into registered targets; `accepts` says whether a command takes a target. `files` imports and exports the configuration files of MAST 3.15.2. `mast targets` and `mast fleets` are `mast/registry/cli.py`. |
+| Permissions | `mast/permissions` | Permission sets (rules of a path, `r`/`w`/`x` allowed or denied, and a scope of targets or fleets, kept by id) and groups of users; `decide` and `check_command` say whether a user may do something and which rules decide. `mast permissions` and `mast groups` are `cli.py`; the API is `mast/web/permissions.py`. |
 | Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast credentials` is `mast/credentials/cli.py`. |
 | Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast users` is `mast/auth/cli.py`. |
 | `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler of `etc/crontab` (the cron plugin). Each worker, in `mastd` or in `mast worker`, runs `mast.jobs.schedules.QueueScheduler` for the schedules of the job queue and the daily retention. |
@@ -153,6 +154,10 @@ capabilities, so a new kind with `collect-crypto` is in
 `mast crypto inventory` at once.
 * `pages` are its pages of the web UI (see "Adding a page to the web
 UI").
+* `groups` are the groups of users that it defines (`mast.plugins.Group`),
+each with the rules of a permission set over its own commands
+(`mast/PROVIDER/NAME`, scope all targets or none). MAST makes them
+without members; admins put users in them. Name them `PROVIDER-...`.
 
 Core checks the manifest, then every command of the plugin, before it
 registers any. A plugin with one fault is left out whole: none of its

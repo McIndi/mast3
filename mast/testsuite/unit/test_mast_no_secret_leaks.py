@@ -366,6 +366,12 @@ class TestNoSecretLeaks(WebCase):
         }
         if rule.startswith("/api/v1/credentials/"):
             values["name"] = ["leaky"]
+        elif rule.startswith("/api/v1/permission-sets/"):
+            values["name"] = ["admin", "viewer"]
+        elif rule.startswith("/api/v1/groups/"):
+            values["name"] = ["admin"]
+        elif rule.startswith("/api/v1/users/"):
+            values["name"] = ["admin"]
         elif rule.startswith("/api/v1/appliances-status/"):
             values["name"] = ["dp-fake", "dp-changed"]
         elif rule.startswith("/api/v1/crypto/objects/"):

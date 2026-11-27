@@ -76,6 +76,12 @@ ROOTS = {
     "users": Root(
         "mast.auth.cli:cli",
         "The users of MAST."),
+    "permissions": Root(
+        "mast.permissions.cli:permissions_cli",
+        "Permission sets: rules over the paths of commands and resources."),
+    "groups": Root(
+        "mast.permissions.cli:groups_cli",
+        "Groups of users, and their permission sets."),
     "plugins": Root(
         "mast.plugins_cli:cli",
         "The installed plugins."),
@@ -99,7 +105,7 @@ ROOTS = {
 
 # Names that no plugin may take as its provider: the roots, the
 # provider of core, and the roots that later releases of core use
-RESERVED = frozenset(ROOTS) | {CORE, "groups", "permissions", "setup",
+RESERVED = frozenset(ROOTS) | {CORE, "setup",
                                "mast", "help"}
 
 

@@ -26,6 +26,7 @@ from mast.jobs.models import Base
 # The other tables in the job database, so that they are in Base.metadata
 import mast.auth.models  # noqa: F401
 import mast.registry.models  # noqa: F401
+import mast.permissions.models  # noqa: F401
 import mast.credentials.models  # noqa: F401
 import mast.datapower.status.models  # noqa: F401
 import mast.datapower.crypto.models  # noqa: F401

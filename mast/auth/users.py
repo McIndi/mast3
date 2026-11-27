@@ -174,7 +174,18 @@ def add(name, password, role):
             locked_until=None, created_at=_now(), last_login_at=None)
         session.add(user)
         session.flush()
-        return UserInfo.model_validate(user)
+        found = UserInfo.model_validate(user)
+    _sync_groups(name, role)
+    return found
+
+
+def _sync_groups(name, role):
+    """Until enforcement uses the permission sets (step 6 of
+    docs/design/mast-4.0.md), the role decides what a user may do, and
+    the user is in the groups of the role."""
+    # Imported here: mast.permissions imports this module
+    from mast import permissions
+    permissions.sync_role(name, role)
 
 
 def set_password(name, password, temporary=False):
@@ -234,7 +245,9 @@ def set_role(name, role):
         user = _require(session, name)
         user.role = role
         user.session_epoch += 1
-        return UserInfo.model_validate(user)
+        found = UserInfo.model_validate(user)
+    _sync_groups(name, role)
+    return found
 
 
 def disable(name):
