@@ -44,8 +44,9 @@ canonical name: `mast crypto inventory` is `core.crypto-inventory`.
 
 Every command of a provider declares what it does (plugin API 1, see
 `mast.plugins`): its `effect` (`read` or `change`), the kinds of
-target that it accepts, its target and secret parameters (from its
-`Params` model), and its scheduling locks.
+target that it accepts or the capabilities that it needs, its target
+and secret parameters (from its `Params` model), and its scheduling
+locks.
 """
 import sys
 import inspect
@@ -53,6 +54,7 @@ import argparse
 import functools
 import typing
 from mast import __version__
+from mast import plugins as _plugins
 from mast.logging import make_logger
 from mast.cli import params as _params
 from mast.cli.params import Params, Option
@@ -65,7 +67,6 @@ from pydantic import ValidationError
 
 __all__ = [
     "Cli", "Command", "Params", "Option", "READ", "CHANGE", "EFFECTS",
-    "ANY_TARGET",
     "Result", "Text", "Table", "say", "captured", "listening",
     "checkpoint", "guarded",
     "SUCCEEDED", "PARTIAL", "FAILED",
@@ -79,10 +80,6 @@ __all__ = [
 READ = "read"
 CHANGE = "change"
 EFFECTS = (READ, CHANGE)
-# In `targets`: a command of core that takes a target of any kind. The
-# kind must give what the command needs (a crypto collector, for
-# example), which is checked when it runs.
-ANY_TARGET = "*"
 
 
 def params_model(fn):
@@ -133,8 +130,14 @@ class Command(object):
     changes a target or MAST. A command that reads secrets (`get-file`)
     still only reads. `None` only for a `Cli` without a provider.
     * `targets`: The kinds of target that the command accepts, such as
-    `("datapower",)`, or `(ANY_TARGET,)`. Empty for a command that acts
-    on no target.
+    `("datapower",)`. It also accepts every kind that extends one of
+    them (see `mast.plugins.Kind`). A plugin may name the kinds of other
+    plugins.
+    * `needs`: The capabilities that a target must have, such as
+    `("collect-crypto",)`. A command of core names no kind of a plugin:
+    it gives `needs`, and accepts every kind with those capabilities,
+    whichever plugin gives it. A command that acts on no target has
+    neither `targets` nor `needs`.
     * `target_params`, `secret_params`: The names of the parameters
     that name targets, and of those that hold secrets (`Option(target=
     True)` and `Option(secret=True)`).
@@ -162,8 +165,8 @@ class Command(object):
     def __init__(self, name, fn, category, model, parser, exclusive=True,
                  locks=None, queued=True, passive=False, internal=False,
                  group=None, provider=None, id_name=None, interactive=False,
-                 effect=None, targets=()):
-        _check_declarations(name, exclusive, passive, effect, targets)
+                 effect=None, targets=(), needs=()):
+        _check_declarations(name, exclusive, passive, effect, targets, needs)
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -174,6 +177,7 @@ class Command(object):
         self.locks = locks
         self.effect = effect
         self.targets = tuple(targets)
+        self.needs = tuple(needs)
         self.queued = queued
         self.passive = passive
         self.internal = internal
@@ -225,14 +229,36 @@ class Command(object):
         if self.effect is None:
             found.append("it declares no effect (effect=\"read\" or "
                          "effect=\"change\")")
-        if self.targets and not self.target_params:
+        takes = self.targets or self.needs
+        if takes and not self.target_params:
             found.append("it accepts targets ({}) but no parameter names "
                          "them (Option(target=True))".format(
-                             ", ".join(self.targets)))
-        if self.target_params and not self.targets:
+                             ", ".join(takes)))
+        if self.target_params and not takes:
             found.append("its parameter {} names targets, but it accepts "
                          "no kind of target".format(self.target_params[0]))
         return found
+
+    def describe(self):
+        """
+        _method_: `mast.cli.Command.describe(self)`
+
+        Return the end of `--help`: the effect, and the kinds of target
+        that the command accepts on this installation. It is made when
+        the help is shown, from the manifests of the plugins.
+        """
+        text = _epilog(self.effect) or ""
+        if self.targets or self.needs:
+            kinds = _plugins.accepting(self.targets, self.needs)
+            if kinds:
+                text += " Targets: {}.".format(", ".join(kinds))
+            elif self.needs:
+                text += " Targets: no installed kind can {}.".format(
+                    ", ".join(self.needs))
+            else:
+                text += " Targets: {}, which no installed plugin " \
+                        "gives.".format(", ".join(self.targets))
+        return text.strip() or None
 
     @property
     def doc(self):
@@ -240,7 +266,7 @@ class Command(object):
         return _params.describe(self.model, self.fn.__doc__)
 
 
-def _check_declarations(name, exclusive, passive, effect, targets):
+def _check_declarations(name, exclusive, passive, effect, targets, needs):
     """Raise `ValueError` for declarations of a command that can never
     be right."""
     if passive and exclusive:
@@ -251,10 +277,15 @@ def _check_declarations(name, exclusive, passive, effect, targets):
         raise ValueError("{}: the effect is one of {}, not {!r}".format(
             name, ", ".join(EFFECTS), effect))
     if isinstance(targets, str) or not all(
-            isinstance(kind, str) and kind for kind in targets):
+            _plugins.is_name(kind) for kind in targets):
         raise ValueError(
             "{}: targets is a tuple of kinds of target, not {!r}".format(
                 name, targets))
+    if isinstance(needs, str) or not all(
+            _plugins.is_name(capability) for capability in needs):
+        raise ValueError(
+            "{}: needs is a tuple of capabilities, not {!r}".format(
+                name, needs))
 
 
 def _accept_keywords(fn, model):
@@ -369,7 +400,7 @@ class Cli(object):
         self.commands = {}
         if prog is None and provider is not None:
             prog = "mast {}".format(provider)
-        self.parser = argparse.ArgumentParser(
+        self.parser = _Parser(
             prog=prog,
             description=description,
             formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -422,7 +453,8 @@ class Cli(object):
     def create_subparser(self, fn, name=None, category=None,
                          exclusive=True, locks=None, queued=None,
                          passive=False, internal=False, group=None, id=None,
-                         interactive=False, effect=None, targets=None):
+                         interactive=False, effect=None, targets=None,
+                         needs=()):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -442,7 +474,7 @@ class Cli(object):
         * `id`: The canonical name of the command, if it is not `name`.
         Only core gives one (see `Command.id_name`).
         * `exclusive`, `locks`, `queued`, `passive`, `internal`,
-        `effect`, `targets`: See `Command`.
+        `effect`, `targets`, `needs`: See `Command`.
         """
         if not name:
             name = fn.__name__
@@ -454,7 +486,7 @@ class Cli(object):
         if name in self.commands:
             raise ValueError("the command {} is already defined".format(name))
         # Before the parser is made: a refused command leaves nothing
-        _check_declarations(name, exclusive, passive, effect, targets)
+        _check_declarations(name, exclusive, passive, effect, targets, needs)
         if id is not None and self.provider is None:
             raise ValueError("{}: only a Cli with a provider gives ids".format(
                 name))
@@ -472,7 +504,6 @@ class Cli(object):
                 name,
                 help=_summary(desc),
                 description=desc,
-                epilog=_epilog(effect, targets),
                 formatter_class=argparse.RawDescriptionHelpFormatter)
         else:
             _parser = self.parser
@@ -482,7 +513,9 @@ class Cli(object):
                           locks, queued, passive, internal, group=group,
                           provider=self.provider, id_name=id,
                           interactive=interactive, effect=effect,
-                          targets=targets)
+                          targets=targets, needs=needs)
+        if self.main is None:
+            _parser.describe = command.describe
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
@@ -505,7 +538,7 @@ class Cli(object):
     def command(self, name=None, category=None, exclusive=True,
                 locks=None, queued=None, passive=False, internal=False,
                 group=None, id=None, interactive=False, effect=None,
-                targets=None):
+                targets=None, needs=()):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -525,6 +558,8 @@ class Cli(object):
         * `targets`: The kinds of target that the command accepts. The
         default is the `targets` of the `Cli`; give `()` for a command
         that acts on no target. See `Command`.
+        * `needs`: The capabilities that a target must have. Core gives
+        this in place of `targets`. See `Command`.
         * `exclusive`: Give False for a command that can share its
         targets with other jobs. See `Command`.
         * `locks`: What the command must not share with another
@@ -545,7 +580,7 @@ class Cli(object):
                 sys.exit(-1)
             return self.create_subparser(
                 fn, name, category, exclusive, locks, queued, passive,
-                internal, group, id, interactive, effect, targets)
+                internal, group, id, interactive, effect, targets, needs)
         return inner
 
     def run(self, argv=None):
@@ -635,17 +670,27 @@ class _Section(object):
                 if command.category == self.category}
 
 
-def _epilog(effect, targets):
-    """What `--help` says at the end about what the command does."""
+class _Parser(argparse.ArgumentParser):
+    """An `argparse.ArgumentParser` whose epilog is made when the help
+    is shown (`describe`), so that it names the kinds of target that are
+    installed now. The parsers of the commands are of this class too."""
+
+    describe = None
+
+    def format_help(self):
+        if self.describe is not None:
+            self.epilog = self.describe()
+        return super().format_help()
+
+
+def _epilog(effect):
+    """What `--help` says about the effect of a command (see
+    `Command.describe`)."""
     if effect is None:
         return None
-    text = "Effect: {}.".format(
+    return "Effect: {}.".format(
         "it only reads" if effect == READ else
         "it changes its targets or MAST")
-    if targets:
-        text += " Targets: {}.".format(
-            "any kind" if ANY_TARGET in targets else ", ".join(targets))
-    return text
 
 
 def _summary(doc):

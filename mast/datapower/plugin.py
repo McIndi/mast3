@@ -24,7 +24,7 @@ Until the plugin is its own distribution (mcindi-mast-datapower), it
 has the version of MAST and works only with that version.
 """
 from mast import __version__
-from mast.plugins import Manifest
+from mast.plugins import COLLECT_CRYPTO, TEST_CREDENTIALS, Kind, Manifest
 
 __all__ = ["manifest"]
 
@@ -35,7 +35,8 @@ manifest = Manifest(
     api=1,
     core="=={}".format(__version__),
     commands="mast.datapower.commands:cli",
-    target_kinds=("datapower",),
+    kinds=(Kind("datapower", "IBM DataPower appliance",
+                capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS)),),
     pages=("mast.datapower.status.page:page",
            "mast.datapower.crypto.page:page",
            "mast.datapower.ssh.page:page"))

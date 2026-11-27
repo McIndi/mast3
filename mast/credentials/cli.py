@@ -41,7 +41,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Literal
 
-from mast.cli import ANY_TARGET, Cli, Option, Params, Table, Text
+from mast.cli import Cli, Option, Params, Table, Text
+from mast.plugins import TEST_CREDENTIALS
 from mast.roots import CORE
 from mast.credentials import TEST_COMMAND, keys, store, testing
 from mast.jobs.auth import LOCAL, Forbidden
@@ -244,7 +245,7 @@ class Test(NameParams):
         help="The registered appliance to test it on.")
 
 
-@cli.command("test", effect="read", targets=(ANY_TARGET,),
+@cli.command("test", effect="read", needs=(TEST_CREDENTIALS,),
              id="test-credential")
 def test(params: Test):
     """Test a credential on one appliance, through the job queue: read the

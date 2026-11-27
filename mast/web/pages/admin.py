@@ -34,8 +34,8 @@ temporary: the user chooses a new one at the first login.
 * `PATCH /api/v1/users/<name>`: Any of `{role}`, `{disabled}` or
 `{password}` (a new temporary password).
 * `DELETE /api/v1/users/<name>`.
-* `GET /api/v1/plugins`: `{plugins, left_out}`, what `mast plugins
-list` shows.
+* `GET /api/v1/plugins`: `{plugins, left_out, kinds}`, what `mast
+plugins list` and `mast plugins kinds` show.
 
 An admin cannot change their own role, disable or delete themselves
 here, so that the web UI always keeps an admin who can log in. On the
@@ -255,13 +255,26 @@ def _plugins():
     registry.commands()
     used = [{"provider": m.provider, "title": m.title, "version": m.version,
              "distribution": plugins.distribution(m.provider), "api": m.api,
-             "core": m.core, "target_kinds": list(m.target_kinds),
-             "commands": len(registry.commands(m.provider))}
+             "core": m.core, "kinds": [kind.name for kind in m.kinds],
+             "commands": len(registry.commands(m.provider)),
+             "unavailable": [{"id": command.id, "reason": reason}
+                             for command, reason
+                             in registry.unavailable(m.provider)]}
             for _, m in sorted(plugins.manifests().items())]
     left_out = [{"provider": f.name, "distribution": f.distribution,
-                 "kind": f.kind, "reason": f.reason, "fix": f.fix}
+                 "problem": f.problem, "reason": f.reason, "fix": f.fix}
                 for f in plugins.failures()]
     return used, left_out
+
+
+def _kinds():
+    """Every kind of target that can be used."""
+    return [{"name": name, "title": kind.title,
+             "provider": plugins.provider_of(name), "extends": kind.extends,
+             "capabilities": sorted(kind.capabilities),
+             "inherited": sorted(plugins.capabilities(name)
+                                 - set(kind.capabilities))}
+            for name, kind in sorted(plugins.kinds().items())]
 
 
 @blueprint.get("/admin/plugins")
@@ -276,7 +289,8 @@ def plugins_page():
     """
     used, left_out = _plugins()
     return flask.render_template("admin_plugins.html", plugins=used,
-                                 left_out=left_out, api=plugins.API)
+                                 left_out=left_out, kinds=_kinds(),
+                                 api=plugins.API)
 
 
 @blueprint.get("/api/v1/plugins")
@@ -290,7 +304,7 @@ def list_plugins():
     """
     used, left_out = _plugins()
     return flask.jsonify({"api": plugins.API, "plugins": used,
-                          "left_out": left_out})
+                          "left_out": left_out, "kinds": _kinds()})
 
 
 page = Page(name="admin", title="Admin", order=90, min_role="admin",

@@ -40,7 +40,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from pydantic import field_validator
 from sqlalchemy import delete, func, select, update
 
-from mast.cli import ANY_TARGET, Option, Params, Table, say
+from mast.cli import Option, Params, Table, say
+from mast.plugins import COLLECT_CRYPTO
 from mast.logging import make_logger
 
 from mast.crypto.cli import section as cli
@@ -547,7 +548,7 @@ class Posture(Params):
         help="Only the newest snapshots of these appliances.")
 
 
-@cli.command("posture", effect="read", targets=(ANY_TARGET,),
+@cli.command("posture", effect="read", needs=(COLLECT_CRYPTO,),
              id="crypto-posture", group="posture",
              exclusive=False)
 def posture(params: Posture):
@@ -618,7 +619,7 @@ class AddException(Params):
                               "domain.")
 
 
-@cli.command("exception-add", effect="change", targets=(ANY_TARGET,),
+@cli.command("exception-add", effect="change", needs=(COLLECT_CRYPTO,),
              id="crypto-exception-add", group="exceptions",
              exclusive=False)
 def exception_add(params: AddException):

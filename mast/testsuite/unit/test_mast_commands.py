@@ -30,7 +30,8 @@ import unittest
 from unittest import mock
 
 from mast import plugins, roots, v3
-from mast.cli import ANY_TARGET, Cli, Option, Params
+from mast.cli import Cli, Option, Params
+from mast.plugins import Kind
 from mast.jobs import registry
 from mast.web import catalog
 
@@ -57,7 +58,7 @@ class OnTargets(Params):
 
 def fake_plugin(provider, commands=("look",), manifest_provider=None,
                 cli_provider=None, broken=False, api=1, core=">=4.0.0.dev0",
-                target_kinds=(), effect="change", targets=(), pages=()):
+                kinds=(), effect="change", targets=(), pages=(), needs=()):
     """An entry point of `mast_plugin` whose manifest and commands are in
     a module made here. Its commands take the parameter `targets` if
     they accept `targets`. Return (entry point, module name)."""
@@ -66,21 +67,21 @@ def fake_plugin(provider, commands=("look",), manifest_provider=None,
     module.manifest = plugins.Manifest(
         provider=manifest_provider or provider, title=provider.title(),
         version="1.0", api=api, core=core, commands="{}:cli".format(name),
-        target_kinds=target_kinds, pages=pages)
+        kinds=kinds, pages=pages)
     if broken:
         module.manifest = plugins.Manifest(
             provider=provider, title="Broken", version="1.0", api=1,
             core=">=4.0.0.dev0", commands="mast_no_such_module:cli")
     cli = Cli(provider=cli_provider or provider, targets=targets)
     for command in commands:
-        if targets:
+        if targets or needs:
             def fn(params: OnTargets):
                 pass
         else:
             def fn(params: Nothing):
                 pass
         fn.__name__ = command.replace("-", "_")
-        cli.command(command, effect=effect)(fn)
+        cli.command(command, effect=effect, needs=needs)(fn)
     module.cli = cli
     sys.modules[name] = module
     entry_point = importlib.metadata.EntryPoint(
@@ -267,7 +268,7 @@ class TestPluginApi(PluginsCase):
 
     def test_a_good_plugin(self):
         entry_point, _ = fake_plugin(
-            "acme", ("get-status",), target_kinds=("acme",),
+            "acme", ("get-status",), kinds=(Kind("acme", "Acme"),),
             effect="read", targets=("acme",))
         self.use(entry_point)
         command = registry.resolve("acme.get-status")
@@ -280,7 +281,7 @@ class TestPluginApi(PluginsCase):
         entry_point, _ = fake_plugin("acme", api=2)
         self.use(entry_point)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.INCOMPATIBLE)
+        self.assertEqual(found.problem, plugins.INCOMPATIBLE)
         self.assertIn("plugin API 2", found.reason)
         self.assertIn("plugin API 1", found.fix)
 
@@ -288,7 +289,7 @@ class TestPluginApi(PluginsCase):
         entry_point, _ = fake_plugin("acme", core=">=5")
         self.use(entry_point)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.INCOMPATIBLE)
+        self.assertEqual(found.problem, plugins.INCOMPATIBLE)
         self.assertIn("it needs MAST >=5", found.reason)
         self.assertIn("or a MAST >=5", found.fix)
 
@@ -296,25 +297,27 @@ class TestPluginApi(PluginsCase):
         entry_point, _ = fake_plugin("acme", core="four")
         self.use(entry_point)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.INVALID)
+        self.assertEqual(found.problem, plugins.INVALID)
         self.assertIn("Report this to the authors", found.fix)
 
-    def test_a_target_kind_of_core(self):
-        entry_point, _ = fake_plugin("acme", target_kinds=("endpoint",))
+    def test_a_kind_of_core(self):
+        entry_point, _ = fake_plugin("acme",
+                                     kinds=(Kind("endpoint", "Mine"),))
         self.use(entry_point)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.CONFLICT)
+        self.assertEqual(found.problem, plugins.CONFLICT)
         self.assertIn("a kind of core", found.reason)
 
-    def test_a_target_kind_of_two_plugins_is_of_neither(self):
-        first, _ = fake_plugin("acme", target_kinds=("widget",))
-        second, _ = fake_plugin("bolt", target_kinds=("widget", "bolt"))
+    def test_a_kind_of_two_plugins_is_of_neither(self):
+        first, _ = fake_plugin("acme", kinds=(Kind("widget", "A"),))
+        second, _ = fake_plugin("bolt", kinds=(Kind("widget", "B"),
+                                               Kind("bolt", "Bolt")))
         self.use(first, second)
         for name in ("acme", "bolt"):
             with self.subTest(plugin=name):
                 found = self.failure(name)
-                self.assertEqual(found.kind, plugins.CONFLICT)
-                self.assertIn("the target kind 'widget' is given by the "
+                self.assertEqual(found.problem, plugins.CONFLICT)
+                self.assertIn("the kind 'widget' is given by the "
                               "plugin acme and the plugin bolt", found.reason)
                 self.assertIn("Uninstall all but one of", found.fix)
 
@@ -322,21 +325,51 @@ class TestPluginApi(PluginsCase):
         entry_point, _ = fake_plugin("acme", ("look", "reboot"), effect=None)
         self.use(entry_point)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.INVALID)
+        self.assertEqual(found.problem, plugins.INVALID)
         self.assertIn("mast acme look: it declares no effect", found.reason)
         self.assertIn("mast acme reboot", found.reason)
 
-    def test_a_command_with_a_kind_that_the_plugin_does_not_give(self):
-        entry_point, _ = fake_plugin("acme", target_kinds=("acme",),
-                                     targets=("datapower",))
+    def test_a_command_may_accept_the_kind_of_another_plugin(self):
+        entry_point, _ = fake_plugin("acme", ("audit-gateway",),
+                                     targets=("datapower",), effect="read")
         self.use(entry_point)
-        self.assertIn("the target kind 'datapower'",
-                      self.failure("acme").reason)
+        self.assertEqual(
+            registry.accepted_kinds(registry.resolve("acme.audit-gateway")),
+            ["datapower"])
 
-    def test_a_plugin_command_cannot_take_any_kind(self):
-        entry_point, _ = fake_plugin("acme", targets=(ANY_TARGET,))
+    def test_a_command_of_a_kind_that_is_not_installed(self):
+        # The rest of the plugin works; the command says what to install
+        entry_point, name = fake_plugin("acme", ("look",))
+        cli = sys.modules[name].cli
+
+        def on_linux(params: OnTargets):
+            pass
+        cli.command("on-linux", effect="read", targets=("linux",))(on_linux)
         self.use(entry_point)
-        self.assertIn("the target kind '*'", self.failure("acme").reason)
+        self.assertIsNone(plugins.failure("acme"))
+        self.assertIsNotNone(registry.resolve("acme.look"))
+        with self.assertRaises(registry.UnknownCommand) as caught:
+            registry.resolve("acme.on-linux")
+        self.assertIn("accepts only the kinds linux, which no installed "
+                      "plugin gives", str(caught.exception))
+        self.assertEqual([c.id for c, _ in registry.unavailable("acme")],
+                         ["acme.on-linux"])
+        self.assertNotIn("acme.on-linux",
+                         [c["id"] for c in catalog.all_commands()])
+
+    def test_names_of_kinds_and_capabilities(self):
+        cli = Cli(provider="acme")
+
+        def look(params: OnTargets):
+            pass
+        for bad in ({"targets": ("*",)}, {"targets": ("Big",)},
+                    {"needs": "collect-crypto"}, {"needs": ("a b",)}):
+            with self.subTest(declaration=bad):
+                with self.assertRaises(ValueError):
+                    cli.command("look", effect="read", **bad)(look)
+        entry_point, _ = fake_plugin("acme", kinds=(Kind("Acme", "A"),))
+        self.use(entry_point)
+        self.assertEqual(self.failure("acme").problem, plugins.INVALID)
 
     def test_a_command_of_core_names_no_kind_of_a_plugin(self):
         cli = Cli(provider="core", prog="mast extra")
@@ -352,7 +385,7 @@ class TestPluginApi(PluginsCase):
         self.addCleanup(registry._invalidate)
         with self.assertRaises(registry.RegistrationError) as caught:
             registry.commands()
-        self.assertIn("which core does not give", str(caught.exception))
+        self.assertIn("which is not a kind of core", str(caught.exception))
 
     def test_a_missing_plugin(self):
         self.use()
@@ -379,7 +412,7 @@ class TestPluginApi(PluginsCase):
         names = [page.name for page in load_pages()]
         self.assertIn("appliances", names)
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.BROKEN)
+        self.assertEqual(found.problem, plugins.BROKEN)
         self.assertIn("its pages cannot be loaded", found.reason)
 
     def test_a_plugin_page_that_takes_the_name_of_another(self):
@@ -394,13 +427,13 @@ class TestPluginApi(PluginsCase):
         pages = {page.name: page for page in load_pages()}
         self.assertEqual(pages["jobs"].title, "Jobs")
         found = self.failure("acme")
-        self.assertEqual(found.kind, plugins.CONFLICT)
+        self.assertEqual(found.problem, plugins.CONFLICT)
         self.assertIn("takes the name 'jobs'", found.reason)
 
     def test_pages_that_are_not_module_attributes(self):
         entry_point, _ = fake_plugin("acme", pages="mast.web.pages.jobs:page")
         self.use(entry_point)
-        self.assertEqual(self.failure("acme").kind, plugins.INVALID)
+        self.assertEqual(self.failure("acme").problem, plugins.INVALID)
 
     def test_the_command_line_says_what_to_do(self):
         entry_point, _ = fake_plugin("acme", api=2)
@@ -413,6 +446,133 @@ class TestPluginApi(PluginsCase):
         self.assertEqual(code, 2)
         self.assertIn("the plugin acme was left out", err)
         self.assertIn("plugin API 1", err)
+
+
+class TestKinds(PluginsCase):
+    """A target has a base kind and extensions; an extension extends a
+    kind of any plugin, and inherits its capabilities and its
+    commands."""
+
+    def failure(self, name):
+        return TestPluginApi.failure(self, name)
+
+    def apic(self, **kwargs):
+        """A plugin with an extension of the DataPower kind."""
+        kwargs.setdefault("kinds", (Kind(
+            "apic-gateway", "API Connect gateway", extends="datapower",
+            capabilities=("apic-gateway-service",)),))
+        return fake_plugin("apic", ("sync-gateway",),
+                           targets=("apic-gateway",), effect="change",
+                           **kwargs)
+
+    def test_an_extension_of_the_kind_of_another_plugin(self):
+        entry_point, _ = self.apic()
+        self.use(entry_point)
+        self.assertEqual(plugins.lineage("apic-gateway"),
+                         ["apic-gateway", "datapower"])
+        self.assertEqual(plugins.provider_of("apic-gateway"), "apic")
+        # It has the capabilities of DataPower as well as its own
+        self.assertEqual(plugins.capabilities("apic-gateway"), {
+            "apic-gateway-service", plugins.COLLECT_CRYPTO,
+            plugins.TEST_CREDENTIALS})
+        # The DataPower commands take it; its own commands take only it
+        self.assertEqual(
+            registry.accepted_kinds(registry.resolve("datapower.get-status")),
+            ["apic-gateway", "datapower"])
+        self.assertEqual(
+            registry.accepted_kinds(registry.resolve("apic.sync-gateway")),
+            ["apic-gateway"])
+        # Core finds it by its capabilities
+        self.assertEqual(
+            registry.accepted_kinds(registry.resolve("core.crypto-inventory")),
+            ["apic-gateway", "datapower"])
+        help_text = " ".join(registry.resolve("datapower.get-status")
+                             .parser.format_help().split())
+        self.assertIn("Targets: apic-gateway, datapower.", help_text)
+
+    def test_an_extension_of_a_kind_that_is_not_installed(self):
+        entry_point, _ = fake_plugin("django", kinds=(Kind(
+            "django", "Django site", extends="linux"),))
+        self.use(entry_point)
+        found = self.failure("django")
+        self.assertEqual(found.problem, plugins.MISSING)
+        self.assertIn("extends the kind 'linux', which no installed plugin "
+                      "gives", found.reason)
+        self.assertIn("Install the plugin that gives the kind 'linux'",
+                      found.fix)
+
+    def test_an_extension_goes_with_the_plugin_that_it_extends(self):
+        # linux is left out for a fault in a command, after its kinds
+        # were read: django, which extends it, goes too
+        base, _ = fake_plugin("linux", ("get-status",), effect=None,
+                              kinds=(Kind("linux", "Linux host"),))
+        extension, _ = fake_plugin("django", kinds=(Kind(
+            "django", "Django site", extends="linux"),))
+        self.use(base, extension)
+        self.assertEqual(self.failure("linux").problem, plugins.INVALID)
+        self.assertEqual(self.failure("django").problem, plugins.MISSING)
+        self.assertNotIn("django", plugins.kinds())
+
+    def test_extensions_in_a_circle(self):
+        first, _ = fake_plugin("acme", kinds=(Kind("a", "A", extends="b"),))
+        second, _ = fake_plugin("bolt", kinds=(Kind("b", "B", extends="a"),))
+        self.use(first, second)
+        self.assertEqual(self.failure("acme").problem, plugins.INVALID)
+        self.assertIn("extends itself", plugins.failure("acme").reason)
+
+    def test_extensions_of_extensions(self):
+        linux, _ = fake_plugin("linux", kinds=(Kind(
+            "linux", "Linux host", capabilities=("ssh",)),))
+        django, _ = fake_plugin("django", ("restart-app",),
+                                targets=("django",), kinds=(
+            Kind("django", "Django site", extends="linux",
+                 capabilities=("restart-app",)),
+            Kind("wagtail", "Wagtail site", extends="django")))
+        self.use(linux, django)
+        self.assertEqual(plugins.lineage("wagtail"),
+                         ["wagtail", "django", "linux"])
+        self.assertEqual(plugins.capabilities("wagtail"),
+                         {"ssh", "restart-app"})
+        self.assertEqual(plugins.accepting(targets=("linux",)),
+                         ["django", "linux", "wagtail"])
+        self.assertEqual(plugins.accepting(needs=("restart-app",)),
+                         ["django", "wagtail"])
+
+    def test_a_capability_that_no_kind_has(self):
+        cli = Cli(provider="core", prog="mast extra")
+
+        def extra(params: OnTargets):
+            pass
+        cli.command("extra", effect="read", id="extra",
+                    needs=("make-coffee",))(extra)
+        clis = registry._core_clis()
+        clis.append(cli)
+        self.addCleanup(clis.remove, cli)
+        registry._invalidate()
+        self.addCleanup(registry._invalidate)
+        command = registry.resolve("core.extra")
+        self.assertEqual(registry.accepted_kinds(command), [])
+        self.assertIn("no installed kind can make-coffee",
+                      command.parser.format_help())
+
+    def test_the_help_of_core_names_the_installed_kinds(self):
+        entry_point, _ = self.apic()
+        self.use(entry_point)
+        code, out, _ = run_mast("crypto", "inventory", "--help")
+        self.assertEqual(code, 0)
+        self.assertIn("Targets: apic-gateway, datapower.",
+                      " ".join(out.split()))
+
+    def test_the_command_line_lists_the_kinds(self):
+        entry_point, _ = self.apic()
+        self.use(entry_point)
+        code, out, _ = run_mast("plugins", "kinds")
+        self.assertEqual(code, 0)
+        self.assertRegex(out, r"(?m)^apic-gateway +API Connect gateway +apic "
+                              r"+datapower +apic-gateway-service +"
+                              r"collect-crypto, test-credentials")
+        self.assertRegex(out, r"(?m)^datapower .*\(base kind\)")
+        self.assertRegex(out, r"(?m)^endpoint .*core")
 
 
 class TestDeclarations(unittest.TestCase):
@@ -465,7 +625,9 @@ class TestDeclarations(unittest.TestCase):
     def test_core_commands_name_no_kind_of_a_plugin(self):
         for command in registry.commands("core"):
             with self.subTest(command=command.id):
-                self.assertTrue(set(command.targets) <= {ANY_TARGET})
+                self.assertEqual(command.targets, ())
+                self.assertTrue(set(command.needs) <= {
+                    plugins.COLLECT_CRYPTO, plugins.TEST_CREDENTIALS})
 
     def test_secret_parameters(self):
         self.assertEqual(

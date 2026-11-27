@@ -119,15 +119,29 @@ imports nothing else of the plugin) says what the plugin is:
         provider="datapower", title="IBM DataPower", version="4.0.0",
         api=1, core=">=4.0,<5",
         commands="mast.datapower.commands:cli",
-        target_kinds=("datapower",),
+        kinds=(Kind("datapower", "IBM DataPower appliance",
+                    capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS)),),
         pages=("mast.datapower.status.page:page",))
 
 * `provider` is the name of its entry point, a lower-case name that is
 not a root of core (`mast.roots.RESERVED`).
 * `api` is the plugin API that it is made for, and `core` the versions
 of MAST that it works with (a version specifier).
-* `target_kinds` are the kinds of target that it gives. Its commands
-accept only these. A kind that two plugins give belongs to neither.
+* `kinds` are the kinds of target that it gives (`mast.plugins.Kind`).
+A target has one base kind and any number of extensions. A kind with
+`extends` is an extension of another kind, of this plugin or another
+one: an API Connect plugin could give
+`Kind("apic-gateway", ..., extends="datapower")`, and a Django plugin
+`Kind("django", ..., extends="linux")`. An extension has the
+capabilities of the kind that it extends as well as its own, and every
+command that accepts that kind accepts the extension. Two plugins never
+give the same kind: both are left out. An extension of a kind that no
+installed plugin gives is left out until that plugin is installed.
+`mast plugins kinds` shows every kind.
+* A capability, such as `collect-crypto` or `test-credentials`, says
+what MAST can do with a target of a kind. Core commands ask for
+capabilities, so a new kind with `collect-crypto` is in
+`mast crypto inventory` at once.
 * `pages` are its pages of the web UI (see "Adding a page to the web
 UI").
 
@@ -137,7 +151,10 @@ commands or pages can be used, and the rest of MAST works.
 `mast plugins list` and Admin → Plugins show why, and what to do. A
 fault is `broken` (its code cannot be imported), `incompatible` (another
 API or another MAST), `conflict` (a name that core or another plugin
-has) or `invalid` (it breaks a rule of the API). Fake plugins in
+has), `invalid` (it breaks a rule of the API) or `missing` (it extends
+a kind that no installed plugin gives). A command that accepts only
+kinds that are not installed is unavailable, and the rest of its
+plugin works. Fake plugins in
 `mast/testsuite/unit/test_mast_commands.py` test each case.
 
 # Adding a command
@@ -210,10 +227,14 @@ report (`get-pmr-info`) is a change. A command that reads secrets, such
 as `get-file`, only reads. A permission to change will be needed to run
 a command that changes, and a stored credential for collecting can be
 used only by a command that reads. `--help` and the web UI show it.
-* `targets` are the kinds of target that the command accepts. The
-default is that of the `Cli` (`("datapower",)` in the DataPower
-plugin); give `targets=()` for a command that acts on no appliance,
-such as `xor`.
+* `targets` are the kinds of target that the command accepts, with
+every kind that extends them. The default is that of the `Cli`
+(`("datapower",)` in the DataPower plugin); give `targets=()` for a
+command that acts on no appliance, such as `xor`. A plugin may name the
+kinds of other plugins.
+* `needs` are the capabilities that a target must have. A command of
+core gives `needs` and never names a kind of a plugin:
+`mast crypto inventory` has `needs=(COLLECT_CRYPTO,)`.
 * `exclusive=False` for a command that can share its appliances with
 other jobs that are not exclusive. It is not the effect: a command
 that reads can still need the appliances for itself. A command that

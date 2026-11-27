@@ -182,7 +182,13 @@ class TestPages(ApiCase):
         (datapower,) = [p for p in answer["plugins"]
                         if p["provider"] == "datapower"]
         self.assertEqual(datapower["api"], 1)
-        self.assertEqual(datapower["target_kinds"], ["datapower"])
+        self.assertEqual(datapower["kinds"], ["datapower"])
+        self.assertEqual(datapower["unavailable"], [])
+        kinds = {k["name"]: k for k in answer["kinds"]}
+        self.assertIsNone(kinds["datapower"]["extends"])
+        self.assertIn("collect-crypto", kinds["datapower"]["capabilities"])
+        self.assertEqual(kinds["endpoint"]["provider"], "core")
+        self.assertIn("data-kind-rows", page)
         self.assertGreater(datapower["commands"], 90)
         self.assertEqual(answer["left_out"], [])
         client = self.app.test_client()
@@ -290,6 +296,11 @@ class TestCommandsApi(ApiCase):
         self.assertTrue({o["name"]: o for o in status["options"]}
                         ["appliances"]["target"])
         self.assertEqual(found["datapower.get-pmr-info"]["effect"], "change")
+        self.assertEqual(status["kinds"], ["datapower"])
+        inventory = found["core.crypto-inventory"]
+        self.assertEqual((inventory["targets"], inventory["needs"],
+                          inventory["kinds"]),
+                         ([], ["collect-crypto"], ["datapower"]))
 
     def test_one_command(self):
         self.login("viewer")

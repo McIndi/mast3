@@ -83,14 +83,24 @@ may read. The commands that write on an appliance only for a moment
 `mast_plugin` that names its manifest: its provider, version, plugin
 API, the versions of MAST that it works with, its kinds of target and
 its pages. Every command declares its effect (`read` or `change`), the
-kinds of target that it accepts, and its target and secret parameters.
-Core checks all of it before it registers any command of the plugin. A
-plugin with one fault is left out whole, with none of its commands or
-pages, and the rest of MAST works.
+kinds of target that it accepts or the capabilities that it needs, and
+its target and secret parameters. Core checks all of it before it
+registers any command of the plugin. A plugin with one fault is left
+out whole, with none of its commands or pages, and the rest of MAST
+works.
+* **Kinds of target can be extended.** A target has one base kind and
+any number of extensions, and a plugin can extend the kind of another
+plugin (an API Connect gateway is a DataPower appliance; a Django site
+is on a Linux host). An extension has the capabilities and the
+commands of the kind that it extends. The commands of core ask for
+capabilities, so they work with every kind that has them.
+`mast plugins kinds` shows the kinds.
 * `mast plugins list` and the new Admin → Plugins page show the
 installed plugins, and each one that was left out with what is wrong
-(`broken`, `incompatible`, `conflict` or `invalid`) and what to do. A
-job or schedule of a plugin that is missing fails with the same advice.
+(`broken`, `incompatible`, `conflict`, `invalid` or `missing`) and what
+to do. A job or schedule of a plugin that is missing fails with the
+same advice, and so does a command that needs a kind that no installed
+plugin gives.
 * `--help` of a command, and its form on the Commands page, say whether
 it only reads or changes. The catalog of the API has `effect` and
 `targets` for each command.

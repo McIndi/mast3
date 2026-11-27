@@ -42,7 +42,8 @@ from datetime import datetime, timezone
 from pydantic import model_validator
 from sqlalchemy import func, select
 
-from mast.cli import ANY_TARGET, Option, Params, Table, say
+from mast.cli import Option, Params, Table, say
+from mast.plugins import COLLECT_CRYPTO
 from mast.plugin_utils.params import OUT_FILE
 
 from mast.crypto.cli import section as cli
@@ -734,7 +735,7 @@ class Export(Params):
         return self
 
 
-@cli.command("export", effect="read", targets=(ANY_TARGET,),
+@cli.command("export", effect="read", needs=(COLLECT_CRYPTO,),
              id="crypto-export", group="inventory", exclusive=False)
 def export(params: Export):
     """Write the crypto inventory to a file: a CycloneDX 1.6 CBOM (JSON),

@@ -36,13 +36,18 @@ effect, its kinds of target are those of its plugin, and its target
 parameters agree with them (`mast.cli.Command.problems`). A plugin
 with one fault is left out whole, and `mast plugins list` says why
 (`mast.plugins.failures`). A fault in core is a `RegistrationError`.
+
+A command of a plugin may accept the kinds of other plugins. If none of
+the kinds that it accepts is given by an installed plugin, the command
+is not registered (`unavailable`), and the other commands of its plugin
+are. A command of core accepts only the kinds of core, or asks for
+capabilities (`mast.cli.Command.needs`).
 """
 from mast import plugins, roots
-from mast.cli import ANY_TARGET
 
 __all__ = ["register", "unregister", "ensure", "resolve", "command_id",
            "providers", "commands", "cli_for", "clis", "missing",
-           "leave_out", "reset",
+           "leave_out", "unavailable", "accepted_kinds", "reset",
            "UnknownCommand", "RegistrationError"]
 
 CORE = roots.CORE
@@ -53,6 +58,9 @@ _registered = {}
 _loaded = {}
 # The commands by id, made from _loaded and _registered
 _index = None
+# The commands that accept only kinds that are not installed: id ->
+# (command, reason)
+_unavailable = {}
 
 
 class UnknownCommand(Exception):
@@ -165,16 +173,17 @@ def _plugin_cli(provider):
     return _loaded[provider]
 
 
-def leave_out(provider, kind, reason):
+def leave_out(provider, problem, reason):
     """
-    _function_: `mast.jobs.registry.leave_out(provider, kind, reason)`
+    _function_: `mast.jobs.registry.leave_out(provider, problem, reason)`
 
     Leave the plugin `provider` out from now on in this process, with
     all its commands: for a fault found after its commands were
-    registered, such as a page of the web UI that does not load. `kind`
-    and `reason` are those of `mast.plugins.fail`.
+    registered, such as a page of the web UI that does not load. `problem`
+    and `reason` are those of `mast.plugins.fail`. The plugins whose
+    kinds extend its kinds are left out too.
     """
-    plugins.fail(provider, kind, reason)
+    plugins.fail(provider, problem, reason)
     _loaded.pop(provider, None)
     _invalidate()
 
@@ -218,17 +227,6 @@ def cli_for(provider):
     return found[0]
 
 
-def _kinds(provider):
-    """The kinds of target that the commands of `provider` may accept,
-    or None for any (a Cli given to register)."""
-    if provider == CORE:
-        return {ANY_TARGET} | plugins.CORE_KINDS
-    manifest = plugins.manifests().get(provider)
-    if manifest is None:
-        return None
-    return set(manifest.target_kinds)
-
-
 def _problems(provider, command):
     """What is wrong with one command of `provider`."""
     found = []
@@ -238,15 +236,40 @@ def _problems(provider, command):
         found.append("the id of a plugin command is its name, not "
                      "{!r}".format(command.id_name))
     found += command.problems()
-    allowed = _kinds(provider)
-    if allowed is not None:
+    if provider == CORE:
+        core = {kind.name for kind in plugins.CORE_KINDS}
         for kind in command.targets:
-            if kind not in allowed:
-                found.append("it accepts the target kind {!r}, which "
-                             "{} does not give".format(
-                                 kind, "core" if provider == CORE
-                                 else "the plugin"))
+            if kind not in core:
+                found.append("it accepts the kind {!r}, which is not a "
+                             "kind of core: a command of core asks for "
+                             "capabilities (needs)".format(kind))
     return found
+
+
+def _missing_kinds(command):
+    """The reason why `command` accepts no kind that is installed, or
+    None."""
+    if not command.targets:
+        return None
+    known = plugins.kinds()
+    if any(kind in known for kind in command.targets):
+        return None
+    return ("{} accepts only the kinds {}, which no installed plugin "
+            "gives. Install the plugin that gives {}.".format(
+                command.id, ", ".join(command.targets),
+                "it" if len(command.targets) == 1 else "one of them"))
+
+
+def accepted_kinds(command):
+    """
+    _function_: `mast.jobs.registry.accepted_kinds(command)`
+
+    Return the names of the kinds of target, sorted, that `command`
+    accepts on this installation: those that it names and every kind
+    that extends one of them, or every kind with the capabilities that
+    it needs.
+    """
+    return plugins.accepting(command.targets, command.needs)
 
 
 # How many faults a RegistrationError names
@@ -274,8 +297,9 @@ def _provider_index(provider, found):
     return index
 
 
-def _build():
+def _build_once():
     index = {}
+    _unavailable.clear()
     for provider in providers():
         try:
             found = clis(provider)
@@ -290,7 +314,35 @@ def _build():
             # None of the commands of the plugin are registered
             plugins.fail(provider, plugins.INVALID, str(exc))
             _loaded.pop(provider, None)
+    for command_id, command in list(index.items()):
+        reason = _missing_kinds(command)
+        if reason:
+            _unavailable[command_id] = (index.pop(command_id), reason)
     return index
+
+
+def _build():
+    # A plugin that is left out takes its kinds with it, which can make
+    # the commands of other plugins unavailable: build again until
+    # nothing changes
+    while True:
+        failed = len(plugins.failures())
+        index = _build_once()
+        if len(plugins.failures()) == failed:
+            return index
+
+
+def unavailable(provider=None):
+    """
+    _function_: `mast.jobs.registry.unavailable(provider=None)`
+
+    Return `(command, reason)` for each command (of `provider`, if
+    given) that is not registered because it accepts only kinds that no
+    installed plugin gives.
+    """
+    _commands()
+    return [value for value in _unavailable.values()
+            if provider is None or value[0].provider == provider]
 
 
 def _commands():
@@ -323,6 +375,8 @@ def resolve(command_id):
         return _commands()[command_id]
     except (KeyError, TypeError):
         pass
+    if command_id in _unavailable:
+        raise UnknownCommand(_unavailable[command_id][1])
     provider = command_id.partition(".")[0] \
         if isinstance(command_id, str) else None
     if provider and provider not in providers():

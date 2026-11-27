@@ -58,7 +58,8 @@ from lxml import etree
 from pydantic import field_validator, model_validator
 from sqlalchemy import select
 
-from mast.cli import ANY_TARGET, Option, Table, say
+from mast.cli import Option, Table, say
+from mast.plugins import COLLECT_CRYPTO
 from mast.cli.results import stored_credential_name
 from mast.logging import make_logger
 from mast.plugin_utils.params import ApplianceParams, timeout_option
@@ -900,7 +901,7 @@ class _Inventoried(Table):
         return list(self._oks)
 
 
-@cli.command("inventory", effect="read", targets=(ANY_TARGET,),
+@cli.command("inventory", effect="read", needs=(COLLECT_CRYPTO,),
              id="crypto-inventory", group="inventory",
              exclusive=False, passive=True)
 def inventory(params: Inventory):
