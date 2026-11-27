@@ -1013,7 +1013,19 @@ the sets and groups `viewer` (the non-secret views of core), `operator`
 (cancel one's own jobs) and `admin` (manage core: identities,
 permissions, targets, fleets, credentials, schedules, jobs); they can
 be changed. A plugin's commands are granted only by a set that names
-them. The API has the same under `/api/v1/permission-sets`,
+them. A plugin defines groups of its own with such sets, which MAST
+makes without members: put the users in them after setup or after
+installing the plugin. DataPower has `datapower-reader` (the commands
+that only read, on every appliance; some read secrets, such as
+`get-file`) and `datapower-operator` (every DataPower command):
+
+    :::bash
+    ./mast groups add-member -n datapower-operator -u alice
+
+A newer version of a plugin updates the set of its group, unless an
+admin changed that set; a group that an admin removed is not made
+again. A user who runs jobs with a stored credential also needs `x` on
+it (`mast/credentials/NAME`), which a plugin's group cannot know. The API has the same under `/api/v1/permission-sets`,
 `/api/v1/groups` and `/api/v1/permissions/check` (admins).
 
 ## Sessions

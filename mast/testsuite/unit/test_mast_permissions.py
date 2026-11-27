@@ -147,7 +147,8 @@ class TestRules(PermissionsCase):
 
     def test_the_seeded_groups_follow_the_role(self):
         self.assertEqual([g.name for g in permissions.list_groups()],
-                         ["admin", "operator", "viewer"])
+                         ["admin", "datapower-operator", "datapower-reader",
+                          "operator", "viewer"])
         self.assertEqual(permissions.groups_of("alice"), ["viewer"])
         users.set_role("alice", "admin")
         self.assertEqual(permissions.groups_of("alice"),
@@ -155,10 +156,13 @@ class TestRules(PermissionsCase):
         users.set_role("alice", "operator")
         self.assertEqual(permissions.groups_of("alice"),
                          ["operator", "viewer"])
-        # Installing a plugin grants nothing: no seeded set names one
-        for found in permissions.list_sets():
-            for rule in found.rules:
+        # Installing a plugin grants nothing: no seeded set names one,
+        # and the groups of the plugin have no members
+        for name in ("viewer", "operator", "admin"):
+            for rule in permissions.get_set(name).rules:
                 self.assertNotIn("datapower", rule.path)
+        for name in ("datapower-reader", "datapower-operator"):
+            self.assertEqual(permissions.get_group(name).members, ())
 
 
 class TestDecisions(PermissionsCase):
@@ -269,6 +273,115 @@ class TestDecisions(PermissionsCase):
         # A plugin command is not core
         self.assertFalse(permissions.decide(
             "root", "x", "mast/datapower/save", "dp1").allowed)
+
+
+class TestPluginGroups(PermissionsCase):
+    """A plugin defines groups with the rules of their sets; MAST makes
+    them without members, and an admin puts users in them."""
+
+    def test_the_groups_of_datapower(self):
+        reader = permissions.get_group("datapower-reader")
+        self.assertEqual((reader.sets, reader.members),
+                         (("datapower-reader",), ()))
+        permissions.add_member("datapower-reader", "alice")
+        for command, allowed in (("datapower.list-domains", True),
+                                 ("datapower.get-file", True),
+                                 ("datapower.save", False),
+                                 ("datapower.get-pmr-info", False)):
+            with self.subTest(command=command):
+                self.assertEqual(all(d.allowed for d in
+                                     permissions.check_command(
+                                         "alice", command, ["lab"])),
+                                 allowed)
+        permissions.add_member("datapower-operator", "alice")
+        self.assertTrue(all(d.allowed for d in permissions.check_command(
+            "alice", "datapower.save", ["dp3"])))
+
+    def test_the_reader_has_exactly_the_commands_that_read(self):
+        from mast.datapower.plugin import READ_COMMANDS
+        from mast.jobs import registry as commands
+        self.assertEqual(
+            sorted(READ_COMMANDS),
+            sorted(c.name for c in commands.commands("datapower")
+                   if c.effect == "read"))
+
+    def test_what_an_admin_does_stays(self):
+        # Removed: not made again
+        permissions.remove_group("datapower-reader")
+        permissions.remove_set("datapower-reader")
+        permissions._synced.clear()
+        self.assertEqual(permissions.sync_plugin_groups(), [])
+        with self.assertRaises(permissions.UnknownName):
+            permissions.get_group("datapower-reader")
+        # Changed: a newer version of the plugin does not undo it
+        permissions.update_set("datapower-operator", [
+            {"path": "mast/datapower/*", "allow": ["r", "x"],
+             "scope": {"all": True}}], principal="alice")
+        permissions._synced.clear()
+        permissions.sync_plugin_groups()
+        self.assertEqual(permissions.get_set("datapower-operator")
+                         .rules[0].allow, ("r", "x"))
+
+    def test_a_newer_version_of_the_plugin(self):
+        from mast.plugins import Group
+        from mast.testsuite.unit.test_mast_commands import (
+            PluginsCase, fake_plugin)
+        first, name = fake_plugin("acme", ("look", "reboot"))
+        import sys
+        sys.modules[name].manifest = permissions_manifest(
+            sys.modules[name].manifest, Group(
+                "acme-users", "Look",
+                ({"path": "mast/acme/look", "allow": ["x"]},)))
+        PluginsCase.use(self, first)
+        self.assertIn("acme-users", [g.name for g in
+                                     permissions.list_groups()])
+        # The plugin grants more in its next version
+        sys.modules[name].manifest = permissions_manifest(
+            sys.modules[name].manifest, Group(
+                "acme-users", "Look and reboot",
+                ({"path": "mast/acme/*", "allow": ["x"]},)))
+        from mast import plugins
+        plugins.reset()
+        found = permissions.get_set("acme-users")
+        self.assertEqual((found.description, found.rules[0].path),
+                         ("Look and reboot", "mast/acme/*"))
+
+    keep_datapower = True
+
+    def test_bad_groups_leave_the_plugin_out(self):
+        from mast import plugins
+        from mast.plugins import Group
+        from mast.testsuite.unit.test_mast_commands import (
+            PluginsCase, fake_plugin)
+        import sys
+        cases = {
+            "acme": Group("other-users", "x",
+                          ({"path": "mast/acme/look", "allow": ["x"]},)),
+            "bolt": Group("bolt-users", "x",
+                          ({"path": "mast/datapower/save", "allow": ["x"]},)),
+            "coil": Group("coil-users", "x",
+                          ({"path": "mast/coil/look", "allow": ["x"],
+                            "scope": {"fleets": ["lab"]}},)),
+            "dial": Group("dial-users", "x",
+                          ({"path": "mast/dial/look", "allow": ["q"]},)),
+        }
+        entry_points = []
+        for provider, group in cases.items():
+            entry_point, name = fake_plugin(provider)
+            sys.modules[name].manifest = permissions_manifest(
+                sys.modules[name].manifest, group)
+            entry_points.append(entry_point)
+        PluginsCase.use(self, *entry_points)
+        for provider in cases:
+            with self.subTest(provider=provider):
+                self.assertEqual(plugins.failure(provider).problem,
+                                 plugins.INVALID)
+
+
+def permissions_manifest(manifest, group):
+    """The manifest with the groups (group,)."""
+    import dataclasses
+    return dataclasses.replace(manifest, groups=(group,))
 
 
 class TestDecisionsPostgres(PostgresMixin, TestDecisions):

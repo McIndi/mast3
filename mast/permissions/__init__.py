@@ -56,6 +56,11 @@ What a user may do is the union of the rules of the sets of all their
 groups. MAST makes the groups `viewer`, `operator` and `admin` with the
 sets of the same names; they can be changed. A plugin's commands are
 granted only by sets that name them: installing a plugin grants nothing.
+A plugin defines groups with the rules of their sets
+(`mast.plugins.Group`): MAST makes each one without members when it
+first sees it (`sync_plugin_groups`), and an admin puts users in it. A
+newer version of the plugin updates the set of a group, until an admin
+changes that set; a group that an admin removed is not made again.
 
 Until step 6 (enforcement), the role of a user still decides what they
 may do, and MAST keeps each user in the group of their role; these
@@ -69,7 +74,7 @@ from sqlalchemy import delete, select
 
 from mast.jobs import db
 from mast.permissions.models import (
-    GroupMember, GroupPermissionSet, PermissionSet, UserGroup)
+    GroupMember, GroupPermissionSet, PermissionSet, PluginGroup, UserGroup)
 
 __all__ = [
     "CAPABILITIES", "CORE_ACTIONS", "SEED", "PermissionError",
@@ -79,7 +84,7 @@ __all__ = [
     "remove_set", "get_set", "list_sets", "add_group", "update_group",
     "remove_group", "get_group", "list_groups", "grant", "revoke",
     "add_member", "remove_member", "groups_of", "rules_of", "decide",
-    "check_command", "sync_role", "ROLE_GROUPS",
+    "check_command", "sync_role", "ROLE_GROUPS", "sync_plugin_groups",
 ]
 
 CAPABILITIES = ("r", "w", "x")
@@ -478,6 +483,7 @@ def add_set(name, rules=(), description="", principal="os:mast"):
 
     Add a permission set with these rules (dicts, see `check_rule`).
     """
+    sync_plugin_groups()
     _check_set_name(name)
     checked = [check_rule(rule) for rule in rules]
     with db.session() as session:
@@ -500,6 +506,7 @@ def update_set(name, rules=None, description=None, principal="os:mast"):
 
     Replace the rules and/or the description of a permission set.
     """
+    sync_plugin_groups()
     checked = None if rules is None else [check_rule(rule) for rule in rules]
     with db.session() as session:
         record = _set(session, name)
@@ -545,6 +552,7 @@ def remove_set(name):
 
     Remove a permission set. The groups that had it no longer do.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _set(session, name)
         session.execute(delete(GroupPermissionSet).where(
@@ -558,6 +566,7 @@ def get_set(name):
 
     Return the `PermissionSetInfo` called `name`. Raises `UnknownName`.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         return _set_view(session, _set(session, name))
 
@@ -568,6 +577,7 @@ def list_sets():
 
     Return every permission set, by name.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         return [_set_view(session, record) for record in session.scalars(
             select(PermissionSet).order_by(PermissionSet.name))]
@@ -619,6 +629,7 @@ def add_group(name, description="", sets=()):
 
     Add a group with these permission sets (names).
     """
+    sync_plugin_groups()
     _check_set_name(name)
     with db.session() as session:
         if session.scalars(select(UserGroup.id).where(
@@ -640,6 +651,7 @@ def update_group(name, description=None):
 
     Change the description of a group.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, name)
         if description is not None:
@@ -654,6 +666,7 @@ def remove_group(name):
 
     Remove a group. Its users and permission sets stay.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, name)
         for model in (GroupMember, GroupPermissionSet):
@@ -668,6 +681,7 @@ def get_group(name):
 
     Return the `GroupInfo` called `name`. Raises `UnknownName`.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         return _group_view(session, _group(session, name))
 
@@ -678,6 +692,7 @@ def list_groups():
 
     Return every group, by name.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         return [_group_view(session, record) for record in session.scalars(
             select(UserGroup).order_by(UserGroup.name))]
@@ -689,6 +704,7 @@ def grant(group, set_name):
 
     Give the group `group` the permission set `set_name`.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, group)
         found = _set(session, set_name)
@@ -705,6 +721,7 @@ def revoke(group, set_name):
 
     Take the permission set `set_name` from the group `group`.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, group)
         found = _set(session, set_name)
@@ -721,6 +738,7 @@ def add_member(group, user):
 
     Put the user `user` in the group `group`.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, group)
         user_id = _user_id(session, user)
@@ -736,6 +754,7 @@ def remove_member(group, user):
 
     Take the user `user` out of the group `group`.
     """
+    sync_plugin_groups()
     with db.session() as session:
         record = _group(session, group)
         user_id = _user_id(session, user)
@@ -752,6 +771,7 @@ def groups_of(user):
 
     Return the names of the groups of the user `user`, by name.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         user_id = _user_id(session, user)
         return list(session.scalars(
@@ -785,6 +805,83 @@ def sync_role(user, role):
                 session.delete(member)
 
 
+# The groups of the plugins
+# =========================
+
+# What sync_plugin_groups last made the database agree with, in this
+# process
+_synced = {}
+
+
+def _plugin_marker(provider):
+    return "plugin:" + provider
+
+
+def sync_plugin_groups():
+    """
+    _function_: `mast.permissions.sync_plugin_groups()`
+
+    Make the groups that the installed plugins define, each with a
+    permission set of its name and no members, the first time that MAST
+    sees them; and bring a set up to date with a newer version of its
+    plugin, unless an admin changed it. A group that was made once is
+    not made again after an admin removed it. Return the names of the
+    groups that were made now.
+
+    The functions of this module call this before they read the groups
+    and the sets, once in a process for each version of the plugins.
+    """
+    from mast import plugins
+    wanted = {}
+    for provider, manifest in plugins.manifests().items():
+        for group in manifest.groups:
+            wanted[group.name] = (provider, group)
+    key = tuple(sorted((name, repr(group))
+                       for name, (_, group) in wanted.items()))
+    if _synced.get(db.engine()) == key:
+        return []
+    made = []
+    with db.session() as session:
+        seen = {row.name for row in session.scalars(select(PluginGroup))}
+        for name, (provider, group) in sorted(wanted.items()):
+            try:
+                rules = [check_rule(rule) for rule in group.rules]
+            except PermissionError:
+                continue
+            record = session.scalars(select(PermissionSet).where(
+                PermissionSet.name == name)).first()
+            if name in seen:
+                if record is not None and \
+                        record.updated_by == _plugin_marker(provider) and (
+                            record.rules != _stored(rules) or
+                            record.description != group.description):
+                    record.rules = _stored(rules)
+                    record.description = group.description
+                    record.updated_at = _now()
+                continue
+            session.add(PluginGroup(name=name, provider=provider,
+                                    made_at=_now()))
+            taken = session.scalars(select(UserGroup.id).where(
+                UserGroup.name == name)).first()
+            if record is not None or taken is not None:
+                # An admin has the name already: theirs stays
+                continue
+            record = PermissionSet(
+                name=name, description=group.description,
+                rules=_stored(rules), updated_by=_plugin_marker(provider),
+                updated_at=_now())
+            session.add(record)
+            session.flush()
+            new = UserGroup(name=name, description=group.description)
+            session.add(new)
+            session.flush()
+            session.add(GroupPermissionSet(group_id=new.id,
+                                           set_id=record.id))
+            made.append(name)
+    _synced[db.engine()] = key
+    return made
+
+
 # Decisions
 # =========
 
@@ -796,6 +893,7 @@ def rules_of(user):
     Return every rule that applies to the user `user`, as `Match`es:
     the rules of the permission sets of all their groups, each once.
     """
+    sync_plugin_groups()
     with db.session(write=False) as session:
         user_id = _user_id(session, user)
         rows = session.execute(

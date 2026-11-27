@@ -58,6 +58,7 @@ A fix to 3.x goes to `version_3` first and is then merged into `main`. When the 
 | D19 | A command that accepts a kind accepts every kind that extends it, and a target qualifies through its base kind or any of its extensions. A plugin's commands may accept the kinds of other plugins. A command that accepts only kinds that no installed plugin gives is unavailable, with the plugin to install, and the rest of its plugin works. |
 | D20 | Kinds declare capabilities (`collect-crypto`, `test-credentials`, ...). A core command never names a plugin kind: it asks for capabilities (`needs`) and accepts every installed kind that has them, so a plugin installed later is covered with no change to core. |
 | D21 | One kind has one definition: two plugins that give the same kind are both left out. A plugin whose kind extends a kind that no installed plugin gives is left out until that plugin is installed. |
+| D22 | A plugin defines groups with pre-baked permission sets over its own commands (`mast.plugins.Group`). MAST makes them without members when it first sees them, and an admin assigns users after setup or after installing the plugin. A newer plugin version updates a set that no admin changed; a group that an admin removed is not made again. |
 
 ## Deferred
 
@@ -228,13 +229,13 @@ Core seeds three ordinary groups, which can be edited:
 | `operator` | Viewer, plus job submission and the cancellation of their own jobs |
 | `admin` | Manage core identities, permissions, targets, credentials, schedules and jobs |
 
-Plugin commands are granted only through explicit permission sets. Installing a plugin does not grant its commands to any existing group.
+Plugin commands are granted only through explicit permission sets. Installing a plugin does not grant its commands to any existing group. A plugin defines its own groups with pre-baked permission sets (D22), which start without members.
 
 For a credential, `r` shows its metadata, `w` manages the record, and `x` permits its use. No operation returns a decrypted secret. The purpose and the target bindings of a credential still restrict its use.
 
 **Done when:** permission sets and memberships can be managed through the CLI and the API, and administrators can see effective permissions and the rules that match.
 
-**Status.** `mast.permissions` (migration `4004`): permission sets of rules, groups (`user_groups`), the sets of a group and its members. A path is `mast/ROOT/NAME`; a `*` may only end it and matches within the last segment, so `mast/datapower/*` is every command of DataPower and never more. Scopes are kept as ids (a renamed target stays in scope). A denial without a scope applies to every target; an allow without a scope grants no target. Core actions that are not commands have a path of their own (`mast/core/cancel-own-job`). The sets and groups `viewer`, `operator` and `admin` are seeded as the table above says, and no seeded set names a plugin. `mast permissions` (sets, rules, `check`, `effective`), `mast groups` (sets, members) and the admin API manage them and explain decisions. Until step 6, the role of a user decides what they may do and each user is kept in the groups of their role; step 6 enforces the rules, removes `User.role`, and adds service accounts with tokens. A page of the web UI for permissions is part of step 11.
+**Status.** `mast.permissions` (migration `4004`): permission sets of rules, groups (`user_groups`), the sets of a group and its members. A path is `mast/ROOT/NAME`; a `*` may only end it and matches within the last segment, so `mast/datapower/*` is every command of DataPower and never more. Scopes are kept as ids (a renamed target stays in scope). A denial without a scope applies to every target; an allow without a scope grants no target. Core actions that are not commands have a path of their own (`mast/core/cancel-own-job`). The sets and groups `viewer`, `operator` and `admin` are seeded as the table above says, and no seeded set names a plugin. The DataPower plugin defines the groups `datapower-reader` (the commands whose effect is `read`) and `datapower-operator` (every DataPower command), on all targets (D22). `mast permissions` (sets, rules, `check`, `effective`), `mast groups` (sets, members) and the admin API manage them and explain decisions. Until step 6, the role of a user decides what they may do and each user is kept in the groups of their role; step 6 enforces the rules, removes `User.role`, and adds service accounts with tokens. A page of the web UI for permissions is part of step 11.
 
 ### 6. Enforcement
 

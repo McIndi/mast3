@@ -25,6 +25,8 @@ names.
 * `UserGroup`: A named group of users.
 * `GroupPermissionSet`: A permission set that a group has.
 * `GroupMember`: A user in a group.
+* `PluginGroup`: A group that a plugin defines and MAST made once, so
+that it is not made again after an admin removed it.
 
 A change to these tables needs a migration in
 `mast/jobs/migrations/versions`.
@@ -37,7 +39,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from mast.jobs.models import Base, UTCDateTime
 
 __all__ = ["PermissionSet", "UserGroup", "GroupPermissionSet",
-           "GroupMember"]
+           "GroupMember", "PluginGroup"]
 
 
 class PermissionSet(Base):
@@ -80,3 +82,11 @@ class GroupMember(Base):
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True, index=True)
+
+
+class PluginGroup(Base):
+    __tablename__ = "plugin_groups"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    made_at: Mapped[datetime] = mapped_column(UTCDateTime)

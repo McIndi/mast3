@@ -154,6 +154,10 @@ capabilities, so a new kind with `collect-crypto` is in
 `mast crypto inventory` at once.
 * `pages` are its pages of the web UI (see "Adding a page to the web
 UI").
+* `groups` are the groups of users that it defines (`mast.plugins.Group`),
+each with the rules of a permission set over its own commands
+(`mast/PROVIDER/NAME`, scope all targets or none). MAST makes them
+without members; admins put users in them. Name them `PROVIDER-...`.
 
 Core checks the manifest, then every command of the plugin, before it
 registers any. A plugin with one fault is left out whole: none of its

@@ -70,7 +70,7 @@ import importlib.metadata
 import re
 from dataclasses import dataclass, field
 
-__all__ = ["Manifest", "Kind", "Failure", "GROUP", "API", "APIS",
+__all__ = ["Manifest", "Kind", "Group", "Failure", "GROUP", "API", "APIS",
            "CORE_KINDS", "COLLECT_CRYPTO", "TEST_CREDENTIALS",
            "BROKEN", "INCOMPATIBLE", "CONFLICT", "INVALID", "MISSING",
            "manifests", "failures", "failure", "distribution", "fail",
@@ -221,10 +221,33 @@ CORE_KINDS = (Kind(
 
 
 @dataclass(frozen=True)
+class Group(object):
+    """
+    _class_: `mast.plugins.Group(name, description, rules)`
+
+    A group of users that a plugin defines, with the rules of a
+    permission set of the same name (see `mast.permissions`). MAST makes
+    the group without members: installing a plugin grants nothing, and
+    an admin puts users in its groups.
+
+    * `name`: A lower-case name that starts with the provider and a
+    hyphen (`datapower-operator`).
+    * `description`: What its users may do.
+    * `rules`: Dicts `{"path", "allow", "deny", "scope"}`. A path is one
+    of the plugin's own (`mast/PROVIDER/NAME`, which may end in `*`),
+    and a scope is None or `{"all": True}`: a plugin knows no target of
+    an installation.
+    """
+    name: str
+    description: str
+    rules: tuple = field(default=())
+
+
+@dataclass(frozen=True)
 class Manifest(object):
     """
     _class_: `mast.plugins.Manifest(provider, title, version, api, core,
-    commands, kinds=(), pages=())`
+    commands, kinds=(), pages=(), groups=())`
 
     What a plugin is, without its code.
 
@@ -240,6 +263,8 @@ class Manifest(object):
     * `kinds`: The `Kind`s of target that it gives: base kinds, and
     extensions of its own kinds or of those of other plugins. Its
     commands may accept these and the kinds of other plugins.
+    * `groups`: The `Group`s of users that it defines, each with the
+    rules of a permission set over its own commands.
     * `pages`: `module:attribute` of each `mast.web.page.Page` that it
     adds to the web UI. The web UI loads them only while the plugin is
     used (see `mast.web.page`).
@@ -252,6 +277,7 @@ class Manifest(object):
     commands: str
     kinds: tuple = field(default=())
     pages: tuple = field(default=())
+    groups: tuple = field(default=())
 
 
 @dataclass(frozen=True)
@@ -355,6 +381,44 @@ def _kinds_problem(manifest):
 
 
 _ATTRIBUTE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+_LAST = re.compile(r"^[A-Za-z0-9_.:@\[\]-]*\*?$")
+
+
+def _groups_problem(manifest):
+    """What is wrong with the groups of a manifest, or None."""
+    if isinstance(manifest.groups, (str, Group)) or not all(
+            isinstance(group, Group) for group in manifest.groups):
+        return "its groups are not a tuple of mast.plugins.Group"
+    names = [group.name for group in manifest.groups]
+    if len(names) != len(set(names)):
+        return "it defines one group twice"
+    prefix = manifest.provider + "-"
+    own = "mast/{}/".format(manifest.provider)
+    for group in manifest.groups:
+        if not is_name(group.name) or not group.name.startswith(prefix):
+            return "the group {!r} is not a lower-case name that starts " \
+                   "with {}".format(group.name, prefix)
+        if isinstance(group.rules, (str, dict)) or not group.rules:
+            return "the group {} has no rules".format(group.name)
+        for rule in group.rules:
+            if not isinstance(rule, dict) or \
+                    set(rule) - {"path", "allow", "deny", "scope"}:
+                return "a rule of the group {} is not {{path, allow, deny, " \
+                       "scope}}".format(group.name)
+            path = rule.get("path")
+            if not isinstance(path, str) or not path.startswith(own) or \
+                    not _LAST.match(path[len(own):]) or path == own:
+                return "the group {} has the path {!r}, which is not one of " \
+                       "the plugin's own ({}NAME)".format(
+                           group.name, path, own)
+            given = list(rule.get("allow") or []) + list(rule.get("deny") or [])
+            if not given or any(c not in ("r", "w", "x") for c in given):
+                return "a rule of the group {} allows or denies something " \
+                       "other than r, w and x".format(group.name)
+            if rule.get("scope") not in (None, {"all": True}):
+                return "a rule of the group {} has a scope other than all " \
+                       "targets: a plugin knows no target".format(group.name)
+    return None
 
 
 def _schema_problem(kind):
@@ -446,7 +510,7 @@ def _check(entry_point, manifest, distribution):
                 "{}".format(manifest.core, version),
                 "Install a version of {} for MAST {}, or a MAST {}.".format(
                     who, version, manifest.core))
-    problem = _kinds_problem(manifest)
+    problem = _kinds_problem(manifest) or _groups_problem(manifest)
     if problem:
         return (INVALID, problem, None)
     if isinstance(manifest.pages, str) or not all(

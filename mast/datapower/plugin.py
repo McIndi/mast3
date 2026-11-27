@@ -25,9 +25,10 @@ has the version of MAST and works only with that version.
 """
 from mast import __version__
 from mast.plugins import (
-    COLLECT_CRYPTO, TEST_CREDENTIALS, Attribute, Endpoint, Kind, Manifest)
+    COLLECT_CRYPTO, TEST_CREDENTIALS, Attribute, Endpoint, Group, Kind,
+    Manifest)
 
-__all__ = ["manifest", "DATAPOWER"]
+__all__ = ["manifest", "DATAPOWER", "GROUPS", "READ_COMMANDS"]
 
 # A port that is not set is the standard port of DataPower. Another
 # setting that is not set takes the default of [global] in
@@ -61,6 +62,36 @@ DATAPOWER = Kind(
         Endpoint("ssh", "ssh", "ssh_port", "SSH"),
     ))
 
+# The commands whose effect is read (a test keeps this list and the
+# effects of the commands the same)
+READ_COMMANDS = (
+    "cert-audit", "cert-file-audit", "check-connectivity",
+    "check-credentials", "collect-crypto", "collect-status",
+    "copy-directory", "display-ethernet-interface", "display-routing-table",
+    "export", "fetch-logs", "get-config", "get-encrypted-filesystem",
+    "get-error-reports", "get-file", "get-filestore", "get-status",
+    "get-temporary-filesystem", "list-checkpoints", "list-domains",
+    "list-groups", "list-host-aliases", "list-objects", "list-probes",
+    "list-rbm-fallback", "list-secondary-addresses", "list-static-hosts",
+    "list-static-routes", "list-users", "normal-backup", "object-audit",
+    "tcp-connection-test", "test-connectivity", "xor",
+)
+
+# The groups of users of the plugin: MAST makes them without members
+GROUPS = (
+    Group("datapower-reader",
+          "Run the DataPower commands that only read, on every appliance. "
+          "Some of them read secrets: get-file, normal-backup and export "
+          "download files and configuration.",
+          tuple({"path": "mast/datapower/" + name, "allow": ["r", "x"],
+                 "scope": {"all": True}} for name in READ_COMMANDS)),
+    Group("datapower-operator",
+          "Run every DataPower command, also those that change the "
+          "appliances, on every appliance.",
+          ({"path": "mast/datapower/*", "allow": ["r", "w", "x"],
+            "scope": {"all": True}},)),
+)
+
 manifest = Manifest(
     provider="datapower",
     title="IBM DataPower",
@@ -69,6 +100,7 @@ manifest = Manifest(
     core="=={}".format(__version__),
     commands="mast.datapower.commands:cli",
     kinds=(DATAPOWER,),
+    groups=GROUPS,
     pages=("mast.datapower.status.page:page",
            "mast.datapower.crypto.page:page",
            "mast.datapower.ssh.page:page"))

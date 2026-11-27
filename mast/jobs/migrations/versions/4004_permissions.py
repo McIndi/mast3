@@ -16,7 +16,8 @@
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """Permission sets and groups (MAST 4.0 step 5, mast.permissions.models),
 with the sets and groups viewer, operator and admin, and each user in
-the groups of their role.
+the groups of their role, and the record of the groups that plugins
+define (which MAST makes when it first sees them).
 
 The sets that this makes are those of `mast.permissions.SEED` when it
 was written; a fresh baseline (step 7 of docs/design/mast-4.0.md)
@@ -84,6 +85,13 @@ def upgrade():
             name="fk_group_members_user_id_users", ondelete="CASCADE"))
     op.create_index("ix_group_members_user_id", "group_members", ["user_id"])
 
+    op.create_table(
+        "plugin_groups",
+        sa.Column("name", sa.String(64), nullable=False),
+        sa.Column("provider", sa.String(64), nullable=False),
+        sa.Column("made_at", _time, nullable=False),
+        sa.PrimaryKeyConstraint("name", name="pk_plugin_groups"))
+
     now = datetime.now(timezone.utc)
     sets = sa.table("permission_sets", sa.column("id", sa.Integer),
                     sa.column("name", sa.String), sa.column("description",
@@ -126,6 +134,7 @@ def upgrade():
 
 
 def downgrade():
+    op.drop_table("plugin_groups")
     op.drop_index("ix_group_members_user_id", "group_members")
     op.drop_table("group_members")
     op.drop_index("ix_group_permission_sets_set_id", "group_permission_sets")
