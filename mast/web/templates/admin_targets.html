@@ -46,6 +46,11 @@
         <input class="form-control form-control-sm" id="t-notes" name="notes">
     </div>
     <fieldset class="col-12 row g-2 m-0 p-0" data-attributes></fieldset>
+    <div class="col-12" data-credential-types-box>
+        <span class="form-label small d-block">Stored credentials that it takes</span>
+        <div class="d-flex flex-wrap gap-3" data-credential-types></div>
+        <div class="form-text">As it is configured now: uncheck password once a host takes only SSH keys. A credential of a type that is not checked is refused on it.</div>
+    </div>
     <div class="col-12">
         <button class="btn btn-sm btn-primary" type="submit" data-save>Add</button>
         <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-cancel-edit>Cancel</button>

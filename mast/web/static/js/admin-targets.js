@@ -13,6 +13,7 @@ const title = document.querySelector("[data-editor-title]");
 const saveButton = form.querySelector("[data-save]");
 const cancelEdit = form.querySelector("[data-cancel-edit]");
 const attributesBox = form.querySelector("[data-attributes]");
+const typesBox = form.querySelector("[data-credential-types]");
 const extensionsBox = document.querySelector("[data-extensions]");
 const extensionForm = document.querySelector("[data-extension-form]");
 const trustPanel = document.querySelector("[data-trust-panel]");
@@ -113,7 +114,31 @@ function fillKinds() {
         el("option", {value: k.name}, k.name + (k.extends ? " (extends " + k.extends + ")" : ""))));
 }
 
-form.elements.kind.addEventListener("change", () => attributeFields(attributesBox, form.elements.kind.value, {}, "a"));
+// A checkbox for each type of credential that the kind takes, checked
+// for those that the target takes
+function credentialTypeFields(kind, takes) {
+    const types = (kinds[kind] || {credential_types: []}).credential_types;
+    typesBox.replaceChildren(...types.map((type) => {
+        const id = "ct-" + type;
+        return el("div", {className: "form-check"},
+            el("input", {className: "form-check-input", type: "checkbox", id: id, value: type,
+                         checked: !takes || takes.includes(type)}),
+            el("label", {className: "form-check-label small", for: id}, type));
+    }));
+    form.querySelector("[data-credential-types-box]").classList.toggle("d-none", !types.length);
+}
+
+// The types to save: null when every type of the kind is checked
+function credentialTypes() {
+    const boxes = [...typesBox.querySelectorAll("input")];
+    const checked = boxes.filter((b) => b.checked).map((b) => b.value);
+    return checked.length === boxes.length ? null : checked;
+}
+
+form.elements.kind.addEventListener("change", () => {
+    attributeFields(attributesBox, form.elements.kind.value, {}, "a");
+    credentialTypeFields(form.elements.kind.value, null);
+});
 
 function edit(target) {
     editing = target;
@@ -127,6 +152,7 @@ function edit(target) {
         form.elements.notes.value = target.notes;
     }
     attributeFields(attributesBox, form.elements.kind.value, target ? target.attributes : {}, "a");
+    credentialTypeFields(form.elements.kind.value, target ? target.credential_types : null);
     title.textContent = target ? "Change " + target.name : "Add a target";
     saveButton.textContent = target ? "Save" : "Add";
     cancelEdit.classList.toggle("d-none", !target);
@@ -139,7 +165,7 @@ form.addEventListener("submit", async (event) => {
     const original = form.elements.original.value;
     const name = form.elements.name.value.trim();
     const data = {address: form.elements.address.value.trim() || null, notes: form.elements.notes.value,
-                  attributes: attributeValues(attributesBox)};
+                  attributes: attributeValues(attributesBox), credential_types: credentialTypes()};
     let done;
     if (original) {
         if (name !== original) data.rename = name;

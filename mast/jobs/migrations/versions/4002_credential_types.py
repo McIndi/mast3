@@ -15,9 +15,10 @@
 #
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """The type of a stored credential (MAST 4.0 step 4b,
-mast.credentials.models): every credential so far is a password. A
-downgrade is refused while there is a credential of another type, which
-older versions cannot hold."""
+mast.credentials.models): every credential so far is a password. And
+the types of credential that each target takes (mast.registry.models),
+None for all that its kinds take. A downgrade is refused while there is
+a credential of another type, which older versions cannot hold."""
 import sqlalchemy as sa
 from alembic import op
 
@@ -34,6 +35,9 @@ def upgrade():
     # The model gives the type of every new credential
     with op.batch_alter_table("credentials") as batch:
         batch.alter_column("type", server_default=None)
+    with op.batch_alter_table("targets") as batch:
+        batch.add_column(sa.Column("credential_types", sa.JSON(),
+                                   nullable=True))
 
 
 def downgrade():
@@ -45,5 +49,7 @@ def downgrade():
             "Older versions of MAST store only passwords. Delete the "
             "credentials of other types ({}) before the downgrade.".format(
                 ", ".join("{} ({})".format(*row) for row in others[:5])))
+    with op.batch_alter_table("targets") as batch:
+        batch.drop_column("credential_types")
     with op.batch_alter_table("credentials") as batch:
         batch.drop_column("type")
