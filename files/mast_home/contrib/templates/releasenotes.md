@@ -73,6 +73,16 @@ but need the appliances to themselves, among them `get-file`,
 Bind a credential for collecting only to the appliances that its jobs
 may read. The commands that write on an appliance only for a moment
 (`export-certs`, `get-pmr-info`, `secure-backup`) count as changing.
+* **`mast selftest` runs in a copy of the home.** It used to run the
+tests in the home itself, where they used its database, queued jobs for
+its workers and could reach its registered appliances (with the tests'
+own fake credentials, which the appliances refuse). It now copies the
+configuration of the home, without `etc/local`, the private keys, the
+database and the logs, and runs the tests there in a new process. Give
+`-u`, `-i`, `-r` or `-A`; with none it says so. The tests of the
+CycloneDX schema are skipped where `jsonschema` (a development
+dependency) is not installed. For pytest, `conftest.py` now always uses
+a private home, also when `MAST_HOME` is set.
 * **The pages of a plugin are in its manifest.** The entry point group
 `mast_web_page` is gone: the pages of core are listed in
 `mast/web/page.py`, and a plugin names its pages in its manifest.
@@ -101,6 +111,8 @@ installed plugins, and each one that was left out with what is wrong
 to do. A job or schedule of a plugin that is missing fails with the
 same advice, and so does a command that needs a kind that no installed
 plugin gives.
+* `mast datapower object-audit` writes its file again (it failed with
+`write() argument must be str, not bytes`).
 * `--help` of a command, and its form on the Commands page, say whether
 it only reads or changes. The catalog of the API has `effect` and
 `targets` for each command.

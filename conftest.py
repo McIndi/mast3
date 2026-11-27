@@ -22,7 +22,11 @@ launchers. For pytest, this file makes a private copy of
 `files/mast_home` and enters it before any test module is imported. The copy keeps test runs from writing into
 the repository.
 
-If MAST_HOME is already set, this file does not change it.
+A MAST_HOME that is already set (after `source set-env`, for example)
+is replaced as well: the tests submit jobs, register appliances and
+write to the database, and in a home that is in use they would reach
+its appliances through its workers. `mast selftest` runs the same tests
+in a copy of its home for the same reason.
 """
 import atexit
 import os
@@ -37,15 +41,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if os.environ.get("MAST_TEST_HOME"):
     os.environ["MAST_TEST_HOME"] = os.path.abspath(os.environ["MAST_TEST_HOME"])
 
-if "MAST_HOME" not in os.environ:
-    _tmp = tempfile.mkdtemp(prefix="mast-test-home-")
-    _home = os.path.join(_tmp, "mast_home")
-    shutil.copytree(os.path.join(_HERE, "files", "mast_home"), _home)
-    for _name in ("etc/local", "tmp", "var/log"):
-        os.makedirs(os.path.join(_home, *_name.split("/")), exist_ok=True)
-    # MAST runs with its home as the current directory, as the
-    # launchers do. mast.home only finds the home here; it does not
-    # import mast.config.
-    from mast import home
-    home.enter(_home)
-    atexit.register(shutil.rmtree, _tmp, ignore_errors=True)
+_tmp = tempfile.mkdtemp(prefix="mast-test-home-")
+_home = os.path.join(_tmp, "mast_home")
+shutil.copytree(os.path.join(_HERE, "files", "mast_home"), _home)
+for _name in ("etc/local", "tmp", "var/log"):
+    os.makedirs(os.path.join(_home, *_name.split("/")), exist_ok=True)
+# MAST runs with its home as the current directory, as the
+# launchers do. mast.home only finds the home here; it does not
+# import mast.config.
+from mast import home
+home.enter(_home)
+atexit.register(shutil.rmtree, _tmp, ignore_errors=True)

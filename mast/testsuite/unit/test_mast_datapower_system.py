@@ -142,7 +142,8 @@ class FakeEnvironment(object):
         if action == "getfile":
             return {host: b"the file" for host in hosts}
         if action == "object_audit":
-            return {host: "<diff/>" for host in hosts}
+            # As DataPower.object_audit: etree.tostring gives bytes
+            return {host: b"<diff/>" for host in hosts}
         if action == "get_status":
             xml = ENVELOPE.format(kind="status", body=STATUS)
             return {host: FakeResponse(xml=xml) for host in hosts}
