@@ -59,6 +59,10 @@ class TargetRecord(Base):
     address: Mapped[str] = mapped_column(String(255))
     # The values of the attributes of the base kind that are set
     attributes: Mapped[dict] = mapped_column(JSON)
+    # The types of stored credential that this target takes (how it is
+    # configured: a host whose SSH takes only keys), from those that its
+    # kinds take; None for all of those
+    credential_types: Mapped[list | None] = mapped_column(JSON)
     # The version of the attributes of the kind that they were checked
     # against (mast.plugins.Kind.version)
     schema_version: Mapped[int] = mapped_column(Integer)

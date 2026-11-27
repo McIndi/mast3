@@ -115,6 +115,18 @@ of a target or the port of a pinned endpoint changes, the endpoint is
 marked REVIEW and MAST does not connect to it until an admin runs
 `mast targets review` (which keeps the pin if the endpoint still shows
 it) or pins it again.
+* **Stored credentials have a type**, `password` or `ssh-key`
+(`mast credentials add -t ssh-key --key-file FILE`). A credential can be
+bound to and used on a target only if its kind takes its type: a
+DataPower appliance takes passwords. A target can be set to take
+fewer types than its kind, as it is configured
+(`mast targets update -n NAME --credential-type ssh-key`, for a host that
+no longer takes passwords); a credential of another type is then
+refused on it. Its bindings are `target` and
+`fleet` (were `appliance` and `environment`), and
+`mast credentials list` shows `fleet:NAME` (was `env:NAME`). The test of
+a credential is the command that the kind of the target names (for
+DataPower, still `datapower.check-credentials`).
 * **The web API** has `/api/v1/targets`, `/api/v1/fleets` and
 `/api/v1/kinds` in place of `/api/v1/appliances` and
 `/api/v1/environments`. Admin → Appliances is Admin → Targets.

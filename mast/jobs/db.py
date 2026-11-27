@@ -43,7 +43,7 @@ SUPPORTED = ("sqlite", "postgresql")
 # The newest revision in mast/jobs/migrations/versions. Alembic is only
 # imported if the database is at another revision, because every MAST
 # command opens the database and Alembic is slow to import.
-HEAD = "4001"
+HEAD = "4002"
 
 # An arbitrary number. Every process that changes the schema or claims
 # a job takes the PostgreSQL advisory lock with this key.

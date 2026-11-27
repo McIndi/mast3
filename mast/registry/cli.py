@@ -104,6 +104,10 @@ class Add(NameParams):
         help="An attribute of the kind, as NAME=VALUE (for example "
              "soma_port=5550). One that is not given takes its default.")
     notes: str = Option("", help="Notes about the target.")
+    credential_type: list[str] = Option(
+        default_factory=list,
+        help="A type of stored credential that the target takes (give it "
+             "again for each). The default is every type of its kind.")
 
 
 class Update(NameParams):
@@ -120,6 +124,15 @@ class Update(NameParams):
         help="An attribute to set back to its default.")
     rename: str | None = Option(None, help="A new name for the target.")
     notes: str | None = Option(None, help="Notes about the target.")
+    credential_type: list[str] = Option(
+        default_factory=list,
+        help="A type of stored credential that the target takes now, as "
+             "it is configured (give it again for each): for example "
+             "ssh-key alone once a host takes no passwords. A credential "
+             "of another type is then refused on it.")
+    any_credential_type: bool = Option(
+        False, help="The target takes every type of credential of its "
+                    "kinds again.")
 
 
 def _trust_line(trust):
@@ -159,6 +172,9 @@ def _show(target):
             ": " + ", ".join("{}={}".format(k, v) for k, v in
                              extension.attributes.items())
             if extension.attributes else ""))
+    lines.append("  credential types: {}{}".format(
+        ", ".join(sorted(registry.credential_types_of(target))) or "none",
+        "" if target.credential_types is None else " (set on the target)"))
     for trust in target.trust:
         lines.append("  trust " + _trust_line(trust))
     if target.fleets:
@@ -176,7 +192,8 @@ def add(params: Add):
     or not at all (SSH) until they are pinned (mast targets pin)."""
     return Text("Added " + _show(_do(
         registry.add, params.name, params.kind, params.address,
-        _settings(params.set), params.notes)))
+        _settings(params.set), params.notes,
+        params.credential_type or None)))
 
 
 @targets.command("update", effect="change", id="update-target")
@@ -188,8 +205,15 @@ def update(params: Update):
     values = _settings(params.set)
     for name in params.clear:
         values[name] = None
+    if params.credential_type and params.any_credential_type:
+        _fail("Give --credential-type or --any-credential-type, not both.")
+    types = {}
+    if params.credential_type:
+        types["credential_types"] = params.credential_type
+    elif params.any_credential_type:
+        types["credential_types"] = None
     found = _do(registry.update, params.name, address=params.address,
-                attributes=values, notes=params.notes)
+                attributes=values, notes=params.notes, **types)
     if params.rename:
         found = _do(registry.rename, params.name, params.rename)
     return Text("Updated " + _show(found))

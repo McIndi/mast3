@@ -38,7 +38,7 @@ from sqlalchemy import select
 
 from mast import jobs, keyfile, registry
 from mast.cli import Cli, Table, say
-from mast.credentials import TEST_COMMAND, keys, store, testing
+from mast.credentials import keys, store, testing
 from mast.credentials.cli import cli as credentials_cli
 from mast.credentials.models import CredentialRecord, CredentialUse
 from mast.jobs import db, queue
@@ -48,6 +48,9 @@ from mast.jobs.models import Job, JobEvent, JobResult
 from mast.plugin_utils.params import ApplianceOptions
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import WebCase
+
+# The test of a credential on a DataPower appliance (Kind.credential_test)
+TEST_COMMAND = "datapower.check-credentials"
 
 PASSWORD = "S3cret-Passw0rd"
 ADMIN = Principal("alice", "admin")
@@ -203,7 +206,7 @@ class TestStore(CredentialsCase):
         self.assertEqual(made.username, "reader")
         self.assertEqual(made.purpose, "collect")
         self.assertEqual([(b.kind, b.name) for b in made.bindings],
-                         [("environment", "lab")])
+                         [("fleet", "lab")])
         self.assertEqual(made.created_by, "alice")
         self.assertEqual(store.get("ro"), made)
         self.assertEqual(store.list_credentials(), [made])
@@ -261,7 +264,7 @@ class TestStore(CredentialsCase):
                          ("change", "now for changes"))
         rebound = store.rebind("ro", ["dp3", "lab"], principal=ADMIN)
         self.assertEqual([(b.kind, b.name) for b in rebound.bindings],
-                         [("appliance", "dp3"), ("environment", "lab")])
+                         [("target", "dp3"), ("fleet", "lab")])
         self.assertTrue(store.bound_to("ro", "dp3"))
         self.assertTrue(store.bound_to("ro", "dp2"))
         store.rebind("ro", [], principal=ADMIN)
@@ -383,7 +386,7 @@ class TestStore(CredentialsCase):
             "credential.rebind", "credential.test", "credential.rotate-key",
             "credential.delete"])
         self.assertEqual({e.principal for e in events}, {"alice"})
-        self.assertEqual(events[-1].detail["bindings"], ["environment:lab"])
+        self.assertEqual(events[-1].detail["bindings"], ["fleet:lab"])
         text = json.dumps([e.model_dump(mode="json") for e in events])
         self.assertNotIn(PASSWORD, text)
         self.assertNotIn("second-pass", text)
@@ -654,7 +657,7 @@ class TestMastCredentials(CredentialsCase):
             "add", "-n", "ro", "-u", "reader", "-p", "collect", "-b", "lab",
             "-b", "dp3", "--password-stdin", stdin=PASSWORD + "\n")
         self.assertEqual(code, 0, err)
-        self.assertIn("bound to: env:lab dp3", out)
+        self.assertIn("bound to: fleet:lab dp3", out)
         self.assertEqual(self.open(), ("reader", PASSWORD))
         for argv, shown in ((("list",), "ro"), (("show", "-n", "ro"), "ro"),
                             (("audit",), "credential:ro"),
@@ -693,9 +696,9 @@ class TestMastCredentials(CredentialsCase):
         self.assertEqual(self.open(), ("reader", "pass-two"))
         code, out, err = self.run_cli("rebind", "-n", "ro", "-b", "lab")
         self.assertEqual(code, 0, err)
-        self.assertIn("env:lab", out)
+        self.assertIn("fleet:lab", out)
         code, out, err = self.run_cli("update", "-n", "ro", "-p", "change")
-        self.assertIn("(change, user reader)", out)
+        self.assertIn("(change password, user reader)", out)
         code, out, err = self.run_cli("rotate-key", "-y")
         self.assertEqual(code, 0, err)
         self.assertEqual(len(keyfile.read_keys(self.key_file)), 2)
@@ -966,6 +969,216 @@ class TestCredentialsApi(WebCase):
         self.assertIn("Stored the credential ro (by admin", logs.output[0])
         self.assertNotIn(PASSWORD, "\n".join(logs.output))
         self.assertNotIn("pass-two", "\n".join(logs.output))
+
+
+def ssh_key(passphrase=None):
+    """A new Ed25519 private key, as the text of an OpenSSH key file."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    encryption = serialization.BestAvailableEncryption(
+        passphrase.encode()) if passphrase else serialization.NoEncryption()
+    return ed25519.Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+        encryption).decode()
+
+
+class TestCredentialTypes(CredentialsCase):
+    """A credential is a password or an SSH key, and a target takes only
+    the types of its kinds (step 4b of docs/design/mast-4.0.md)."""
+
+    keep_datapower = True
+
+    def setUp(self):
+        super().setUp()
+        from mast.plugins import Attribute, Endpoint, Kind
+        from mast.testsuite.unit.test_mast_commands import (
+            PluginsCase, fake_plugin)
+        linux, _ = fake_plugin("linux", kinds=(Kind(
+            "linux", "Linux host", credential_types=("password", "ssh-key"),
+            attributes=(Attribute("ssh_port", "port", default=22),),
+            endpoints=(Endpoint("ssh", "ssh", "ssh_port"),)),))
+        PluginsCase.use(self, linux)
+        registry.add("web1", "linux", "10.0.0.7")
+        registry.fleet_add("hosts", "linux", members=["web1"])
+
+    def test_an_ssh_key(self):
+        key = ssh_key("open sesame")
+        found = store.create("deploy", "ops", type=store.SSH_KEY,
+                             private_key=key, passphrase="open sesame",
+                             purpose="change", bindings=["hosts", "web1"],
+                             principal=ADMIN)
+        self.assertEqual((found.type, [(b.kind, b.name) for b in
+                                       found.bindings]),
+                         ("ssh-key", [("fleet", "hosts"), ("target", "web1")]))
+        # The key is nowhere but in the token
+        everything = json.dumps([c.model_dump(mode="json")
+                                 for c in store.list_credentials()]) + \
+            json.dumps([a.model_dump(mode="json") for a in
+                        store.audit_events()])
+        self.assertNotIn("PRIVATE KEY", everything)
+        self.assertNotIn("open sesame", everything)
+        with db.session() as session:
+            record = session.scalars(select(CredentialRecord)).first()
+            self.assertNotIn("PRIVATE KEY", record.token)
+        # A new key of the same type; the type never changes
+        found = store.replace_secret("deploy", private_key=ssh_key(),
+                                     principal=ADMIN)
+        self.assertEqual(found.type, "ssh-key")
+        with self.assertRaises(store.InvalidValue):
+            store.replace_secret("deploy", "a password", principal=ADMIN)
+
+    def test_bad_keys_are_refused(self):
+        key = ssh_key("right")
+        for kwargs in ({"private_key": "not a key"},
+                       {"private_key": key, "passphrase": "wrong"},
+                       {"private_key": key},
+                       {"private_key": key, "passphrase": "right",
+                        "password": "and a password"}):
+            with self.subTest(kwargs=sorted(kwargs)):
+                with self.assertRaises(store.InvalidValue) as caught:
+                    store.create("k", "ops", type=store.SSH_KEY,
+                                 principal=ADMIN, **kwargs)
+                self.assertNotIn("PRIVATE KEY", str(caught.exception))
+        with self.assertRaises(store.InvalidValue):
+            store.create("k", "ops", "pw", type="token", principal=ADMIN)
+        with self.assertRaises(store.InvalidValue):
+            store.create("k", "ops", "pw", private_key=key, principal=ADMIN)
+
+    def test_a_target_takes_only_the_types_of_its_kinds(self):
+        for bindings in (["dp1"], ["lab"]):
+            with self.subTest(bindings=bindings):
+                with self.assertRaises(store.InvalidValue) as caught:
+                    store.create("k", "ops", type=store.SSH_KEY,
+                                 private_key=ssh_key(), bindings=bindings,
+                                 principal=ADMIN)
+                self.assertIn("takes no ssh-key credential",
+                              str(caught.exception))
+        # A password is taken by both kinds
+        store.create("both", "ops", "pw", bindings=["lab", "web1"],
+                     principal=ADMIN)
+
+    def test_a_host_that_takes_only_keys_now(self):
+        # Provisioning: a password puts the key on the host, then the
+        # host takes no passwords
+        store.create("setup", "ops", "pw", bindings=["web1"],
+                     principal=ADMIN)
+        store.create("deploy", "ops", type=store.SSH_KEY,
+                     private_key=ssh_key(), bindings=["web1"],
+                     principal=ADMIN)
+        self.assertEqual(registry.credential_types_of(registry.get("web1")),
+                         {"password", "ssh-key"})
+        store.check_targets("setup", ["web1"])
+        before = registry.get("web1").revision
+        found = registry.update("web1", credential_types=["ssh-key"])
+        self.assertEqual(found.credential_types, ["ssh-key"])
+        self.assertEqual(found.revision, before + 1)
+        with self.assertRaises(Forbidden) as caught:
+            store.check_targets("setup", ["web1"])
+        self.assertIn("The target web1 takes only ssh-key credentials now",
+                      str(caught.exception))
+        store.check_targets("deploy", ["web1"])
+        # Its bindings stay, and can be given again
+        store.rebind("setup", ["web1"], principal=ADMIN)
+        # Every type of the kind again
+        found = registry.update("web1", credential_types=None)
+        self.assertIsNone(found.credential_types)
+        store.check_targets("setup", ["web1"])
+
+    def test_the_types_that_a_target_can_be_set_to(self):
+        for name, types in (("web1", ["token"]), ("web1", []),
+                            ("dp1", ["ssh-key"])):
+            with self.subTest(name=name, types=types):
+                with self.assertRaises(registry.InvalidValue):
+                    registry.update(name, credential_types=types)
+        found = registry.add("web2", "linux", credential_types=["ssh-key"])
+        self.assertEqual(found.credential_types, ["ssh-key"])
+        with self.assertRaises(registry.InvalidValue):
+            registry.add("web3", "linux", credential_types=["token"])
+
+    def test_the_command_line_of_a_target(self):
+        from mast.registry.cli import targets
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            targets.run(["update", "-n", "web1", "--credential-type",
+                         "ssh-key"])
+        self.assertIn("credential types: ssh-key (set on the target)",
+                      out.getvalue())
+        with contextlib.redirect_stdout(out):
+            targets.run(["update", "-n", "web1", "--any-credential-type"])
+        self.assertIn("credential types: password, ssh-key\n",
+                      out.getvalue())
+
+    def test_a_key_is_not_given_to_a_command_that_takes_a_password(self):
+        store.create("deploy", "ops", type=store.SSH_KEY,
+                     private_key=ssh_key(), bindings=["web1"],
+                     principal=ADMIN)
+        with self.assertRaises(Forbidden) as caught:
+            store._open("deploy", "web1", "job", "os:me")
+        self.assertIn("takes a password", str(caught.exception))
+        self.assertEqual(store.uses("deploy"), [])
+
+    def test_a_downgrade_keeps_no_key(self):
+        store.create("deploy", "ops", type=store.SSH_KEY,
+                     private_key=ssh_key(), principal=ADMIN)
+        with self.assertRaises(RuntimeError) as caught:
+            db.downgrade("4001")
+        self.assertIn("deploy (ssh-key)", str(caught.exception))
+        self.assertEqual(db.revision(), db.HEAD)
+        store.delete_credential("deploy", principal=ADMIN)
+        db.downgrade("4001")
+        self.assertEqual(db.revision(), "4001")
+
+    def test_the_test_comes_from_the_kind(self):
+        self.assertEqual(testing.command("dp1"),
+                         "datapower.check-credentials")
+        for name, message in (("web1", "No kind of web1 (linux) can test"),
+                              ("nothing", "not a registered target")):
+            with self.subTest(name=name):
+                with self.assertRaises(testing.NotATest) as caught:
+                    testing.command(name)
+                self.assertIn(message, str(caught.exception))
+
+    def test_the_command_line(self):
+        path = os.path.join(self.tmp, "id_ed25519")
+        with open(path, "w") as fout:
+            fout.write(ssh_key())
+        from mast.credentials.cli import cli as credentials_cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), \
+                mock.patch("sys.stdin", io.StringIO("\n")):
+            credentials_cli.run(["add", "-n", "deploy", "-u", "ops", "-t",
+                                 "ssh-key", "--key-file", path, "-p",
+                                 "change", "-b", "hosts",
+                                 "--password-stdin"])
+            credentials_cli.run(["list"])
+        self.assertIn("deploy (change ssh-key, user ops)", out.getvalue())
+        self.assertRegex(out.getvalue(), r"deploy +ops +ssh-key +change +"
+                                         r"fleet:hosts")
+
+
+class TestCredentialKinds(unittest.TestCase):
+    """What a kind declares about credentials (plugin API 1)."""
+
+    def test_the_manifest(self):
+        from mast.plugins import Kind
+        from mast.testsuite.unit.test_mast_commands import (
+            PluginsCase, fake_plugin)
+        good, _ = fake_plugin("acme", kinds=(Kind(
+            "acme", "Acme", capabilities=("test-credentials",),
+            credential_types=("password",),
+            credential_test="acme.check"),))
+        untested, _ = fake_plugin("bolt", kinds=(Kind(
+            "bolt", "Bolt", capabilities=("test-credentials",)),))
+        typo, _ = fake_plugin("coil", kinds=(Kind(
+            "coil", "Coil", credential_types=("token",)),))
+        case = PluginsCase("run")
+        case.keep_datapower = True
+        PluginsCase.use(case, good, untested, typo)
+        self.addCleanup(case.doCleanups)
+        from mast import plugins
+        self.assertEqual(plugins.credential_test("acme"), "acme.check")
+        self.assertIn("names no command", plugins.failure("bolt").reason)
+        self.assertIn("credential types", plugins.failure("coil").reason)
 
 
 class TestMigration(CredentialsCase):
