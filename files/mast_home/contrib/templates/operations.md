@@ -664,8 +664,9 @@ Back up the database (see "Backups") to keep the registry.
 
 # Stored credentials
 
-An admin can store a user name and a password for appliances once, and
-operators then run jobs with it by name: they never see the password.
+An admin can store a user name with a password, or with an SSH private
+key, once, and operators then run jobs with it by name: they never see
+the secret.
 Manage them with `mast credentials` on the MAST server (it needs no
 login), or as an admin in the web UI under Admin → Credentials.
 
@@ -678,11 +679,16 @@ login), or as an admin in the web UI under Admin → Credentials.
 * `add` asks for the password twice; `--password-stdin` reads it from
 the first line of standard input, for scripts. The password is never an
 option, and no command, page or answer of the API shows it again.
-* `-b` binds the credential to an appliance or an environment (give it
-once for each). A job can use it only on **registered** appliances that
-it is bound to, directly or through an environment. A hostname that is
-not in the registry is refused, so that nobody can send it to a host of
-their own.
+* `-t ssh-key --key-file FILE` stores a private key (an OpenSSH or PEM
+file) in place of a password; its passphrase, if it has one, is asked
+for. The key is checked when it is stored and never shown again. The
+type of a credential never changes.
+* `-b` binds the credential to a target or a fleet (give it once for
+each). A job can use it only on **registered** targets that it is bound
+to, directly or through a fleet. A hostname that is not in the registry
+is refused, so that nobody can send it to a host of their own. A
+credential can be bound only to targets whose kind takes its type
+(`mast plugins kinds`): a DataPower appliance takes passwords.
 * The purpose `collect` is for a DataPower user that may only read: it
 is used only by commands whose effect is `read` (the Commands page and
 `--help` say "This command only reads"). Some of these read secrets:
@@ -690,18 +696,20 @@ is used only by commands whose effect is `read` (the Commands page and
 `export` the configuration. Bind a `collect` credential only to the
 appliances whose files and configuration its users may read. The
 purpose `change` is for any command, and only admins may use it.
-* A stored credential is sent only to an appliance whose certificate is
-checked (`ca` or `pin`, see "Checking who the appliance is"): not with
-`--no-check-hostname`, not to an appliance with `--tls-mode none`, not
-over plain `http`, and over SSH only to a pinned host key. To use one
-with a self-signed appliance, pin it first.
-* `test` runs `mast datapower check-credentials` with the credential, through
-the job queue: it reads the firmware version, and asks the appliance to
+* A stored credential is sent only to a target whose certificate is
+checked (`ca` or `pin`, see "Checking who the target is"): not with
+`--no-check-hostname`, not to an endpoint with the trust `none` or a pin
+that must be reviewed, not over plain `http`, and over SSH only to a
+pinned host key. To use one with a self-signed appliance, pin it first.
+* `test` runs the test of the kind of the target with the credential,
+through the job queue. For DataPower that is
+`mast datapower check-credentials`: it reads the firmware version, and
+asks the appliance to
 ping itself, an action that changes nothing, to find out whether the
 user can change the appliance. A `collect` credential that can is
 reported with a warning. A DataPower user that an admin just made must
 change its password once before DataPower gives it any data.
-* `replace` gives a new password (and user name), `rebind` new
+* `replace` gives a new secret of its type (and user name), `rebind` new
 bindings, `update` a new description or purpose, `delete` removes it.
 * `uses -n NAME` lists the jobs that used it, and `audit` every change
 that an admin made. Neither has a secret in it.

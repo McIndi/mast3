@@ -19,8 +19,9 @@ _module_: `mast.credentials.models`
 
 The tables of the credential store, in the job database.
 
-* `CredentialRecord`: One stored credential. The user name is in the
-clear; the password is only in `token`, encrypted.
+* `CredentialRecord`: One stored credential. The user name and the type
+are in the clear; the password or the private key is only in `token`,
+encrypted.
 * `CredentialBinding`: A target or a fleet that a credential may be
 used for. Exactly one of the two is set.
 * `CredentialUse`: One use of a credential by a job, on one appliance.
@@ -47,6 +48,8 @@ class CredentialRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True)
     username: Mapped[str] = mapped_column(String(255))
+    # "password" or "ssh-key" (mast.credentials.store.TYPES)
+    type: Mapped[str] = mapped_column(String(16))
     # The MultiFernet token of {"v": 1, "id": ..., "username": ...,
     # "password": ...}
     token: Mapped[str] = mapped_column(Text)

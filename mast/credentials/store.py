@@ -59,12 +59,20 @@ __all__ = [
     "TokenMismatch",
     "create", "replace_secret", "update", "rebind", "delete_credential",
     "list_credentials", "get", "uses", "audit_events", "rotate_key",
+    "PASSWORD", "SSH_KEY", "TYPES",
     "record_test", "bound_to", "check_use", "check_targets",
 ]
 
 COLLECT = "collect"
 CHANGE = "change"
 PURPOSES = (COLLECT, CHANGE)
+
+# The types of a credential (see mast.plugins.CREDENTIAL_TYPES): a user
+# name and a password, or a user name and an SSH private key (and its
+# passphrase, if it has one)
+PASSWORD = "password"
+SSH_KEY = "ssh-key"
+TYPES = (PASSWORD, SSH_KEY)
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$")
 _VERSION = 1
@@ -95,8 +103,8 @@ class Binding(BaseModel):
     """
     _class_: `mast.credentials.store.Binding`
 
-    An appliance (`kind="appliance"`) or an environment
-    (`kind="environment"`) that a credential is bound to.
+    A target (`kind="target"`) or a fleet (`kind="fleet"`) that a
+    credential is bound to.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -108,13 +116,15 @@ class Credential(BaseModel):
     """
     _class_: `mast.credentials.store.Credential`
 
-    A stored credential, without its password.
+    A stored credential, without its secret. `type` is `password` or
+    `ssh-key`.
     """
     model_config = ConfigDict(frozen=True)
 
     id: int
     name: str
     username: str
+    type: str = PASSWORD
     purpose: str
     description: str = ""
     bindings: list[Binding] = []
@@ -170,14 +180,17 @@ def _fernet(provider=None):
     return MultiFernet([Fernet(key) for key in keys])
 
 
-def _seal(fernet, record_id, username, password):
-    plain = json.dumps({"v": _VERSION, "id": record_id,
-                        "username": username, "password": password})
+def _seal(fernet, record_id, username, secret):
+    """Encrypt `secret`, a dict: `{"password": ...}`, or
+    `{"private_key": ..., "passphrase": ...}`."""
+    plain = dict(secret, v=_VERSION, id=record_id, username=username)
+    plain = json.dumps(plain)
     return fernet.encrypt(plain.encode("utf-8")).decode("ascii")
 
 
 def _unseal(fernet, record):
-    """Return the password of `record`. Raises `TokenMismatch`."""
+    """Return the secret of `record` as a dict (see `_seal`). Raises
+    `TokenMismatch`."""
     try:
         plain = json.loads(fernet.decrypt(record.token.encode("ascii")))
     except (InvalidToken, ValueError, TypeError):
@@ -190,7 +203,7 @@ def _unseal(fernet, record):
         raise TokenMismatch(
             "The secret of the credential {} belongs to another "
             "credential. It is refused.".format(record.name))
-    return plain.get("password")
+    return plain
 
 
 def _audit(session, principal, action, name, **detail):
@@ -224,6 +237,63 @@ def _check_password(password):
     return password
 
 
+def _check_private_key(private_key, passphrase):
+    """Raise `InvalidValue` unless `private_key` is a private key (an
+    OpenSSH or PEM file) that `passphrase` opens. The key is never in
+    the message."""
+    from cryptography.hazmat.primitives import serialization
+    if not isinstance(private_key, str) or "PRIVATE KEY" not in private_key:
+        raise InvalidValue("An SSH key credential needs a private key (the "
+                           "text of an OpenSSH or PEM private key file).")
+    if passphrase is not None and not isinstance(passphrase, str):
+        raise InvalidValue("The passphrase is text.")
+    data = private_key.encode("utf-8")
+    password = passphrase.encode("utf-8") if passphrase else None
+    for load in (serialization.load_ssh_private_key,
+                 serialization.load_pem_private_key):
+        try:
+            load(data, password=password)
+            return private_key
+        except (ValueError, TypeError):
+            continue
+        except Exception:
+            continue
+    raise InvalidValue("The private key cannot be read, or the passphrase "
+                       "does not open it.")
+
+
+def _secret(type, password, private_key, passphrase):
+    """The secret to seal for a credential of `type`. Raises
+    `InvalidValue`."""
+    if type == PASSWORD:
+        if private_key is not None or passphrase is not None:
+            raise InvalidValue("A password credential has no private key.")
+        return {"password": _check_password(password)}
+    if type == SSH_KEY:
+        if password is not None:
+            raise InvalidValue("An SSH key credential has no password; give "
+                               "the private key (and its passphrase).")
+        _check_private_key(private_key, passphrase)
+        return {"type": SSH_KEY, "private_key": private_key,
+                "passphrase": passphrase or None}
+    raise InvalidValue("The type of a credential is one of {}.".format(
+        ", ".join(TYPES)))
+
+
+def _check_type(credential_type, kinds, what):
+    """Raise `InvalidValue` unless one of `kinds` takes credentials of
+    `credential_type`."""
+    from mast import plugins
+    taken = set()
+    for kind in kinds:
+        taken.update(plugins.credential_types(kind))
+    if credential_type not in taken:
+        raise InvalidValue(
+            "{} takes no {} credential ({}: {}).".format(
+                what, credential_type, " + ".join(kinds),
+                ", ".join(sorted(taken)) or "no credentials"))
+
+
 def _check_purpose(purpose):
     if purpose not in PURPOSES:
         raise InvalidValue("The purpose is one of {}.".format(
@@ -251,18 +321,19 @@ def _bindings(session, record):
         if binding.target_id is not None:
             target = session.get(ApplianceRecord, binding.target_id)
             if target is not None:
-                found.append(Binding(kind="appliance", name=target.name))
+                found.append(Binding(kind="target", name=target.name))
         elif binding.fleet_id is not None:
             target = session.get(EnvironmentRecord, binding.fleet_id)
             if target is not None:
-                found.append(Binding(kind="environment", name=target.name))
+                found.append(Binding(kind="fleet", name=target.name))
     return found
 
 
 def _view(session, record):
     return Credential(
         id=record.id, name=record.name, username=record.username,
-        purpose=record.purpose, description=record.description,
+        type=record.type, purpose=record.purpose,
+        description=record.description,
         bindings=_bindings(session, record),
         created_by=record.created_by, created_at=record.created_at,
         updated_by=record.updated_by, updated_at=record.updated_at,
@@ -272,11 +343,12 @@ def _view(session, record):
 
 
 def _set_bindings(session, record, bindings):
-    """Bind `record` to `bindings`: names of environments or of
-    appliances (an environment first, as `mast.registry.resolve`
-    does). Return the bindings as `Binding`s."""
-    from mast.registry.models import (
-        FleetRecord as EnvironmentRecord, TargetRecord as ApplianceRecord)
+    """Bind `record` to `bindings`: names of fleets or of targets (a
+    fleet first, as `mast.registry.resolve` does), each of a kind that
+    takes credentials of the type of `record`. Return the bindings as
+    `Binding`s."""
+    from mast import registry
+    from mast.registry.models import FleetRecord, TargetRecord
     if isinstance(bindings, str):
         bindings = [bindings]
     rows = []
@@ -286,21 +358,25 @@ def _set_bindings(session, record, bindings):
         if not name or name in seen:
             continue
         seen.add(name)
-        environment = session.scalars(select(EnvironmentRecord).where(
-            EnvironmentRecord.name == name)).first()
-        if environment is not None:
+        fleet = session.scalars(select(FleetRecord).where(
+            FleetRecord.name == name)).first()
+        if fleet is not None:
+            _check_type(record.type, [fleet.kind],
+                        "The fleet {}".format(name))
             rows.append(CredentialBinding(
-                credential_id=record.id, fleet_id=environment.id))
+                credential_id=record.id, fleet_id=fleet.id))
             continue
-        appliance = session.scalars(select(ApplianceRecord).where(
-            ApplianceRecord.name == name)).first()
-        if appliance is None:
+        target = session.scalars(select(TargetRecord).where(
+            TargetRecord.name == name)).first()
+        if target is None:
             raise InvalidValue(
-                "{!r} is not a registered appliance or environment. A "
-                "credential can be bound only to those (see "
-                "mast targets).".format(name))
+                "{!r} is not a registered target or fleet. A credential can "
+                "be bound only to those (see mast targets).".format(name))
+        _check_type(record.type,
+                    registry.kinds_of(registry.by_id(target.id)),
+                    "The target {}".format(name))
         rows.append(CredentialBinding(
-            credential_id=record.id, target_id=appliance.id))
+            credential_id=record.id, target_id=target.id))
     session.execute(delete(CredentialBinding).where(
         CredentialBinding.credential_id == record.id))
     for row in rows:
@@ -313,29 +389,33 @@ def _binding_names(found):
     return ["{}:{}".format(binding.kind, binding.name) for binding in found]
 
 
-def create(name, username, password, purpose, bindings=(),
-           principal=LOCAL, description=""):
+def create(name, username, password=None, purpose=COLLECT, bindings=(),
+           principal=LOCAL, description="", type=PASSWORD,
+           private_key=None, passphrase=None):
     """
-    _function_: `mast.credentials.store.create(name, username, password,
-    purpose, bindings=(), principal=LOCAL, description="")`
+    _function_: `mast.credentials.store.create(name, username,
+    password=None, purpose="collect", bindings=(), principal=LOCAL,
+    description="", type="password", private_key=None, passphrase=None)`
 
     Store a new credential and return it as a `Credential`.
 
     Parameters:
 
     * `name`: The name that jobs use for it.
-    * `username`, `password`: The user name and password on the
-    appliances.
+    * `username`: The user name on the targets.
+    * `type`: `password`, with `password`; or `ssh-key`, with
+    `private_key` (the text of an OpenSSH or PEM private key file) and
+    its `passphrase`, if it has one. The type never changes.
     * `purpose`: `collect` or `change`.
-    * `bindings`: The names of the appliances and environments that it
-    may be used for.
+    * `bindings`: The names of the targets and fleets that it may be
+    used for. Each must be of a kind that takes its type.
     * `principal`: The admin who stores it.
     * `description`: A note for the admins.
     """
     authorize(principal, "manage-credential")
     _check_name(name)
     _check_username(username)
-    _check_password(password)
+    secret = _secret(type, password, private_key, passphrase)
     _check_purpose(purpose)
     fernet = _fernet()
     now = _now()
@@ -345,39 +425,42 @@ def create(name, username, password, purpose, bindings=(),
         if exists is not None:
             raise NameTaken("There is already a credential {}.".format(name))
         record = CredentialRecord(
-            name=name, username=username, token="", purpose=purpose,
-            description=str(description or ""),
+            name=name, username=username, type=type, token="",
+            purpose=purpose, description=str(description or ""),
             created_by=principal.name, created_at=now,
             updated_by=principal.name, updated_at=now)
         session.add(record)
         session.flush()
-        record.token = _seal(fernet, record.id, username, password)
+        record.token = _seal(fernet, record.id, username, secret)
         found = _set_bindings(session, record, bindings)
         _audit(session, principal, "credential.create", name,
-               username=username, purpose=purpose,
+               username=username, type=type, purpose=purpose,
                bindings=_binding_names(found))
         return _view(session, record)
 
 
-def replace_secret(name, password, principal=LOCAL, username=None):
+def replace_secret(name, password=None, principal=LOCAL, username=None,
+                   private_key=None, passphrase=None):
     """
-    _function_: `mast.credentials.store.replace_secret(name, password,
-    principal=LOCAL, username=None)`
+    _function_: `mast.credentials.store.replace_secret(name,
+    password=None, principal=LOCAL, username=None, private_key=None,
+    passphrase=None)`
 
-    Give the credential `name` a new password, and a new user name if
-    `username` is given. The result of the last test is cleared.
+    Give the credential `name` a new secret of its type (a password, or
+    a private key and its passphrase), and a new user name if `username`
+    is given. The result of the last test is cleared.
     """
     authorize(principal, "manage-credential")
-    _check_password(password)
     if username is not None:
         _check_username(username)
     fernet = _fernet()
     with db.session() as session:
         record = _record(session, name)
+        secret = _secret(record.type, password, private_key, passphrase)
         old_username = record.username
         if username is not None:
             record.username = username
-        record.token = _seal(fernet, record.id, record.username, password)
+        record.token = _seal(fernet, record.id, record.username, secret)
         record.updated_by = principal.name
         record.updated_at = _now()
         record.last_tested_at = None
@@ -647,6 +730,11 @@ def check_targets(name, appliances):
     with db.session(write=False) as session:
         bound = _bound_ids(session, _record(session, name))
     for target in targets:
+        try:
+            _check_type(credential.type, registry.kinds_of(target),
+                        "The target {}".format(target.name))
+        except InvalidValue as exc:
+            raise Forbidden(str(exc)) from None
         if target.id not in bound:
             raise Forbidden(
                 "The credential {} is not bound to the appliance {}. An "
@@ -726,7 +814,14 @@ def _open(name, appliance, job_id, principal):
             raise Forbidden(
                 "The credential {} is not bound to the appliance "
                 "{}.".format(name, appliance))
-        password = _unseal(fernet, record)
+        secret = _unseal(fernet, record)
+        if record.type != PASSWORD:
+            # The commands of the plugins of 4.0 take passwords; a plugin
+            # that takes keys gets them with the plugin API of its own
+            raise Forbidden(
+                "The credential {} is an {} credential, and this command "
+                "takes a password.".format(name, record.type))
+        password = secret.get("password")
         now = _now()
         record.last_used_at = now
         session.add(CredentialUse(

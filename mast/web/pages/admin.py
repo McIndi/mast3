@@ -216,7 +216,7 @@ def credentials_page():
     """
     from mast.credentials import store
     return flask.render_template("admin_credentials.html",
-                                 purposes=store.PURPOSES)
+                                 purposes=store.PURPOSES, types=store.TYPES)
 
 
 @blueprint.get("/admin/targets")

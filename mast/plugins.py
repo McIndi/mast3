@@ -76,6 +76,7 @@ __all__ = ["Manifest", "Kind", "Failure", "GROUP", "API", "APIS",
            "manifests", "failures", "failure", "distribution", "fail",
            "kinds", "provider_of", "lineage", "capabilities", "accepting",
            "base_of", "schema", "endpoints_of", "schema_version", "is_name",
+           "credential_types", "credential_test", "CREDENTIAL_TYPES",
            "Attribute", "Endpoint", "ATTRIBUTE_TYPES", "PROTOCOLS", "reset"]
 
 # The group of the entry points of the plugins
@@ -109,6 +110,9 @@ ATTRIBUTE_TYPES = ("str", "text", "int", "port", "bool")
 # The protocols of an endpoint (Endpoint.protocol): TLS, whose
 # certificate is checked, and SSH, whose host key is checked
 PROTOCOLS = ("tls", "ssh")
+# The types of a stored credential (Kind.credential_types): a user name
+# and a password, or a user name and an SSH private key
+CREDENTIAL_TYPES = ("password", "ssh-key")
 
 
 @dataclass(frozen=True)
@@ -165,7 +169,8 @@ class Endpoint(object):
 class Kind(object):
     """
     _class_: `mast.plugins.Kind(name, title, extends=None,
-    capabilities=(), attributes=(), endpoints=(), version=1)`
+    capabilities=(), attributes=(), endpoints=(), version=1,
+    credential_types=(), credential_test=None)`
 
     A kind of target that a plugin gives.
 
@@ -184,6 +189,16 @@ class Kind(object):
     * `endpoints`: Its `Endpoint`s, whose ports are its attributes.
     * `version`: The version of its attributes. A target records the
     version that its values were checked against.
+    * `credential_types`: The types of stored credential that its
+    commands take (see `CREDENTIAL_TYPES`), besides those of the kind
+    that it extends. A credential can be bound to and used on a target
+    only if one of its kinds takes its type.
+    * `credential_test`: The id of the command that tests a stored
+    credential on a target of this kind (`mast credentials test`), if
+    the kind extends no kind that has one. Its result is a table with
+    the columns `works` and `can change` (`yes` or `no`), and `target`
+    (or `appliance`), `firmware` and `problem`. A kind with the
+    capability `test-credentials` has one.
     """
     name: str
     title: str
@@ -192,6 +207,8 @@ class Kind(object):
     attributes: tuple = field(default=())
     endpoints: tuple = field(default=())
     version: int = 1
+    credential_types: tuple = field(default=())
+    credential_test: str = None
 
 
 # The kinds of target of core itself, which no plugin may give: a TCP or
@@ -351,6 +368,16 @@ def _schema_problem(kind):
             isinstance(e, Endpoint) for e in kind.endpoints):
         return "the endpoints of the kind {} are not a tuple of " \
                "mast.plugins.Endpoint".format(kind.name)
+    if isinstance(kind.credential_types, str) or not all(
+            t in CREDENTIAL_TYPES for t in kind.credential_types):
+        return "the credential types {!r} of the kind {} are not a tuple " \
+               "of {}".format(kind.credential_types, kind.name,
+                              ", ".join(CREDENTIAL_TYPES))
+    if kind.credential_test is not None and (
+            not isinstance(kind.credential_test, str)
+            or kind.credential_test.count(".") != 1):
+        return "the credential test {!r} of the kind {} is not the id of " \
+               "a command".format(kind.credential_test, kind.name)
     if not isinstance(kind.version, int) or kind.version < 1:
         return "the version of the kind {} is not a number from 1".format(
             kind.name)
@@ -536,6 +563,10 @@ def _inherited_problem(kind, known):
     if len(endpoints) != len(set(endpoints)):
         return "the kind {} has an endpoint with the name of an endpoint " \
                "of a kind that it extends".format(kind.name)
+    if TEST_CREDENTIALS in kind.capabilities and not any(
+            known[k].credential_test for k in chain):
+        return "the kind {} can test credentials, and names no command " \
+               "that does it (credential_test)".format(kind.name)
     for endpoint in kind.endpoints:
         if endpoint.port not in ports:
             return "the port of the endpoint {} of the kind {} is {!r}, " \
@@ -768,6 +799,35 @@ def endpoints_of(kind):
     known = kinds()
     return {endpoint.name: endpoint for name in entry_kinds(kind)
             for endpoint in known[name].endpoints}
+
+
+def credential_types(kind):
+    """
+    _function_: `mast.plugins.credential_types(kind)`
+
+    Return the types of stored credential that a target of `kind`
+    takes: those of the kind and of every kind that it extends.
+    """
+    known = kinds()
+    found = set()
+    for name in lineage(kind):
+        found.update(known[name].credential_types)
+    return frozenset(found)
+
+
+def credential_test(kind):
+    """
+    _function_: `mast.plugins.credential_test(kind)`
+
+    Return the id of the command that tests a stored credential on a
+    target of `kind`: that of the kind, or of the nearest kind that it
+    extends; None if there is none.
+    """
+    known = kinds()
+    for name in lineage(kind):
+        if known[name].credential_test:
+            return known[name].credential_test
+    return None
 
 
 def schema_version(kind):

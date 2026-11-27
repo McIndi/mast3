@@ -23,10 +23,12 @@ blueprint of `mast.web.api`.
 * `GET /api/v1/credentials?appliances=...`: The credentials (never a
 password). With `appliances`, only those that can be used on every
 one of them. Operators and admins.
-* `POST /api/v1/credentials`: `{name, username, password, purpose,
-bindings, description}`. Admins.
+* `POST /api/v1/credentials`: `{name, username, type, password,
+purpose, bindings, description}`; for `type` `ssh-key`, `private_key`
+and `passphrase` in place of `password`. Admins.
 * `PATCH /api/v1/credentials/<name>`: Any of `{password, username}`
-(a new secret), `{description, purpose}` and `{bindings}`. Admins.
+or `{private_key, passphrase, username}` (a new secret of its type),
+`{description, purpose}` and `{bindings}`. Admins.
 * `DELETE /api/v1/credentials/<name>`. Admins.
 * `POST /api/v1/credentials/<name>/tests`: `{appliance}`. Starts a
 test job and answers `{job_id}`. Admins.
@@ -34,13 +36,13 @@ test job and answers `{job_id}`. Admins.
 of that test job, once it has ended. Admins.
 * `GET /api/v1/credentials/<name>/uses` and `.../audit`. Admins.
 
-A password goes in only in the body of a POST or a PATCH. No answer
-has one. Every change is logged to `mast.credentials`, without the
-password.
+A password or a private key goes in only in the body of a POST or a
+PATCH. No answer has one. Every change is logged to `mast.credentials`,
+without the secret.
 """
 import flask
 
-from mast.credentials import TEST_COMMAND, keys, store, testing
+from mast.credentials import keys, store, testing
 from mast.jobs import auth as jobs_auth
 from mast.jobs import client as jobs_client
 from mast.logging import make_logger
@@ -123,13 +125,24 @@ def add_credential():
     try:
         found = store.create(
             _text(body.get("name")), _text(body.get("username")),
-            _text(body.get("password")), _text(body.get("purpose")),
-            _names(body.get("bindings")), principal=who,
-            description=_text(body.get("description")))
+            purpose=_text(body.get("purpose")),
+            bindings=_names(body.get("bindings")), principal=who,
+            description=_text(body.get("description")),
+            type=_text(body.get("type") or store.PASSWORD), **_secret(body))
     except (store.CredentialError, keys.KeysUnavailable) as exc:
         return _store_error(exc)
     _changed("Stored the credential {}".format(found.name))
     return flask.jsonify(credential_json(found)), 201
+
+
+def _secret(body):
+    """The secret in a body: a password, or a private key and its
+    passphrase."""
+    if "private_key" in body:
+        passphrase = body.get("passphrase")
+        return {"private_key": _text(body.get("private_key")),
+                "passphrase": _text(passphrase) if passphrase else None}
+    return {"password": _text(body.get("password"))}
 
 
 @blueprint.patch("/credentials/<name>")
@@ -144,12 +157,13 @@ def change_credential(name):
     body = _body()
     try:
         found = store.get(name)
-        if "password" in body:
+        if "password" in body or "private_key" in body:
             username = body.get("username")
             found = store.replace_secret(
-                name, _text(body.get("password")), principal=who,
-                username=_text(username) if username is not None else None)
-            _changed("Replaced the password of the credential {}".format(name))
+                name, principal=who,
+                username=_text(username) if username is not None else None,
+                **_secret(body))
+            _changed("Replaced the secret of the credential {}".format(name))
         if "description" in body or "purpose" in body:
             found = store.update(
                 name, principal=who,
@@ -204,7 +218,11 @@ def start_test(name):
         store.get(name)
     except store.CredentialError as exc:
         return _store_error(exc)
-    job_id = jobs_client.start(TEST_COMMAND, testing.params(name, appliance),
+    try:
+        command = testing.command(appliance)
+    except testing.NotATest as exc:
+        return error(422, str(exc), {"appliance": str(exc)})
+    job_id = jobs_client.start(command, testing.params(name, appliance),
                                principal=who)
     _changed("Started a test of the credential {} on {} (job {})".format(
         name, appliance, job_id))

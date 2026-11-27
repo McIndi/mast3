@@ -35,6 +35,9 @@ __all__ = ["manifest", "DATAPOWER"]
 DATAPOWER = Kind(
     "datapower", "IBM DataPower appliance",
     capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS),
+    # SOMA and SSH both log in with a password
+    credential_types=("password",),
+    credential_test="datapower.check-credentials",
     attributes=(
         Attribute("soma_port", "port", default=5550,
                   help="The port of the XML management interface (SOMA)."),

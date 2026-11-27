@@ -17,18 +17,19 @@
 """
 _module_: `mast.credentials.testing`
 
-The test of a stored credential: a job of `mast.credentials.TEST_COMMAND`
-with the credential, on one appliance, through the queue like any other
-job. When it has ended, `record` reads its result and stores the
-outcome with the credential (`last_tested_at`, `last_test_ok`,
-`can_write`).
+The test of a stored credential: a job of the command that the kind of
+the target names (`mast.plugins.Kind.credential_test`), with the
+credential, on one target, through the queue like any other job. When it
+has ended, `record` reads its result and stores the outcome with the
+credential (`last_tested_at`, `last_test_ok`, `can_write`).
 """
-from mast.credentials import TEST_COMMAND, store
+from mast import plugins
+from mast.credentials import store
 from mast.jobs import queue
 from mast.jobs.auth import LOCAL, authorize
 from mast.jobs.models import SUCCEEDED
 
-__all__ = ["params", "record", "Outcome", "NotATest"]
+__all__ = ["command", "params", "record", "Outcome", "NotATest"]
 
 
 class NotATest(ValueError):
@@ -56,6 +57,33 @@ class Outcome(object):
                 "problem": self.problem}
 
 
+def command(target):
+    """
+    _function_: `mast.credentials.testing.command(target)`
+
+    Return the id of the command that tests a credential on the target
+    called `target`. Raises `NotATest` if it is not registered, or no
+    kind of it can test credentials.
+    """
+    # Imported here: the registry reads the job database
+    from mast import registry
+    found = registry.by_name(target)
+    if found is None:
+        raise NotATest("{} is not a registered target.".format(target))
+    for kind in registry.kinds_of(found):
+        test = plugins.credential_test(kind)
+        if test:
+            return test
+    raise NotATest("No kind of {} ({}) can test a credential.".format(
+        target, " + ".join(registry.kinds_of(found))))
+
+
+def _tests():
+    """The ids of every command that tests credentials."""
+    return {plugins.credential_test(kind) for kind in plugins.kinds()} \
+        - {None}
+
+
 def params(name, appliance):
     """
     _function_: `mast.credentials.testing.params(name, appliance)`
@@ -75,7 +103,8 @@ def _outcome(info, found):
     try:
         works = columns.index("works")
         change = columns.index("can change")
-        appliance = columns.index("appliance")
+        appliance = columns.index("target") if "target" in columns \
+            else columns.index("appliance")
         firmware = columns.index("firmware")
         problem = columns.index("problem")
     except ValueError:
@@ -101,7 +130,7 @@ def record(name, job_id, principal=LOCAL):
     """
     authorize(principal, "manage-credential")
     info = queue.get(job_id, principal)
-    if info.command != TEST_COMMAND or info.params.get("credential") != name:
+    if info.command not in _tests() or info.params.get("credential") != name:
         raise NotATest("The job {} is not a test of the credential "
                        "{}.".format(job_id, name))
     if not info.finished:

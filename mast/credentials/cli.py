@@ -44,7 +44,7 @@ from typing import Literal
 from mast.cli import Cli, Option, Params, Table, Text
 from mast.plugins import TEST_CREDENTIALS
 from mast.roots import CORE
-from mast.credentials import TEST_COMMAND, keys, store, testing
+from mast.credentials import keys, store, testing
 from mast.jobs.auth import LOCAL, Forbidden
 
 __all__ = ["cli"]
@@ -53,6 +53,7 @@ cli = Cli(description="Manage the stored credentials of MAST.",
           provider=CORE, prog="mast credentials", queued=False)
 
 Purpose = Literal["collect", "change"]
+CredentialType = Literal["password", "ssh-key"]
 
 
 def _fail(message):
@@ -63,7 +64,8 @@ def _fail(message):
 def _do(change, *args, **kwargs):
     try:
         return change(*args, **kwargs)
-    except (store.CredentialError, keys.KeysUnavailable, Forbidden) as exc:
+    except (store.CredentialError, keys.KeysUnavailable, Forbidden,
+            ValueError) as exc:
         _fail(exc)
 
 
@@ -82,6 +84,37 @@ def _password(from_stdin):
     return password
 
 
+def _passphrase(from_stdin):
+    """The passphrase of a private key; empty for a key without one."""
+    if from_stdin:
+        line = sys.stdin.readline()
+        return line.rstrip("\r\n")
+    passphrase = getpass.getpass("Passphrase of the key (empty for none): ")
+    if passphrase and getpass.getpass("The same passphrase again: ") \
+            != passphrase:
+        _fail("The two passphrases are not the same.")
+    return passphrase
+
+
+def _secret(credential_type, key_file, from_stdin):
+    """The keyword arguments of the secret of a credential of
+    `credential_type`: a password, asked for; or the private key of
+    `key_file` and its passphrase."""
+    if credential_type == store.PASSWORD:
+        if key_file:
+            _fail("--key-file is for an ssh-key credential.")
+        return {"password": _password(from_stdin)}
+    if not key_file:
+        _fail("An ssh-key credential needs --key-file, the private key.")
+    try:
+        with open(key_file, encoding="utf-8") as fin:
+            private_key = fin.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        _fail("Cannot read {}: {}".format(key_file, exc))
+    return {"private_key": private_key,
+            "passphrase": _passphrase(from_stdin) or None}
+
+
 def _when(time):
     return time.strftime("%Y-%m-%d %H:%M:%S UTC") if time else ""
 
@@ -92,14 +125,15 @@ def _yes_no(value):
 
 def _bindings(credential):
     return " ".join(
-        "{}{}".format("env:" if binding.kind == "environment" else "",
+        "{}{}".format("fleet:" if binding.kind == "fleet" else "",
                       binding.name)
         for binding in credential.bindings)
 
 
 def _show(credential):
-    lines = ["{} ({}, user {})".format(
-        credential.name, credential.purpose, credential.username)]
+    lines = ["{} ({} {}, user {})".format(
+        credential.name, credential.purpose, credential.type,
+        credential.username)]
     rows = (("bound to", _bindings(credential)),
             ("description", credential.description),
             ("created", "{} by {}".format(_when(credential.created_at),
@@ -111,7 +145,7 @@ def _show(credential):
                 _when(credential.last_tested_at),
                 "works" if credential.last_test_ok else "failed")
              if credential.last_tested_at else ""),
-            ("can change appliances", _yes_no(credential.can_write)))
+            ("can change targets", _yes_no(credential.can_write)))
     for label, value in rows:
         if value:
             lines.append("  {}: {}".format(label, value))
@@ -123,7 +157,16 @@ class NameParams(Params):
 
 
 class Add(NameParams):
-    username: str = Option(short="u", help="The user name on the appliances.")
+    username: str = Option(short="u", help="The user name on the targets.")
+    type: CredentialType = Option(
+        "password", short="t",
+        help="password: a user name and a password, which is asked for. "
+             "ssh-key: a user name and a private key (--key-file). A "
+             "target takes only the types of its kind (mast plugins kinds).")
+    key_file: str | None = Option(
+        None, help="The private key file (OpenSSH or PEM) of an ssh-key "
+                   "credential. Its passphrase, if it has one, is asked "
+                   "for.")
     purpose: Purpose = Option(
         short="p",
         help="collect: only for commands that only read (the status "
@@ -131,40 +174,45 @@ class Add(NameParams):
              "may use it.")
     bind: list[str] = Option(
         default_factory=list, short="b",
-        help="An appliance or an environment that the credential may be "
-             "used for (see mast targets).")
+        help="A target or a fleet that the credential may be used for "
+             "(see mast targets), of a kind that takes its type.")
     description: str = Option("", short="d", help="A note for the admins.")
     password_stdin: bool = Option(
-        False, help="Read the password from the first line of standard "
-                    "input, for scripts.")
+        False, help="Read the password (or the passphrase of the key) "
+                    "from the first line of standard input, for scripts.")
 
 
 @cli.command("add", effect="change", id="add-credential")
 def add(params: Add):
-    """Store a new credential. The password is asked for."""
-    password = _password(params.password_stdin)
+    """Store a new credential: a password, which is asked for, or with
+    -t ssh-key a private key from a file."""
+    secret = _secret(params.type, params.key_file, params.password_stdin)
     return Text("Stored " + _show(_do(
-        store.create, params.name, params.username, password,
-        params.purpose, params.bind, principal=LOCAL,
-        description=params.description)))
+        store.create, params.name, params.username, purpose=params.purpose,
+        bindings=params.bind, principal=LOCAL,
+        description=params.description, type=params.type, **secret)))
 
 
 class Replace(NameParams):
     username: str | None = Option(
         None, short="u", help="A new user name. The default is to keep it.")
+    key_file: str | None = Option(
+        None, help="The new private key file of an ssh-key credential.")
     password_stdin: bool = Option(
-        False, help="Read the password from the first line of standard "
-                    "input, for scripts.")
+        False, help="Read the password (or the passphrase of the key) "
+                    "from the first line of standard input, for scripts.")
 
 
 @cli.command("replace", effect="change", id="replace-credential")
 def replace(params: Replace):
-    """Give a credential a new password (and a new user name). The
-    result of its last test is cleared."""
-    password = _password(params.password_stdin)
-    return Text("Replaced the password of " + _show(_do(
-        store.replace_secret, params.name, password, principal=LOCAL,
-        username=params.username)))
+    """Give a credential a new secret of its type (a password, or a
+    private key) and a new user name. The result of its last test is
+    cleared."""
+    credential = _do(store.get, params.name)
+    secret = _secret(credential.type, params.key_file, params.password_stdin)
+    return Text("Replaced the secret of " + _show(_do(
+        store.replace_secret, params.name, principal=LOCAL,
+        username=params.username, **secret)))
 
 
 class Update(NameParams):
@@ -184,15 +232,14 @@ def update(params: Update):
 class Rebind(NameParams):
     bind: list[str] = Option(
         default_factory=list, short="b",
-        help="An appliance or an environment that the credential may be "
-             "used for. Without any, the "
-             "credential cannot be used.")
+        help="A target or a fleet that the credential may be used for. "
+             "Without any, the credential cannot be used.")
 
 
 @cli.command("rebind", effect="change", id="rebind-credential")
 def rebind(params: Rebind):
-    """Change the appliances and environments that a credential may be
-    used for."""
+    """Change the targets and fleets that a credential may be used
+    for."""
     return Text("Rebound " + _show(_do(
         store.rebind, params.name, params.bind, principal=LOCAL)))
 
@@ -225,9 +272,10 @@ def list_credentials(params: ListParams):
     """List the credentials (never a password)."""
     found = _do(store.list_credentials, params.appliances or None)
     return Table(
-        ["name", "username", "purpose", "bound to", "last used",
+        ["name", "username", "type", "purpose", "bound to", "last used",
          "last test", "can change"],
-        [(c.name, c.username, c.purpose, _bindings(c), _when(c.last_used_at),
+        [(c.name, c.username, c.type, c.purpose, _bindings(c),
+          _when(c.last_used_at),
           "" if c.last_tested_at is None else
           ("works" if c.last_test_ok else "failed"), _yes_no(c.can_write))
          for c in found])
@@ -248,14 +296,19 @@ class Test(NameParams):
 @cli.command("test", effect="read", needs=(TEST_CREDENTIALS,),
              id="test-credential")
 def test(params: Test):
-    """Test a credential on one appliance, through the job queue: read the
-    firmware version, and find out whether the user can change the
-    appliance. The outcome is stored with the credential."""
+    """Test a credential on one target, through the job queue, with the
+    test of the kind of the target: for DataPower, read the firmware
+    version, and find out whether the user can change the appliance. The
+    outcome is stored with the credential."""
     # Imported here: only this command uses the queue
     from mast.jobs import client, queue, runner
     job_id = queue.new_job_id()
     worker_id = runner.new_worker_id()
-    _do(queue.submit, TEST_COMMAND,
+    try:
+        command = testing.command(params.appliance)
+    except testing.NotATest as exc:
+        _fail(exc)
+    _do(queue.submit, command,
         testing.params(params.name, params.appliance), principal=LOCAL,
         attached=True, job_id=job_id)
     client.follow(job_id, principal=LOCAL, worker_id=worker_id)

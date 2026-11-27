@@ -42,7 +42,7 @@ async function act(promise, message) {
 }
 
 function bindingLabel(binding) {
-    return (binding.kind === "environment" ? "env " : "") + binding.name;
+    return (binding.kind === "fleet" ? "fleet " : "") + binding.name;
 }
 
 function renderBindings(selected) {
@@ -63,19 +63,31 @@ function renderBindings(selected) {
     });
 }
 
+// The fields of the secret of the chosen type
+function showSecret() {
+    const type = form.elements.type.value;
+    for (const box of form.querySelectorAll("[data-secret]")) {
+        box.classList.toggle("d-none", box.dataset.secret !== type);
+    }
+}
+form.elements.type.addEventListener("change", showSecret);
+
 function edit(credential) {
     form.reset();
     form.elements.original.value = credential ? credential.name : "";
     if (credential) {
         form.elements.name.value = credential.name;
         form.elements.username.value = credential.username;
+        form.elements.type.value = credential.type;
         form.elements.purpose.value = credential.purpose;
         form.elements.description.value = credential.description;
     }
     form.elements.name.readOnly = !!credential;
-    form.elements.password.required = !credential;
+    form.elements.type.disabled = !!credential;
+    showSecret();
+    form.elements.password.required = !credential && form.elements.type.value === "password";
     passwordHelp.textContent = credential
-        ? "Leave it empty to keep the password. It is never shown."
+        ? "Leave it empty to keep the secret. It is never shown."
         : "Never shown again.";
     renderBindings(credential ? credential.bindings : []);
     title.textContent = credential ? "Change " + credential.name : "Add a credential";
@@ -93,24 +105,32 @@ form.addEventListener("submit", async (event) => {
         description: form.elements.description.value,
         bindings: [...bindingsBox.querySelectorAll("input:checked")].map((i) => i.value),
     };
-    const password = form.elements.password.value;
+    // The secret of the type: a password, or a private key and its
+    // passphrase
+    const type = form.elements.type.value;
+    const secret = type === "ssh-key"
+        ? (form.elements.private_key.value.trim()
+            ? {private_key: form.elements.private_key.value, passphrase: form.elements.passphrase.value || null}
+            : null)
+        : (form.elements.password.value ? {password: form.elements.password.value} : null);
     let done;
     if (original) {
         const before = credentials.find((c) => c.name === original);
-        if (password) {
-            data.password = password;
+        if (secret) {
+            Object.assign(data, secret);
         } else if (before && data.username !== before.username) {
-            showError(errorBox, new Error("A new user name needs its password too."));
+            showError(errorBox, new Error("A new user name needs its secret too."));
             return;
         }
-        if (!password) delete data.username;
+        if (!secret) delete data.username;
         done = await act(api.patch("/credentials/" + encodeURIComponent(original), data), "Saved " + original + ".");
     } else {
         data.name = form.elements.name.value.trim();
-        data.password = password;
+        data.type = type;
+        Object.assign(data, secret || {password: ""});
         done = await act(api.post("/credentials", data), "Stored " + data.name + ".");
     }
-    form.elements.password.value = "";
+    for (const name of ["password", "private_key", "passphrase"]) form.elements[name].value = "";
     if (done) edit(null);
 });
 cancelEdit.addEventListener("click", () => edit(null));
@@ -120,7 +140,7 @@ cancelEdit.addEventListener("click", () => edit(null));
 function testTargets(credential) {
     const names = [];
     for (const binding of credential.bindings) {
-        const members = binding.kind === "environment"
+        const members = binding.kind === "fleet"
             ? ((environments.find((e) => e.name === binding.name) || {}).members || [])
             : [binding.name];
         for (const name of members) if (!names.includes(name)) names.push(name);
@@ -228,6 +248,7 @@ function credentialRow(credential) {
     return el("tr", {},
         el("td", {}, credential.name, credential.description ? el("div", {className: "form-text"}, credential.description) : null),
         el("td", {}, credential.username),
+        el("td", {className: "small"}, credential.type),
         el("td", {}, el("span", {className: "badge " + (credential.purpose === "change" ? "text-bg-warning" : "text-bg-light")},
                         credential.purpose)),
         el("td", {className: "small"}, credential.bindings.map(bindingLabel).join(", ")),
@@ -244,7 +265,7 @@ async function refresh() {
         environments = (await api.get("/fleets")).fleets;
         rows.replaceChildren(...credentials.map(credentialRow));
         if (!credentials.length) {
-            rows.append(el("tr", {}, el("td", {colSpan: 8, className: "text-body-secondary"},
+            rows.append(el("tr", {}, el("td", {colSpan: 9, className: "text-body-secondary"},
                 "No credentials yet. Add one below, or with mast credentials add.")));
         }
         if (!form.elements.original.value) {

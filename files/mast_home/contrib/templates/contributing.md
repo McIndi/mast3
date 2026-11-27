@@ -133,7 +133,10 @@ choices) and its `endpoints` (`Endpoint`: a port that MAST connects
 to, `tls` or `ssh`, whose port is one of the attributes). Core keeps
 the values, checks them, and checks the identity of each endpoint;
 the plugin uses the values (`mast.registry.Target.attr`). A secret is
-never an attribute: it is in a stored credential.
+never an attribute: it is in a stored credential. A kind also says which types of
+stored credential its targets take (`credential_types`: `password`,
+`ssh-key`) and which command tests a credential on one of them
+(`credential_test`, needed with the capability `test-credentials`).
 A target has one base kind and any number of extensions. A kind with
 `extends` is an extension of another kind, of this plugin or another
 one: an API Connect plugin could give
