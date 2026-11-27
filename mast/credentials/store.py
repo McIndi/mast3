@@ -30,7 +30,7 @@ refused.
 used only on a registered appliance that it is bound to, directly or
 through an environment.
 * The purpose of a credential is `collect` (it is used only by
-commands that only read, `exclusive=False`) or `change`.
+commands whose effect is `read`) or `change`.
 
 No function of this module returns the password, except `_open`. Only
 the job runner calls `_open`, with the credential of a job, just
@@ -46,6 +46,7 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, select
 
+from mast.cli import READ as READ_EFFECT
 from mast.credentials import keys as _keys
 from mast.credentials.models import (
     AuditEvent, CredentialBinding, CredentialRecord, CredentialUse)
@@ -661,10 +662,10 @@ def check_targets(name, appliances):
     return credential, targets
 
 
-def check_use(name, appliances, principal, command=None, exclusive=True):
+def check_use(name, appliances, principal, command=None, effect=None):
     """
     _function_: `mast.credentials.store.check_use(name, appliances,
-    principal, command=None, exclusive=True)`
+    principal, command=None, effect=None)`
 
     Raise `Forbidden` if `principal` may not run the command `command`
     on `appliances` with the credential `name`. The queue calls this
@@ -675,13 +676,14 @@ def check_use(name, appliances, principal, command=None, exclusive=True):
     appliance that it is bound to and whose certificate is checked
     (see `check_targets`).
     * The principal may use stored credentials (`use-credential`).
-    * A `collect` credential is used only by a command that only
-    reads (`exclusive` is False).
+    * A `collect` credential is used only by a command whose `effect`
+    is `read` (see `mast.cli.Command.effect`). A command that declares
+    no effect counts as one that changes.
     * A `change` credential needs `use-change-credential` (admins).
     """
     credential, _ = check_targets(name, appliances)
     authorize(principal, "use-credential", command=command)
-    if credential.purpose == COLLECT and exclusive:
+    if credential.purpose == COLLECT and effect != READ_EFFECT:
         raise Forbidden(
             "The credential {} is for collecting (purpose collect). It "
             "can be used only by commands that only read; {} can change "

@@ -135,7 +135,7 @@ def _check_stored(name, targets, who):
         raise Forbidden("Only an admin may use a stored credential in a "
                         "terminal. Type a user name and a password.")
     credential = store.check_use(name, [t.name for t in targets], who,
-                                 command=COMMAND, exclusive=True)
+                                 command=COMMAND, effect="change")
     if credential.purpose != store.CHANGE:
         raise Forbidden("The credential {} is not for changes (purpose "
                         "change).".format(name))

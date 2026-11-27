@@ -106,7 +106,7 @@ class SetRole(UserParams):
     role: Role = Option(short="r", help="The new role.")
 
 
-@cli.command("add", id="add-user")
+@cli.command("add", effect="change", id="add-user")
 def add(params: Add):
     """Add a user. mast users asks for the first password, which is
     temporary: the user chooses a new one at the first login.
@@ -122,7 +122,7 @@ def add(params: Add):
                     info.name, info.role))
 
 
-@cli.command("set-password", id="set-user-password")
+@cli.command("set-password", effect="change", id="set-user-password")
 def set_password(params: SetPassword):
     """Give a user a new password, and log out every session of the
     user. This also ends a lock after failed logins."""
@@ -134,7 +134,7 @@ def set_password(params: SetPassword):
         "temporary " if params.temporary else "", name))
 
 
-@cli.command("set-role", id="set-user-role")
+@cli.command("set-role", effect="change", id="set-user-role")
 def set_role(params: SetRole):
     """Give a user another role, and log out every session of the
     user."""
@@ -142,7 +142,7 @@ def set_role(params: SetRole):
     return Text("{} now has the role {}.".format(info.name, info.role))
 
 
-@cli.command("disable", id="disable-user")
+@cli.command("disable", effect="change", id="disable-user")
 def disable(params: UserParams):
     """Stop a user from logging in, and log out every session of the
     user. The user and their jobs stay."""
@@ -150,14 +150,14 @@ def disable(params: UserParams):
     return Text("Disabled {}.".format(info.name))
 
 
-@cli.command("enable", id="enable-user")
+@cli.command("enable", effect="change", id="enable-user")
 def enable(params: UserParams):
     """Let a disabled user log in again."""
     info = _do(users.enable, params.user)
     return Text("Enabled {}.".format(info.name))
 
 
-@cli.command("delete", id="delete-user")
+@cli.command("delete", effect="change", id="delete-user")
 def delete(params: UserParams):
     """Remove a user. The jobs of the user stay, with the name of the
     user."""
@@ -165,7 +165,7 @@ def delete(params: UserParams):
     return Text("Deleted {}.".format(users.normalize(params.user)))
 
 
-@cli.command("list", id="list-users")
+@cli.command("list", effect="read", id="list-users")
 def list_users(params: Params):
     """List the users."""
     found = users.list_users()

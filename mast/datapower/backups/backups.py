@@ -118,7 +118,7 @@ class RestoreNormalBackup(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('restore-normal-backup', group='backups')
+@cli.command('restore-normal-backup', effect="change", group='backups')
 def restore_normal_backup(params: RestoreNormalBackup):
     """Restores a normal backup to the specified appliances and Domains."""
     logger = make_logger("mast.backups")
@@ -176,7 +176,7 @@ class NormalBackup(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('normal-backup', group='backups')
+@cli.command('normal-backup', effect="read", group='backups')
 def get_normal_backup(params: NormalBackup):
     """Performs a normal backup of the specified domain."""
     logger = make_logger("mast.backups")
@@ -274,7 +274,7 @@ class SecureBackup(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('secure-backup', group='backups')
+@cli.command('secure-backup', effect="change", group='backups')
 def get_secure_backup(params: SecureBackup):
     """Performs a secure backup of the specified domain."""
     logger = make_logger("mast.backups")
@@ -415,7 +415,7 @@ class RestoreSecureBackup(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('restore-secure-backup', group='backups')
+@cli.command('restore-secure-backup', effect="change", group='backups')
 def restore_secure_backup(params: RestoreSecureBackup):
     """Restores a secure backup to the specified appliances."""
     logger = make_logger("mast.backups")
@@ -439,7 +439,8 @@ class ListCheckpoints(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('list-checkpoints', group='checkpoints', exclusive=False)
+@cli.command('list-checkpoints', effect="read", group='checkpoints',
+             exclusive=False)
 def list_checkpoints(params: ListCheckpoints):
     """Lists the checkpoints which are currently in the
     specified domain"""
@@ -471,7 +472,7 @@ class Checkpoint(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('remove-checkpoint', group='checkpoints')
+@cli.command('remove-checkpoint', effect="change", group='checkpoints')
 def remove_checkpoint(params: Checkpoint):
     """Deletes a checkpoint from the specified domain"""
     logger = make_logger("mast.backups")
@@ -490,7 +491,7 @@ def remove_checkpoint(params: Checkpoint):
 
 
 @logged("mast.datapower.backups")
-@cli.command('rollback-checkpoint', group='checkpoints')
+@cli.command('rollback-checkpoint', effect="change", group='checkpoints')
 def rollback_checkpoint(params: Checkpoint):
     """Roll back the specified domain to the named checkpoint."""
     logger = make_logger("mast.backups")
@@ -526,7 +527,7 @@ class SetCheckpoint(ApplianceParams):
 
 
 @logged("mast.datapower.backups")
-@cli.command('set-checkpoint', group='checkpoints')
+@cli.command('set-checkpoint', effect="change", group='checkpoints')
 def set_checkpoint(params: SetCheckpoint):
     """Sets a checkpoint in the given domains on the specified appliances"""
     logger = make_logger("mast.backups")

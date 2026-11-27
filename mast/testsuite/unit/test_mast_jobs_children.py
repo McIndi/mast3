@@ -44,7 +44,7 @@ class Kid(Work):
 def make_cli():
     cli = Cli(provider="kids")
 
-    @cli.command("parent", exclusive=False)
+    @cli.command("parent", exclusive=False, effect="read")
     def parent(params: Kid):
         """Run one child for each appliance."""
         say("starting children")
@@ -54,7 +54,7 @@ def make_cli():
                            for n, name in enumerate(params.appliances)])
         return Text(" ".join(jobs.get(c).status for c in children))
 
-    @cli.command("child", exclusive=False, passive=True)
+    @cli.command("child", exclusive=False, passive=True, effect="read")
     def child(params: Kid):
         """One appliance."""
         ran.append((params.n, runner.current_job()))

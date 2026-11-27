@@ -259,7 +259,7 @@ class Xor(Params):
 
 # Not queued: the string is a credential, and the result can be
 # decoded
-@cli.command('xor', group='utilities', queued=False)
+@cli.command('xor', effect="read", targets=(), group='utilities', queued=False)
 def xor(params: Xor):
     """This will xor encode and base64 encode the given string
 for suitable use in passing credentials to MAST CLI commands.
@@ -312,7 +312,8 @@ def _check_credentials(appliance):
     return [appliance.hostname, "yes", firmware, can_change, ""]
 
 
-@cli.command('check-credentials', group='utilities', exclusive=False)
+@cli.command('check-credentials', effect="read", group='utilities',
+             exclusive=False)
 def check_credentials(params: ApplianceParams):
     """Checks the credentials on each appliance: whether they can log in
 and read the firmware version, and whether they can change the
@@ -376,7 +377,8 @@ def _test_connectivity(appliance, timeout):
             "; ".join(p.splitlines()[0][:200] for p in problems)]
 
 
-@cli.command('test-connectivity', group='utilities', exclusive=False,
+@cli.command('test-connectivity', effect="read", group='utilities',
+             exclusive=False,
              passive=True)
 def test_connectivity(params: ApplianceParams):
     """Tests whether MAST can log in to each appliance, with these
@@ -431,7 +433,7 @@ class FlushAAACache(ApplianceParams):
         help="The AAAPolicy whose cache you would like to flush")
 
 
-@cli.command('flush-aaa-cache', group='caches')
+@cli.command('flush-aaa-cache', effect="change", group='caches')
 def flush_aaa_cache(params: FlushAAACache):
     """This will flush the AAA Cache for the specified AAAPolicy
 in the specified Domain on the specified appliances."""
@@ -442,14 +444,14 @@ in the specified Domain on the specified appliances."""
         PolicyName=params.aaa_policy, domain=params.Domain)
 
 
-@cli.command('flush-arp-cache', group='caches')
+@cli.command('flush-arp-cache', effect="change", group='caches')
 def flush_arp_cache(params: ApplianceParams):
     """This will flush the ARP cache on the specified appliances."""
     return _action(
         params, 'FlushArpCache', "flush_arp_cache", "flush the ARP cache")
 
 
-@cli.command('flush-dns-cache', group='caches')
+@cli.command('flush-dns-cache', effect="change", group='caches')
 def flush_dns_cache(params: ApplianceParams):
     """This will flush the DNS cache on the specified appliances."""
     return _action(
@@ -465,7 +467,7 @@ class XMLManagerParams(ApplianceParams):
         help="The XMLManager whose cache you would like to flush")
 
 
-@cli.command('flush-document-cache', group='caches')
+@cli.command('flush-document-cache', effect="change", group='caches')
 def flush_document_cache(params: XMLManagerParams):
     """This will flush the Document cache for the specified
 xml_manager in the specified domain on the specified appliances."""
@@ -476,7 +478,7 @@ xml_manager in the specified domain on the specified appliances."""
         XMLManager=params.xml_manager, domain=params.Domain)
 
 
-@cli.command('flush-ldap-pool-cache', group='caches')
+@cli.command('flush-ldap-pool-cache', effect="change", group='caches')
 def flush_ldap_pool_cache(params: XMLManagerParams):
     """This will flush the LDAP Pool Cache for the specified
 xml_manager in the specified domain on the specified appliances"""
@@ -487,7 +489,7 @@ xml_manager in the specified domain on the specified appliances"""
         XMLManager=params.xml_manager, domain=params.Domain)
 
 
-@cli.command('flush-nd-cache', group='caches')
+@cli.command('flush-nd-cache', effect="change", group='caches')
 def flush_nd_cache(params: ApplianceParams):
     """This will flush the ND cache for the specified appliances."""
     return _action(
@@ -503,7 +505,7 @@ class FlushNSSCache(ApplianceParams):
         help="The ZOSNSSClient whose cache you would like to flush")
 
 
-@cli.command('flush-nss-cache', group='caches')
+@cli.command('flush-nss-cache', effect="change", group='caches')
 def flush_nss_cache(params: FlushNSSCache):
     """This will flush the NSS cache for the specified ZOSNSSClient
 in the specified domain for the specified appliance."""
@@ -520,7 +522,7 @@ class FlushPDPCache(ApplianceParams):
         help="The XACMLPDP object whose cache you would like to flush")
 
 
-@cli.command('flush-pdp-cache', group='caches')
+@cli.command('flush-pdp-cache', effect="change", group='caches')
 def flush_pdp_cache(params: FlushPDPCache):
     """This will flush the PDP cache for the specified XACMLPDP
 for the specified appliances."""
@@ -536,7 +538,7 @@ class FlushRBMCache(ApplianceParams):
         help="The domain whose RBM cache you would like to flush")
 
 
-@cli.command('flush-rbm-cache', group='caches')
+@cli.command('flush-rbm-cache', effect="change", group='caches')
 def flush_rbm_cache(params: FlushRBMCache):
     """This will flush the RBM cache in the specified domain for
 the specified appliances."""
@@ -546,7 +548,7 @@ the specified appliances."""
         domain=params.Domain)
 
 
-@cli.command('flush-stylesheet-cache', group='caches')
+@cli.command('flush-stylesheet-cache', effect="change", group='caches')
 def flush_stylesheet_cache(params: XMLManagerParams):
     """This will flush the stylesheet cache for the specified xml_manager
 in the specified Domain on the specified appliances."""
@@ -579,7 +581,7 @@ class SaveConfig(ApplianceParams):
              "stands for every domain of the appliance.")
 
 
-@cli.command('save', group='configuration')
+@cli.command('save', effect="change", group='configuration')
 def save_config(params: SaveConfig):
     """Saves the current running configuration in the given domain(s)"""
     logger = make_logger("mast.system")
@@ -611,7 +613,7 @@ class QuiesceService(ApplianceParams):
              "least 60**)")
 
 
-@cli.command("quiesce-service", group="configuration")
+@cli.command("quiesce-service", effect="change", group="configuration")
 def quiesce_service(params: QuiesceService):
     """This will quiesce a service in the specified domain on the specified
 appliances."""
@@ -638,7 +640,7 @@ class UnquiesceService(ApplianceParams):
              "continue to work.")
 
 
-@cli.command("unquiesce-service", group="configuration")
+@cli.command("unquiesce-service", effect="change", group="configuration")
 def unquiesce_service(params: UnquiesceService):
     """This will unquiesce a service in the specified domain on the specified
 appliances."""
@@ -668,7 +670,7 @@ appliances."""
 # enable-domain - set the admin-state to enabled for the specified domain
 #
 
-@cli.command('list-domains', group='domains', exclusive=False)
+@cli.command('list-domains', effect="read", group='domains', exclusive=False)
 def list_domains(params: ApplianceParams):
     """Lists the domains on the specified appliances as well as all common
 domains."""
@@ -710,7 +712,7 @@ class AddDomain(SaveConfigParams):
         short="d", help="The name of the domain to add")
 
 
-@cli.command('add-domain', group='domains')
+@cli.command('add-domain', effect="change", group='domains')
 def add_domain(params: AddDomain):
     """Adds a domain to the specified appliances"""
     return _change_domain(
@@ -724,7 +726,7 @@ class DelDomain(SaveConfigParams):
         help="The name of the domain to remove")
 
 
-@cli.command('del-domain', group='domains')
+@cli.command('del-domain', effect="change", group='domains')
 def del_domain(params: DelDomain):
     """Removes a domain from the specified appliances"""
     return _change_domain(
@@ -738,7 +740,7 @@ class QuiesceDomain(ApplianceParams):
         60, short="q", help="The timeout before quiescing the domain")
 
 
-@cli.command('quiesce-domain', group='domains')
+@cli.command('quiesce-domain', effect="change", group='domains')
 def quiesce_domain(params: QuiesceDomain):
     """Quiesces a domain on the specified appliances"""
     logger = make_logger("mast.system")
@@ -764,7 +766,7 @@ class DomainsParams(ApplianceParams):
     Domain: list[str] = _domains_option("The domains to affect.")
 
 
-@cli.command('unquiesce-domain', group='domains')
+@cli.command('unquiesce-domain', effect="change", group='domains')
 def unquiesce_domain(params: DomainsParams):
     """Unquiesces a domain on the specified appliances"""
     logger = make_logger("mast.system")
@@ -825,19 +827,19 @@ def _admin_state(params, method, verb):
     return report
 
 
-@cli.command('disable-domain', group='domains')
+@cli.command('disable-domain', effect="change", group='domains')
 def disable_domain(params: AdminStateParams):
     """Disables a domain on the specified appliances"""
     return _admin_state(params, "disable_domain", "disable")
 
 
-@cli.command('enable-domain', group='domains')
+@cli.command('enable-domain', effect="change", group='domains')
 def enable_domain(params: AdminStateParams):
     """Enables a domain on the specified appliances"""
     return _admin_state(params, "enable_domain", "enable")
 
 
-@cli.command('restart-domain', group='domains')
+@cli.command('restart-domain', effect="change", group='domains')
 def restart_domain(params: DomainsParams):
     """Restarts the specified domains on the specified appliances"""
     logger = make_logger("mast.system")
@@ -878,7 +880,7 @@ class QuiesceAppliance(ApplianceParams):
         60, short="q", help="The timeout before quiescing the appliance")
 
 
-@cli.command('quiesce-appliance', group='appliances')
+@cli.command('quiesce-appliance', effect="change", group='appliances')
 def quiesce_appliance(params: QuiesceAppliance):
     """Quiesce the specified appliances"""
     result = _action(
@@ -888,7 +890,7 @@ def quiesce_appliance(params: QuiesceAppliance):
     return result
 
 
-@cli.command('unquiesce-appliance', group='appliances')
+@cli.command('unquiesce-appliance', effect="change", group='appliances')
 def unquiesce_appliance(params: ApplianceParams):
     """Unquiesce the specified appliances"""
     return _action(
@@ -903,7 +905,7 @@ class RebootAppliance(ApplianceParams):
              "back up")
 
 
-@cli.command('reboot-appliance', group='appliances')
+@cli.command('reboot-appliance', effect="change", group='appliances')
 def reboot_appliance(params: RebootAppliance):
     """Reboot the specified appliances (equivalent to shutdown-reboot)
 
@@ -942,7 +944,7 @@ class ShutdownAppliance(ApplianceParams):
     delay: int = Option(10, short="d", help="The delay before shutting down")
 
 
-@cli.command('shutdown-appliance', group='appliances')
+@cli.command('shutdown-appliance', effect="change", group='appliances')
 def shutdown_appliance(params: ShutdownAppliance):
     """Shutdown the specified appliances(equivalent to shutdown-halt)"""
     return _action(
@@ -973,7 +975,7 @@ class ReloadAppliance(ApplianceParams):
              "back up")
 
 
-@cli.command('reload-appliance', group='appliances')
+@cli.command('reload-appliance', effect="change", group='appliances')
 def reload_appliance(params: ReloadAppliance):
     """Reload the specified appliances (equivalent to shutdown-reload)"""
     logger = make_logger("mast.system")
@@ -1049,7 +1051,7 @@ class FirmwareUpgrade(ApplianceParams):
         False, help="Do not enable the application domains afterwards")
 
 
-@cli.command('firmware-upgrade', group='appliances')
+@cli.command('firmware-upgrade', effect="change", group='appliances')
 def firmware_upgrade(params: FirmwareUpgrade):
     """This will attempt to upgrade the firmware of the specified
 appliances.
@@ -1228,7 +1230,8 @@ def _write_listings(params, action, name, **kwargs):
     return SeeDownload(resp, env, suffix=action)
 
 
-@cli.command('get-encrypted-filesystem', group='file management')
+@cli.command('get-encrypted-filesystem', effect="read",
+             group='file management')
 def get_encrypted_filesystem(params: OutDirParams):
     """This will get a directory listing of all locations within the
 encrypted filesystem. The output will be in the form of xml files saved
@@ -1237,7 +1240,8 @@ into `-o, --out-dir`."""
         params, "get_encrypted_filesystem", "encrypted-filesystem")
 
 
-@cli.command('get-temporary-filesystem', group='file management')
+@cli.command('get-temporary-filesystem', effect="read",
+             group='file management')
 def get_temporary_filesystem(params: OutDirParams):
     """This will get a directory listing of all locations within the
 temporary filesystem. The output will be in the form of xml files saved
@@ -1260,7 +1264,7 @@ class GetFilestore(ApplianceParams):
              "filesystem audit")
 
 
-@cli.command('get-filestore', group='file management')
+@cli.command('get-filestore', effect="read", group='file management')
 def get_filestore(params: GetFilestore):
     """This will get the directory listing of the specified location.
 The output will be in the form of xml files saved into `-o, --out-dir`."""
@@ -1292,7 +1296,7 @@ class CopyFile(ApplianceParams):
              "already exists")
 
 
-@cli.command('copy-file', group='file management')
+@cli.command('copy-file', effect="change", group='file management')
 def copy_file(params: CopyFile):
     """Copies a file from src to dst (both src and dst are on the appliance)
 optionally overwriting dst."""
@@ -1329,7 +1333,7 @@ class SetFile(ApplianceParams):
              "destination if it exists")
 
 
-@cli.command('set-file', group='file management')
+@cli.command('set-file', effect="change", group='file management')
 def set_file(params: SetFile):
     """Uploads a file to the specified appliances"""
     env = params.environment()
@@ -1355,7 +1359,7 @@ class GetFile(ApplianceParams):
         help="The directory you would like to save the file to")
 
 
-@cli.command('get-file', group='file management')
+@cli.command('get-file', effect="read", group='file management')
 def get_file(params: GetFile):
     """Retrieves a file from the specified appliances"""
     t = Timestamp()
@@ -1395,7 +1399,7 @@ class DeleteFile(ApplianceParams):
              "the backup of the file to.")
 
 
-@cli.command('del-file', group="file management")
+@cli.command('del-file', effect="change", group="file management")
 def delete_file(params: DeleteFile):
     """Deletes a file from the specified appliance(s) optionally backing
 up the file locally."""
@@ -1414,7 +1418,7 @@ up the file locally."""
     return _succeeded(resp, env, bad="Error")
 
 
-@cli.command('generate-error-report', group='error-reports')
+@cli.command('generate-error-report', effect="change", group='error-reports')
 def generate_error_report(params: ApplianceParams):
     """This will generate an error report on the specified
 appliance(s)."""
@@ -1451,7 +1455,7 @@ class GetErrorReports(ApplianceParams):
              'from the ".gz" encoding')
 
 
-@cli.command('get-error-reports', group='error-reports')
+@cli.command('get-error-reports', effect="read", group='error-reports')
 def get_error_reports(params: GetErrorReports):
     """This will attempt to retireve any error reports from the
 currently configured location on the specified appliance(s)."""
@@ -1500,7 +1504,7 @@ class CopyDirectory(ApplianceParams):
              "directory specified by `-l, --location`")
 
 
-@cli.command('copy-directory', group='file management')
+@cli.command('copy-directory', effect="read", group='file management')
 def copy_directory(params: CopyDirectory):
     """This will get all of the files from a directory on the appliances
 in the specified domain."""
@@ -1532,7 +1536,7 @@ class CreateDir(ApplianceParams):
              "`mkdir -p`")
 
 
-@cli.command("create-dir", group="file management")
+@cli.command("create-dir", effect="change", group="file management")
 def create_dir(params: CreateDir):
     """Creates a directory in the specified domain. **NOTE** the
 parent directory does not need to exist it will act like `mkdir -p`."""
@@ -1557,7 +1561,7 @@ parent directory does not need to exist it will act like `mkdir -p`."""
 # get-pmr-info - Retrieves the information necessary to submit a PMR
 # object-audit - Retrieves a diff of the running and persisted configurations
 
-@cli.command('fetch-logs', group='auditing')
+@cli.command('fetch-logs', effect="read", group='auditing')
 def fetch_logs(params: OutDirParams):
     """Fetch all log files from the specified appliance(s) storing them in
 out-dir."""
@@ -1568,7 +1572,7 @@ out-dir."""
     return SeeDownload(resp, env, suffix="fetch_logs")
 
 
-@cli.command('get-pmr-info', group='auditing')
+@cli.command('get-pmr-info', effect="change", group='auditing')
 def get_pmr_info(params: OutDirParams):
     """Get all posible troubleshooting information from the
 specified appliances.
@@ -1610,7 +1614,7 @@ generated by this script and the files will be cleaned up (locally)."""
         env, suffix="get_pmr_info")
 
 
-@cli.command('object-audit', group='auditing')
+@cli.command('object-audit', effect="read", group='auditing')
 def objects_audit(params: OutDirParams):
     """Get a "diff" of the current and persisted configuration
 from all-domains."""
@@ -1733,7 +1737,7 @@ class GetStatus(ApplianceParams):
              "collapsed and newlines removed")
 
 
-@cli.command('get-status', group='auditing', exclusive=False)
+@cli.command('get-status', effect="read", group='auditing', exclusive=False)
 def get_status(params: GetStatus):
     """This will query the status of the specified appliances in
 in the specified Domain for the specified StatusProviders."""
@@ -1779,7 +1783,7 @@ class GetConfig(ApplianceParams):
              "collapsed and newlines removed")
 
 
-@cli.command('get-config', group='auditing', exclusive=False)
+@cli.command('get-config', effect="read", group='auditing', exclusive=False)
 def get_config(params: GetConfig):
     """This will get the config of obj_name from the specified
 domain on the specified appliances."""
@@ -1814,7 +1818,7 @@ class ListObjects(ApplianceParams):
 OBJECTS_HEADER = ("Name", "On every appliance", "Appliances")
 
 
-@cli.command('list-objects', group='auditing', exclusive=False)
+@cli.command('list-objects', effect="read", group='auditing', exclusive=False)
 def list_objects(params: ListObjects):
     """Lists the objects of one class on the specified appliances, and
 whether every appliance has each one. The web UI fills its lists of
@@ -1883,7 +1887,7 @@ class CleanUp(ApplianceParams):
         help="The directory to save backed up files")
 
 
-@cli.command('clean-up', group='maintenance')
+@cli.command('clean-up', effect="change", group='maintenance')
 def clean_up(params: CleanUp):
     """This will clean up the specified appliances filesystem optionally
 taking copies of the files as backups."""

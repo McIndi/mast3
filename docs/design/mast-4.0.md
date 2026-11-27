@@ -54,6 +54,10 @@ A fix to 3.x goes to `version_3` first and is then merged into `main`. When the 
 | D15 | Core commands have permission paths `mast/core/NAME`. Core resources have reserved roots of their own: `mast/credentials/NAME`, `mast/targets/NAME`, `mast/fleets/NAME`. No plugin may use these names as its provider (Q3). |
 | D16 | Prefix wildcards stay as designed. Their safety rests on the correct `effect` of every command; there is no separate flag for sensitive reads (Q2). |
 | D17 | In the installer, `mast` is the command and the interpreter is `mast-python`. Core has program roots for its processes: `mast web`, `mast worker`, `mast daemon`, `mast version`, `mast selftest`. |
+| D18 | A target has one base kind and any number of extensions. An extension is a kind that extends another kind, of the same plugin or another one (`django` extends `linux`, `apic-gateway` extends `datapower`), and extensions can extend extensions. An extension inherits the attributes, endpoints, credential types, trust and capabilities of the kind that it extends, and adds its own. It may change how an inherited capability works, but never removes or redefines an inherited attribute. |
+| D19 | A command that accepts a kind accepts every kind that extends it, and a target qualifies through its base kind or any of its extensions. A plugin's commands may accept the kinds of other plugins. A command that accepts only kinds that no installed plugin gives is unavailable, with the plugin to install, and the rest of its plugin works. |
+| D20 | Kinds declare capabilities (`collect-crypto`, `test-credentials`, ...). A core command never names a plugin kind: it asks for capabilities (`needs`) and accepts every installed kind that has them, so a plugin installed later is covered with no change to core. |
+| D21 | One kind has one definition: two plugins that give the same kind are both left out. A plugin whose kind extends a kind that no installed plugin gives is left out until that plugin is installed. |
 
 ## Deferred
 
@@ -144,19 +148,21 @@ Core registers a plugin only after the plugin is fully validated. A plugin that 
 
 **Done when:** missing, incompatible, conflicting and broken plugins give diagnostics that say what to do, and core stays available.
 
+**Status.** The manifest (`mast.plugins.Manifest`) has the provider, the version, the plugin API, the supported core versions (a version specifier), the commands, the kinds (`mast.plugins.Kind`: a name, what it extends, its capabilities) and the pages. Every command declares `effect`, the kinds that it accepts (`targets`) or the capabilities that it needs (`needs`), its target and secret parameters (`Option(target=True)`, `Option(secret=True)`) and its locks (`locks`, which was `resources`). Registration checks every command first, and a plugin with one fault is left out with its commands and pages. A failure is `broken`, `incompatible`, `conflict`, `invalid` or `missing`, with a fix, in `mast plugins list` and Admin → Plugins. `mast plugins kinds` shows every kind, what it extends and its capabilities (D18 to D21). The interfaces for target attributes, credential types, endpoints and trust come with step 4, schema versions with step 7, and crypto collectors with step 8. The result structure of a command is not declared yet: commands return `Text` or `Table`. The purpose `collect` of a stored credential now follows `effect`, not `exclusive`.
+
 ### 4. Targets, fleets, credentials and trust
 
 The appliance-specific core model is replaced:
 
-* A **target** has an immutable ID, a name, a kind, an address, validated attributes, an attribute-schema version and a configuration revision.
-* A **fleet** holds targets of one kind. It has a description and a production flag.
+* A **target** has an immutable ID, a name, a base kind, any number of extensions (D18), an address, validated attributes, an attribute-schema version and a configuration revision. Each extension adds its own attributes, and an extension that a host has more than once (two Django sites on one host) holds one entry for each.
+* A **fleet** holds targets of one base kind, or of one extension and its descendants. It has a description and a production flag.
 * A **credential** has a credential type, an encrypted payload, a purpose, and target or fleet bindings.
 * A **trust record** is attached to a named endpoint.
 
 Transport settings such as `soma_port`, `ssh_port` and `web_port` are plugin attributes. A plugin describes its endpoints. Core does certificate and host-key verification, the pin preview, the confirmation and the audit records.
 
 * Credential types are username/password and SSH private key. Secret material is stored only in the credential store.
-* A target's kind cannot change. A change to an endpoint's address, port or identity needs an explicit trust review.
+* A target's base kind cannot change. Adding or removing an extension is a change to the target, and an extension that adds an endpoint needs a trust review for it. A change to an endpoint's address, port or identity needs an explicit trust review.
 * Plugin commands run only against registered targets. Core has a built-in `endpoint` kind for TCP connectivity checks and TLS probes, so core works with no plugin.
 * A fleet is resolved to target IDs before submission. The job records those IDs and the configuration revisions of the targets. A change to fleet membership never adds targets to a queued job.
 

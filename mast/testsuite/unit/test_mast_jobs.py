@@ -98,7 +98,7 @@ seen = []
 def make_cli():
     cli = Cli(provider="test")
 
-    @cli.command("work")
+    @cli.command("work", effect="change")
     def work(params: Work):
         """Pretend to work on the appliances."""
         seen[:] = params.credentials
@@ -113,13 +113,13 @@ def make_cli():
 
     meeting = threading.Barrier(2, timeout=10)
 
-    @cli.command("meet")
+    @cli.command("meet", effect="change")
     def meet(params: Work):
         """Wait for another job that runs at the same time."""
         meeting.wait()
         return Text("met")
 
-    @cli.command("steps")
+    @cli.command("steps", effect="change")
     def steps(params: Work):
         """Report progress again and again, as a long command does."""
         for step in range(params.steps):
@@ -131,16 +131,16 @@ def make_cli():
             time.sleep(0.05)
         return Text("all steps done")
 
-    @cli.command("look", exclusive=False)
+    @cli.command("look", exclusive=False, effect="read")
     def look(params: Work):
         """Only read from the appliances."""
         return Text("looked")
 
-    @cli.command("quiet")
+    @cli.command("quiet", effect="change")
     def quiet(params: Work):
         """Return nothing."""
 
-    @cli.command("leak")
+    @cli.command("leak", effect="change")
     def leak(params: Work):
         """Repeat the credentials everywhere, as the request that sets
         a password does."""
@@ -154,18 +154,18 @@ def make_cli():
         return Text("text " + forms, history="<Password>{}</Password>".format(
             html.escape(secret, quote=False)))
 
-    @cli.command("checkout", resources=["the-checkout"])
+    @cli.command("checkout", locks=["the-checkout"], effect="change")
     def checkout(params: Work):
         """Use a directory that every job of this command shares."""
         return Text("checked out")
 
-    @cli.command("per-appliance",
-                 resources=lambda params: sorted(
+    @cli.command("per-appliance", effect="change",
+                 locks=lambda params: sorted(
                      "dir-" + name for name in params.appliances))
     def per_appliance(params: Work):
         """Use one directory for each appliance."""
 
-    @cli.command("requests")
+    @cli.command("requests", effect="change")
     def requests(params: Work):
         """Send one request to each appliance and report nothing
         between them, as Environment.perform_action does."""
@@ -176,19 +176,19 @@ def make_cli():
                 blocked[name].wait(10)
         return Text("sent")
 
-    @cli.command("page")
+    @cli.command("page", effect="change")
     def page(params: Work):
         """Return a table that has the credentials in it."""
         secret = params.credentials[0]
         return Table(("Appliance", "class"),
                      [("dp1", "a table for " + secret), ("a&b", secret)])
 
-    @cli.command("judge")
+    @cli.command("judge", effect="change")
     def judge(params: Work):
         """Fail on each appliance whose name starts with "bad"."""
         return Judged(params.appliances)
 
-    @cli.command("basic")
+    @cli.command("basic", effect="change")
     def basic(params: Work):
         """Decode xor encoded credentials, as Environment does, and
         repeat them in a header."""
@@ -198,14 +198,14 @@ def make_cli():
             decoded.encode()).decode())
         return Text("sent as " + decoded, history="<p>{}</p>".format(decoded))
 
-    @cli.command("colors")
+    @cli.command("colors", effect="change")
     def colors(params: Work):
         """Say and return text with the escape codes of a terminal, as
         a SOMA response highlighted for a terminal has."""
         say("\x1b[34m<dp:response>\x1b[39;49;00m")
         return Text("\x1b[1;32mgreen\x1b[0m & plain")
 
-    @cli.command("encode", queued=False)
+    @cli.command("encode", queued=False, effect="change")
     def encode(params: Work):
         """A utility that must not be stored."""
         say("encoding")
@@ -1524,7 +1524,7 @@ class TestCommandLine(CliCase):
     def test_a_cli_with_no_namespace_exits_with_the_outcome(self):
         cli = Cli()
 
-        @cli.command("judge")
+        @cli.command("judge", effect="change")
         def judge(params: Work):
             return Judged(params.appliances)
 
@@ -1576,7 +1576,7 @@ class TestCommandLine(CliCase):
     def test_a_cli_with_no_namespace_calls_the_command(self):
         cli = Cli()
 
-        @cli.command("work")
+        @cli.command("work", effect="change")
         def work(params: Work):
             return Text("called")
 
@@ -1736,7 +1736,7 @@ class TestCommandLine(CliCase):
 
     def test_only_one_git_deploy_runs_at_a_time(self):
         self.assertEqual(
-            jobs.resolve("datapower.git-deploy").resources, ["git-deploy"])
+            jobs.resolve("datapower.git-deploy").locks, ["git-deploy"])
 
     def test_commands_that_only_read_are_not_exclusive(self):
         self.run_cli("look", "-a", "dp1", "--detach")

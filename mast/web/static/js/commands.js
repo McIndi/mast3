@@ -116,9 +116,8 @@ function show(commandId) {
             "Command line: ", el("code", {}, command.invocation),
             " · Permission path: ", el("code", {}, command.path)),
         el("p", {className: "mast-help small"}, summary));
-    if (!command.exclusive) {
-        formBox.append(el("p", {className: "small text-body-secondary"}, "This command only reads."));
-    }
+    formBox.append(el("p", {className: "small text-body-secondary", dataset: {effect: command.effect}},
+        command.effect === "read" ? "This command only reads." : "This command changes its targets or MAST."));
     let values;
     if (fromJob && fromJob.command === command.id) {
         const filled = valuesFrom(command, fromJob);

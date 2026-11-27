@@ -68,7 +68,7 @@ class CertAudit(ApplianceParams):
              "`time-until-expiration` columns.")
 
 
-@cli.command("cert-audit", group="certificates")
+@cli.command("cert-audit", effect="read", group="certificates")
 def cert_audit(params: CertAudit):
     """Perform an audit of all CryptoCertificate objects which are
 up and enabled for the specified appliances and domains.
@@ -255,7 +255,7 @@ class CertFileAudit(ApplianceParams):
              "absolute path. The file should end in `.xlsx`")
 
 
-@cli.command("cert-file-audit", group="certificates")
+@cli.command("cert-file-audit", effect="read", group="certificates")
 def cert_file_audit(params: CertFileAudit):
     """Perform an audit of all files which reside in `cert:`, `pubcert:`
 and `sharedcert:` on the specified appliances.
@@ -346,7 +346,7 @@ class ExportCerts(ApplianceParams):
              "this parameter.")
 
 
-@cli.command("export-certs", group="certificates")
+@cli.command("export-certs", effect="change", group="certificates")
 def export_certs(params: ExportCerts):
     """Export all CryptoCertificate objects which are up and enabled
 from the specified domains on the specified appliances in PEM format

@@ -34,7 +34,8 @@ cli = _provider.section("accounts")
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-groups', group='users/groups', exclusive=False)
+@cli.command('list-groups', effect="read", group='users/groups',
+             exclusive=False)
 def list_groups(params: ApplianceParams):
     """Display a list of all configured user groups on the specified
 appliances, along with a list of the groups common to all
@@ -67,7 +68,7 @@ class AddGroup(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-group', group='users/groups')
+@cli.command('add-group', effect="change", group='users/groups')
 def add_group(params: AddGroup):
     """Adds a user group to the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -92,7 +93,7 @@ class DelGroup(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-group', group='users/groups')
+@cli.command('del-group', effect="change", group='users/groups')
 def del_group(params: DelGroup):
     """Removes a user group from the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -112,7 +113,8 @@ def del_group(params: DelGroup):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-users', group='users/groups', exclusive=False)
+@cli.command('list-users', effect="read", group='users/groups',
+             exclusive=False)
 def list_users(params: ApplianceParams):
     """Lists the users on the specified appliances as well as a list
 of users common to all appliances."""
@@ -151,7 +153,7 @@ class AddUser(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-user', group='users/groups')
+@cli.command('add-user', effect="change", group='users/groups')
 def add_user(params: AddUser):
     """Adds a user to the specified appliances.
 
@@ -186,7 +188,7 @@ class UserParams(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-user', group='users/groups')
+@cli.command('del-user', effect="change", group='users/groups')
 def del_user(params: UserParams):
     """Removes a user from the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -215,7 +217,7 @@ class ChangePassword(UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('change-password', group='users/groups')
+@cli.command('change-password', effect="change", group='users/groups')
 def change_password(params: ChangePassword):
     """Changes the specified user's password to the specified password."""
     logger = make_logger("mast.accounts")
@@ -235,7 +237,7 @@ def change_password(params: ChangePassword):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('force-change-password', group='users/groups')
+@cli.command('force-change-password', effect="change", group='users/groups')
 def force_change_password(params: UserParams):
     """Forces a user to change their password on their next login."""
     logger = make_logger("mast.accounts")
@@ -255,7 +257,8 @@ def force_change_password(params: UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-rbm-fallback', group='users/groups', exclusive=False)
+@cli.command('list-rbm-fallback', effect="read", group='users/groups',
+             exclusive=False)
 def list_rbm_fallback_users(params: ApplianceParams):
     """Lists the current RBM Fallback Users for the specified appliances,
 as well as the fallback users which are common to all appliances."""
@@ -279,7 +282,7 @@ as well as the fallback users which are common to all appliances."""
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-rbm-fallback', group='users/groups')
+@cli.command('add-rbm-fallback', effect="change", group='users/groups')
 def add_rbm_fallback(params: UserParams):
     """Adds a user to the the RBM Fallback users."""
     logger = make_logger("mast.accounts")
@@ -299,7 +302,7 @@ def add_rbm_fallback(params: UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-rbm-fallback', group='users/groups')
+@cli.command('del-rbm-fallback', effect="change", group='users/groups')
 def del_rbm_fallback(params: UserParams):
     """Removes a user from the the RBM Fallback users."""
     logger = make_logger("mast.accounts")

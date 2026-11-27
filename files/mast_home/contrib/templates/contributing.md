@@ -101,14 +101,61 @@ The commands of core are under several roots, so each one gives its id:
 `backups`, ...) are only for the help and the web UI.
 
 Entry points in `pyproject.toml` connect the parts: `mast_plugin` for
-the plugins (`datapower = "mast.datapower.plugin:manifest"`),
-`mast_web_page` for the pages of the web UI and `mastd_plugin` for
-the threads of `mastd`. A `mastd_plugin` that has running work should
+the plugins (`datapower = "mast.datapower.plugin:manifest"`) and
+`mastd_plugin` for the threads of `mastd`. A `mastd_plugin` that has running work should
 have `stop()` and `abort()`, so that `mastd` can wait for that work
 when it stops (see `mast._daemon.plugins`). A worker finds the code of
 a job in the registry, by the provider of its id. A command that is
 queued must therefore be in the `Cli` of its plugin, which
 `mast/datapower/commands.py` imports.
+
+## Plugin API 1
+
+The manifest of a plugin (`mast.plugins.Manifest`, in a module that
+imports nothing else of the plugin) says what the plugin is:
+
+    :::python
+    manifest = Manifest(
+        provider="datapower", title="IBM DataPower", version="4.0.0",
+        api=1, core=">=4.0,<5",
+        commands="mast.datapower.commands:cli",
+        kinds=(Kind("datapower", "IBM DataPower appliance",
+                    capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS)),),
+        pages=("mast.datapower.status.page:page",))
+
+* `provider` is the name of its entry point, a lower-case name that is
+not a root of core (`mast.roots.RESERVED`).
+* `api` is the plugin API that it is made for, and `core` the versions
+of MAST that it works with (a version specifier).
+* `kinds` are the kinds of target that it gives (`mast.plugins.Kind`).
+A target has one base kind and any number of extensions. A kind with
+`extends` is an extension of another kind, of this plugin or another
+one: an API Connect plugin could give
+`Kind("apic-gateway", ..., extends="datapower")`, and a Django plugin
+`Kind("django", ..., extends="linux")`. An extension has the
+capabilities of the kind that it extends as well as its own, and every
+command that accepts that kind accepts the extension. Two plugins never
+give the same kind: both are left out. An extension of a kind that no
+installed plugin gives is left out until that plugin is installed.
+`mast plugins kinds` shows every kind.
+* A capability, such as `collect-crypto` or `test-credentials`, says
+what MAST can do with a target of a kind. Core commands ask for
+capabilities, so a new kind with `collect-crypto` is in
+`mast crypto inventory` at once.
+* `pages` are its pages of the web UI (see "Adding a page to the web
+UI").
+
+Core checks the manifest, then every command of the plugin, before it
+registers any. A plugin with one fault is left out whole: none of its
+commands or pages can be used, and the rest of MAST works.
+`mast plugins list` and Admin → Plugins show why, and what to do. A
+fault is `broken` (its code cannot be imported), `incompatible` (another
+API or another MAST), `conflict` (a name that core or another plugin
+has), `invalid` (it breaks a rule of the API) or `missing` (it extends
+a kind that no installed plugin gives). A command that accepts only
+kinds that are not installed is unavailable, and the rest of its
+plugin works. Fake plugins in
+`mast/testsuite/unit/test_mast_commands.py` test each case.
 
 # Adding a command
 
@@ -155,7 +202,11 @@ DataPower command has: `-a` (appliances), `-c` (credentials), `-t`
 it.
 * `secret=True` keeps the value out of the logs and out of what the job
 reports. The queue stores it encrypted while the job waits, and removes
-it when the job ends.
+it when the job ends. It makes the option a secret parameter of the
+command (`Command.secret_params`).
+* `target=True` for the option that names the targets of the command,
+such as `appliances` in `ApplianceParams`. A command that accepts
+targets must have one, and a command without targets must not.
 * `widget` tells the web form how to ask for the value; see the
 widgets in `mast/plugin_utils/params.py`, for example `UPLOAD` for a
 file and `configured("Domain")` for a choice of domains.
@@ -169,11 +220,27 @@ category: two commands with one name fail the registration. A new
 module of commands must be imported in `mast/datapower/commands.py`.
 * `group` is the heading of the command within its category, in the
 help and the web UI.
-* `exclusive=False` for a command that only reads from the appliances.
-The queue then runs it while other jobs use the same appliances. A
-command that changes something keeps the default, so that two such
-jobs never change one appliance at the same time.
-* `resources` names what else the command must not share with another
+* `effect="read"` or `effect="change"` is required. A command changes
+if it changes a target or MAST in any way, also for a moment: writing
+a temporary file on the appliance (`export-certs`) or making an error
+report (`get-pmr-info`) is a change. A command that reads secrets, such
+as `get-file`, only reads. A permission to change will be needed to run
+a command that changes, and a stored credential for collecting can be
+used only by a command that reads. `--help` and the web UI show it.
+* `targets` are the kinds of target that the command accepts, with
+every kind that extends them. The default is that of the `Cli`
+(`("datapower",)` in the DataPower plugin); give `targets=()` for a
+command that acts on no appliance, such as `xor`. A plugin may name the
+kinds of other plugins.
+* `needs` are the capabilities that a target must have. A command of
+core gives `needs` and never names a kind of a plugin:
+`mast crypto inventory` has `needs=(COLLECT_CRYPTO,)`.
+* `exclusive=False` for a command that can share its appliances with
+other jobs that are not exclusive. It is not the effect: a command
+that reads can still need the appliances for itself. A command that
+changes something keeps the default, so that two such jobs never
+change one appliance at the same time.
+* `locks` names what else the command must not share with another
 job, for example a directory that it writes.
 * `queued=False` for a command that talks to no appliance and whose
 parameters or result must not be stored, such as `xor`.
@@ -216,12 +283,10 @@ parameters only have the password that the worker decrypted.
 
 # Adding a page to the web UI
 
-A page of the web UI is a `mast.web.page.Page`, listed under
-`mast_web_page` in `pyproject.toml`:
-
-    :::toml
-    [project.entry-points.mast_web_page]
-    jobs = "mast.web.pages.jobs:page"
+A page of the web UI is a `mast.web.page.Page`. The pages of core are
+listed in `CORE_PAGES` of `mast/web/page.py`, and a plugin lists its
+own in its manifest (`pages=`). The pages of a plugin that was left out
+are not loaded, and a page that does not load leaves its plugin out.
 
     :::python
     blueprint = flask.Blueprint("jobs", __name__)

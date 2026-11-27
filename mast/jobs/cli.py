@@ -83,7 +83,7 @@ class List(Params):
     limit: int = Option(20, short="n", help="How many jobs to show.")
 
 
-@jobs_cli.command("list", id="list-jobs")
+@jobs_cli.command("list", effect="read", id="list-jobs")
 def list_jobs(params: List):
     """List the newest jobs, newest first."""
     jobs = queue.list_jobs(status=params.status or None, limit=params.limit)
@@ -100,7 +100,7 @@ class Show(JobParams):
              "responses, or the traceback of a failed job.")
 
 
-@jobs_cli.command("show", id="show-job")
+@jobs_cli.command("show", effect="read", id="show-job")
 def show(params: Show):
     """Show one job: what it is, its progress and its result."""
     job_id = _job(params.job)
@@ -139,7 +139,7 @@ def show(params: Show):
     return Text("\n".join(lines))
 
 
-@jobs_cli.command("follow", id="follow-job")
+@jobs_cli.command("follow", effect="read", id="follow-job")
 def follow(params: JobParams):
     """Show a job until it ends: its progress, then its result.
 
@@ -149,7 +149,7 @@ def follow(params: JobParams):
         sys.exit(status)
 
 
-@jobs_cli.command("cancel", id="cancel-job")
+@jobs_cli.command("cancel", effect="change", id="cancel-job")
 def cancel(params: JobParams):
     """Cancel a job.
 
@@ -162,7 +162,7 @@ def cancel(params: JobParams):
                 "step.".format(info.id))
 
 
-@jobs_cli.command("workers", id="list-workers")
+@jobs_cli.command("workers", effect="read", id="list-workers")
 def workers(params: Params):
     """List the workers that are alive."""
     found = queue.workers()
@@ -186,7 +186,7 @@ class DowngradeDb(Params):
         help="Do it. Without this, only show what would change.")
 
 
-@jobs_cli.command("downgrade-db", id="downgrade-db")
+@jobs_cli.command("downgrade-db", effect="change", id="downgrade-db")
 def downgrade_db(params: DowngradeDb):
     """Take the tables of the job database back to an older revision,
     to go back to an older MAST. The tables and columns of the newer
@@ -296,7 +296,7 @@ class ScheduleAdd(ScheduleName):
     disabled: bool = Option(False, help="Add it paused.")
 
 
-@schedules_cli.command("add", id="add-schedule")
+@schedules_cli.command("add", effect="change", id="add-schedule")
 def schedule_add(params: ScheduleAdd):
     """Add a schedule: a command that the workers put in the job queue
     when its cron expression is due. A command that talks to appliances needs
@@ -320,7 +320,7 @@ class ScheduleUpdate(ScheduleName):
     description: str | None = Option(None, short="d", help="A new description.")
 
 
-@schedules_cli.command("update", id="update-schedule")
+@schedules_cli.command("update", effect="change", id="update-schedule")
 def schedule_update(params: ScheduleUpdate):
     """Change the cron expression, the parameters or the description of
     a schedule."""
@@ -333,14 +333,14 @@ def schedule_update(params: ScheduleUpdate):
     return Text("Updated\n" + _show_schedule(info))
 
 
-@schedules_cli.command("enable", id="enable-schedule")
+@schedules_cli.command("enable", effect="change", id="enable-schedule")
 def schedule_enable(params: ScheduleName):
     """Enable a paused schedule. It is checked again first."""
     info = _schedule_do(schedules.update, params.name, enabled=True)
     return Text("Enabled\n" + _show_schedule(info))
 
 
-@schedules_cli.command("disable", id="disable-schedule")
+@schedules_cli.command("disable", effect="change", id="disable-schedule")
 def schedule_disable(params: ScheduleName):
     """Pause a schedule. Its jobs that are queued or running go on."""
     info = _schedule_do(schedules.update, params.name, enabled=False)
@@ -351,7 +351,7 @@ class ScheduleRemove(ScheduleName):
     yes: bool = Option(False, short="y", help="Do not ask to confirm.")
 
 
-@schedules_cli.command("remove", id="remove-schedule")
+@schedules_cli.command("remove", effect="change", id="remove-schedule")
 def schedule_remove(params: ScheduleRemove):
     """Remove a schedule. Its jobs stay."""
     if not params.yes:
@@ -362,7 +362,7 @@ def schedule_remove(params: ScheduleRemove):
     return Text("Removed the schedule {}.".format(params.name))
 
 
-@schedules_cli.command("list", id="list-schedules")
+@schedules_cli.command("list", effect="read", id="list-schedules")
 def schedule_list(params: Params):
     """List the schedules."""
     found = schedules.list_schedules()
@@ -381,7 +381,7 @@ def schedule_list(params: Params):
                   "Last run", "Last job", "Note"), rows)
 
 
-@schedules_cli.command("run", id="run-schedule")
+@schedules_cli.command("run", effect="change", id="run-schedule")
 def schedule_run(params: ScheduleName):
     """Queue the job of a schedule now, whatever its cron expression
     says. Use mast jobs follow to see it."""
@@ -399,7 +399,7 @@ class Prune(Params):
         False, short="d", help="Only count what would be deleted.")
 
 
-@jobs_cli.command("prune", id="prune-jobs")
+@jobs_cli.command("prune", effect="change", id="prune-jobs")
 def prune(params: Prune):
     """Delete the jobs, uses of credentials, audit events, uploads, log
     files, files in tmp/ and status of the appliances that are older

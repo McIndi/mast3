@@ -33,14 +33,15 @@ cli = _provider.section("terminal")
 
 class Terminal(Params):
     appliances: list[str] = Option(
-        default_factory=list, short="a", widget=APPLIANCES,
+        default_factory=list, short="a", widget=APPLIANCES, target=True,
         help="The appliances of the session.")
     credential: str | None = Option(
         None, widget=STORED_CREDENTIAL,
         help="The stored credential of the session, if it has one.")
 
 
-@cli.command("terminal", group="terminal", exclusive=False, passive=True,
+@cli.command("terminal", effect="change", group="terminal", exclusive=False,
+             passive=True,
              internal=True)
 def terminal(params: Terminal):
     """A session of the Terminal page of the web UI: its lines and the

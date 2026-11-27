@@ -103,6 +103,7 @@ class ApplianceOptions(Params):
     """
     appliances: list[str] = Option(
         default_factory=list, short="a", widget=APPLIANCES,
+        target=True,
         help="The hostname(s), ip address(es), environment name(s) "
              "or appliance name(s) you would like to affect. "
              "Appliances and environments are kept in the "

@@ -82,6 +82,7 @@ def option_json(spec):
         "short": spec.short,
         "widget": spec.widget,
         "secret": spec.secret,
+        "target": spec.target,
     }
 
 
@@ -91,8 +92,11 @@ def command_json(command):
 
     Return a `mast.cli.Command` as JSON types: `id`, `provider`,
     `name`, `category`, `group`, `invocation` (the command line),
-    `path` (the permission path), `doc` (markdown), `exclusive`,
-    `queued` and `options`.
+    `path` (the permission path), `doc` (markdown), `effect` (`read`
+    or `change`), `targets` (the kinds of target that it names),
+    `needs` (the capabilities that it asks for), `kinds` (the kinds that
+    it accepts on this installation),
+    `exclusive`, `queued` and `options`.
     """
     return {
         "id": command.id,
@@ -103,6 +107,10 @@ def command_json(command):
         "invocation": command.invocation,
         "path": command.path,
         "doc": command.doc,
+        "effect": command.effect,
+        "targets": list(command.targets),
+        "needs": list(command.needs),
+        "kinds": registry.accepted_kinds(command),
         "exclusive": bool(getattr(command, "exclusive", True)),
         "queued": bool(getattr(command, "queued", True)),
         "options": [option_json(spec)

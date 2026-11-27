@@ -295,14 +295,14 @@ def stored_credential(model, params):
     return None, None
 
 
-def _resources(command, params):
+def _locks(command, params):
     """Return the targets for what a command locks besides its
-    appliances, see `mast.cli.Command.resources`."""
-    resources = getattr(command, "resources", None) or ()
-    if callable(resources):
-        resources = resources(params)
+    appliances, see `mast.cli.Command.locks`."""
+    locks = getattr(command, "locks", None) or ()
+    if callable(locks):
+        locks = locks(params)
     targets = []
-    for name in resources:
+    for name in locks:
         target = _RESOURCE + str(name)
         if target not in targets:
             targets.append(target)
@@ -384,7 +384,7 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         from mast.credentials import store
         store.check_use(
             credential, appliance_names(cmd.model, params), principal,
-            command=command, exclusive=getattr(cmd, "exclusive", True))
+            command=command, effect=getattr(cmd, "effect", None))
     if exclusive is None:
         exclusive = getattr(cmd, "exclusive", True)
     # A command can make all of its jobs passive (Command.passive)
@@ -393,7 +393,7 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         raise NotPassive(
             "{} can change the appliances, so its jobs cannot be "
             "passive".format(command))
-    locked = targets + _resources(cmd, params)
+    locked = targets + _locks(cmd, params)
     now = _now()
     job_id = job_id or new_job_id()
     with db.session() as session:

@@ -41,6 +41,7 @@ from pydantic import field_validator
 from sqlalchemy import delete, func, select, update
 
 from mast.cli import Option, Params, Table, say
+from mast.plugins import COLLECT_CRYPTO
 from mast.logging import make_logger
 
 from mast.crypto.cli import section as cli
@@ -543,11 +544,12 @@ class Posture(Params):
         None, short="s", help="The id of the snapshot. Without it, the "
                               "newest snapshot of each appliance.")
     appliances: list[str] = Option(
-        default_factory=list, short="a",
+        default_factory=list, short="a", target=True,
         help="Only the newest snapshots of these appliances.")
 
 
-@cli.command("posture", id="crypto-posture", group="posture",
+@cli.command("posture", effect="read", needs=(COLLECT_CRYPTO,),
+             id="crypto-posture", group="posture",
              exclusive=False)
 def posture(params: Posture):
     """Run the posture rules again on the crypto inventory, and show the
@@ -584,7 +586,7 @@ etc/local/crypto.conf; adding or removing an exception needs no run."""
                   "Exception"), _findings_table(findings))
 
 
-@cli.command("rules", id="crypto-rules", group="posture",
+@cli.command("rules", effect="read", id="crypto-rules", group="posture",
              exclusive=False)
 def list_rules(params: Params):
     """List the posture rules: their id, pack, severity, and whether
@@ -610,14 +612,15 @@ class AddException(Params):
         ..., short="e", help="When the exception ends: a date (2027-03-31) "
                              "or a number of days (90d).")
     appliance: str | None = Option(
-        None, short="a", help="Only on this appliance. The default is every "
-                              "appliance.")
+        None, short="a", target=True,
+        help="Only on this appliance. The default is every appliance.")
     domain: str | None = Option(
         None, short="d", help="Only in this domain. The default is every "
                               "domain.")
 
 
-@cli.command("exception-add", id="crypto-exception-add", group="exceptions",
+@cli.command("exception-add", effect="change", needs=(COLLECT_CRYPTO,),
+             id="crypto-exception-add", group="exceptions",
              exclusive=False)
 def exception_add(params: AddException):
     """Accept the findings of a posture rule on some objects until a date,
@@ -644,7 +647,8 @@ class RemoveException(Params):
         return value
 
 
-@cli.command("exception-remove", id="crypto-exception-remove", group="exceptions",
+@cli.command("exception-remove", effect="change",
+             id="crypto-exception-remove", group="exceptions",
              exclusive=False)
 def exception_remove(params: RemoveException):
     """Remove an exception of the posture rules: its findings count again.
@@ -666,7 +670,8 @@ def _exceptions_table(rows):
                    e["created_by"]] for e in rows])
 
 
-@cli.command("exceptions", id="crypto-exceptions", group="exceptions",
+@cli.command("exceptions", effect="read", id="crypto-exceptions",
+             group="exceptions",
              exclusive=False)
 def exceptions(params: Params):
     """List the exceptions of the posture rules, the newest first, with

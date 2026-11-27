@@ -195,7 +195,7 @@ class Predeploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('predeploy', group='deployment')
+@cli.command('predeploy', effect="change", group='deployment')
 def predeploy(params: Predeploy):
     """Perform routine pre-deployment actions. Everything is optional, but if
 you wish to perform an action, you must provide the necessary arguments.
@@ -387,7 +387,7 @@ class Deploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('deploy', group='deployment')
+@cli.command('deploy', effect="change", group='deployment')
 def deploy(params: Deploy):
     """Perform a deployment/migration of a service/object to an IBM DataPower
 appliance. This script will try to perform the deployment/migration in a
@@ -523,7 +523,7 @@ class Postdeploy(ApplianceParams):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('postdeploy', group='deployment')
+@cli.command('postdeploy', effect="change", group='deployment')
 def postdeploy(params: Postdeploy):
     """This is a simple script which will allow you to unquiesce
 your domain or appliances after you quiesce them for a deployment.
@@ -589,8 +589,8 @@ DO NOT RUN AS ROOT!!!"""
 
 
 git_deploy = cli.command(
-    'git-deploy', group='deployment',
-    resources=["git-deploy"])(git_deploy)
+    'git-deploy', group='deployment', effect="change",
+    locks=["git-deploy"])(git_deploy)
 
 def _result_lines(response):
     """Return the lines of text in the result of a response."""
@@ -651,7 +651,8 @@ class AddPasswordMapAlias(DelPasswordMapAlias):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('add-password-map-alias', group='password map aliases')
+@cli.command('add-password-map-alias', effect="change",
+             group='password map aliases')
 def add_password_map_alias(params: AddPasswordMapAlias):
     """create a password map alias on the specified appliances"""
     return _password_map_alias(
@@ -660,7 +661,8 @@ def add_password_map_alias(params: AddPasswordMapAlias):
 
 
 @logged('mast.datapower.deployment')
-@cli.command('del-password-map-alias', group='password map aliases')
+@cli.command('del-password-map-alias', effect="change",
+             group='password map aliases')
 def del_password_map_alias(params: DelPasswordMapAlias):
     """delete a password map alias on the specified appliances"""
     return _password_map_alias(

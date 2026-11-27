@@ -21,9 +21,10 @@ The Admin pages, for admins only: Users (list the users, add one with
 a temporary password, change a role, disable and enable, set a new
 temporary password, and delete), Appliances (the appliance registry,
 whose JSON routes are in `mast.web.api`), Credentials (the
-credential store, whose JSON routes are in `mast.web.credentials`) and
+credential store, whose JSON routes are in `mast.web.credentials`),
 Schedules (the scheduled jobs, whose JSON routes are in
-`mast.web.schedules`).
+`mast.web.schedules`) and Plugins (the installed plugins, and those that
+were left out, with what to do).
 
 The JSON routes:
 
@@ -33,6 +34,8 @@ temporary: the user chooses a new one at the first login.
 * `PATCH /api/v1/users/<name>`: Any of `{role}`, `{disabled}` or
 `{password}` (a new temporary password).
 * `DELETE /api/v1/users/<name>`.
+* `GET /api/v1/plugins`: `{plugins, left_out, kinds}`, what `mast
+plugins list` and `mast plugins kinds` show.
 
 An admin cannot change their own role, disable or delete themselves
 here, so that the web UI always keeps an admin who can log in. On the
@@ -42,6 +45,7 @@ Every change is logged to `mast.web.auth.log`, without the password.
 """
 import flask
 
+from mast import plugins
 from mast.auth import passwords, roles, users
 from mast.logging import make_logger
 from mast.web.page import Page
@@ -243,8 +247,69 @@ def schedules_page():
     return flask.render_template("admin_schedules.html")
 
 
+def _plugins():
+    """The plugins that are used, and those that were left out."""
+    # Imported here: the registry loads the commands of the plugins,
+    # which leaves out a plugin whose commands break the rules
+    from mast.jobs import registry
+    registry.commands()
+    used = [{"provider": m.provider, "title": m.title, "version": m.version,
+             "distribution": plugins.distribution(m.provider), "api": m.api,
+             "core": m.core, "kinds": [kind.name for kind in m.kinds],
+             "commands": len(registry.commands(m.provider)),
+             "unavailable": [{"id": command.id, "reason": reason}
+                             for command, reason
+                             in registry.unavailable(m.provider)]}
+            for _, m in sorted(plugins.manifests().items())]
+    left_out = [{"provider": f.name, "distribution": f.distribution,
+                 "problem": f.problem, "reason": f.reason, "fix": f.fix}
+                for f in plugins.failures()]
+    return used, left_out
+
+
+def _kinds():
+    """Every kind of target that can be used."""
+    return [{"name": name, "title": kind.title,
+             "provider": plugins.provider_of(name), "extends": kind.extends,
+             "capabilities": sorted(kind.capabilities),
+             "inherited": sorted(plugins.capabilities(name)
+                                 - set(kind.capabilities))}
+            for name, kind in sorted(plugins.kinds().items())]
+
+
+@blueprint.get("/admin/plugins")
+def plugins_page():
+    """
+    _function_: `mast.web.pages.admin.plugins_page()`
+
+    Admin → Plugins: the installed plugins, and each plugin that was
+    left out, with what is wrong and what to do.
+
+    Exposed at: `/admin/plugins` via GET
+    """
+    used, left_out = _plugins()
+    return flask.render_template("admin_plugins.html", plugins=used,
+                                 left_out=left_out, kinds=_kinds(),
+                                 api=plugins.API)
+
+
+@blueprint.get("/api/v1/plugins")
+def list_plugins():
+    """
+    _function_: `mast.web.pages.admin.list_plugins()`
+
+    The installed plugins, and those that were left out.
+
+    Exposed at: `/api/v1/plugins` via GET
+    """
+    used, left_out = _plugins()
+    return flask.jsonify({"api": plugins.API, "plugins": used,
+                          "left_out": left_out, "kinds": _kinds()})
+
+
 page = Page(name="admin", title="Admin", order=90, min_role="admin",
             blueprint=blueprint, nav=(("Users", "/admin/users"),
                                       ("Appliances", "/admin/appliances"),
                                       ("Credentials", "/admin/credentials"),
-                                      ("Schedules", "/admin/schedules")))
+                                      ("Schedules", "/admin/schedules"),
+                                      ("Plugins", "/admin/plugins")))
