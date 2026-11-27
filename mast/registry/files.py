@@ -17,8 +17,11 @@
 """
 _module_: `mast.registry.files`
 
-The way into the appliance registry from the configuration files of
-MAST 3.15.2 and older, and the way back.
+The way into the registry from the configuration files of MAST 3.15.2
+and older, and the way back. The appliances of those files become
+targets of the kind `datapower`, and their settings its attributes; the
+environments become fleets of that kind. (The one-time import of a 3.x
+installation, step 13 of docs/design/mast-4.0.md, replaces this.)
 
 * `import_files`: Make appliances from the aliases of `hosts.conf`,
 from every name in `environments.conf`, and from the sections of
@@ -39,7 +42,10 @@ from mast.config import MAST_HOME
 from mast.logging import make_logger
 
 __all__ = ["import_files", "export_files", "legacy_files", "warn_legacy",
-           "SETTINGS"]
+           "SETTINGS", "KIND"]
+
+# The kind of the appliances of the files
+KIND = "datapower"
 
 # The settings of appliances.conf that an appliance can have
 SETTINGS = ("soma_port", "web_port", "ssh_port", "soma_scheme", "soma_uri",
@@ -141,20 +147,20 @@ def import_files(hosts=None, environments=None, appliances=None,
                 verb, name, address, _describe(entry)))
             continue
         try:
-            registry.add(name, address, **entry)
+            registry.add(name, KIND, address, attributes=entry)
         except registry.RegistryError as exc:
             lines.append("Did not add the appliance {}: {}".format(name, exc))
             continue
         lines.append("{} the appliance {} ({}){}".format(
             verb, name, address, _describe(entry)))
     for name, members in envs.items():
-        if registry.env_by_name(name) is not None:
+        if registry.fleet_by_name(name) is not None:
             lines.append("Kept the environment {}: it is registered "
                          "already.".format(name))
             continue
         if not dry_run:
             try:
-                registry.env_add(name, members=members)
+                registry.fleet_add(name, KIND, members=members)
             except registry.RegistryError as exc:
                 lines.append("Did not add the environment {}: {}".format(
                     name, exc))
@@ -224,15 +230,17 @@ def export_files(out_dir=None, force=False):
     settings.optionxform = str
     if current.has_section("global"):
         settings["global"] = dict(current.items("global"))
-    for appliance in registry.list_appliances():
+    for appliance in registry.list_targets(KIND):
         if appliance.address != appliance.name:
             hosts["hosts"][appliance.name] = appliance.address
-        values = {key: str(getattr(appliance, key)) for key in SETTINGS
-                  if getattr(appliance, key) is not None}
+        values = {key: str(appliance.attributes[key]) for key in SETTINGS
+                  if appliance.attributes.get(key) is not None}
         if values:
             settings[appliance.name] = values
     environments = configparser.ConfigParser(interpolation=None)
-    for environment in registry.env_list():
+    for environment in registry.fleet_list():
+        if environment.kind != KIND:
+            continue
         environments[environment.name] = {
             "appliances": " ".join(environment.members)}
     os.makedirs(out_dir, exist_ok=True)

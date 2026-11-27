@@ -412,6 +412,8 @@ class TestWorkersRunIt(ScheduleCase):
 
 class TestPassive(SqliteCase):
 
+    known_targets = ("dp1", "dp2", "dp3")
+
     def test_passive_jobs_neither_wait_nor_block(self):
         exclusive = jobs.submit("test.work", {"appliances": ["dp1"]})
         self.assertEqual(jobs.claim("w1"), exclusive)
@@ -716,12 +718,12 @@ class TestMigration(SqliteCase):
             created_at=T0, updated_at=T0)
         with db.session() as session:
             session.add(schedule)
+        registry.add("dp1", "datapower")
+        registry.fleet_add("lab", "datapower", members=["dp1"])
         job_id = jobs.submit("test.look", {"appliances": ["dp1"]},
                              schedule_id=schedule.id)
         jobs.claim("w1")
         jobs.finish(job_id, "w1", jobs.SUCCEEDED, text="kept")
-        registry.add("dp1")
-        registry.env_add("lab", members=["dp1"])
         db.downgrade("0006")
         self.assertEqual(db.revision(), "0006")
         self.assertNotIn("schedules", self.tables())
@@ -831,7 +833,7 @@ class TestScheduleApi(WebCase):
                              return_value=self.key_file)
         patcher.start()
         self.addCleanup(patcher.stop)
-        registry.add("dp1", "10.0.0.1")
+        registry.add("dp1", "datapower", "10.0.0.1")
         store.create("ro", "reader", PASSWORD, "collect", ["dp1"], principal=ADMIN)
 
     def call(self, method, path, body=None):

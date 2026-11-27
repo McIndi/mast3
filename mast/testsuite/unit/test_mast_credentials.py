@@ -120,10 +120,10 @@ class CredentialsCase(SqliteCase):
         self.addCleanup(patcher.stop)
         commands.register("credtest", make_cli())
         self.addCleanup(commands.unregister, "credtest")
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
-        registry.add("dp3", "10.0.0.3")
-        registry.env_add("lab", members=["dp1", "dp2"])
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp2", "datapower", "10.0.0.2")
+        registry.add("dp3", "datapower", "10.0.0.3")
+        registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
         seen[:] = []
 
     def add(self, name="ro", purpose="collect", bindings=("lab",), **kwargs):
@@ -272,7 +272,7 @@ class TestStore(CredentialsCase):
     def test_bindings_go_with_their_appliance_or_environment(self):
         self.add(bindings=["dp3", "lab"])
         registry.remove("dp3")
-        registry.env_remove("lab")
+        registry.fleet_remove("lab")
         self.assertEqual(store.get("ro").bindings, [])
         self.assertFalse(store.bound_to("ro", "dp1"))
 
@@ -414,15 +414,25 @@ class TestUse(CredentialsCase):
     def test_each_refusal(self):
         self.add()
         self.add("rw", purpose="change")
-        registry.add("dp-open", "10.0.0.8", tls_mode="none")
-        store.rebind("ro", ["lab", "dp-open"], principal=ADMIN)
+        registry.add("dp-open", "datapower", "10.0.0.8")
+        registry.set_trust("dp-open", "soma", "none")
+        registry.add("dp-moved", "datapower", "10.0.0.9")
+        registry.pin("dp-moved", "soma", "ab" * 32, "os:me")
+        registry.update("dp-moved", address="10.0.0.10")
+        store.rebind("ro", ["lab", "dp-open", "dp-moved"], principal=ADMIN)
+        # A name that is not registered is refused by the queue first
+        for name, message in (("10.0.0.1", "The target dp1 has this address"),
+                              ("bad!name", "not a registered target")):
+            with self.subTest(name=name):
+                with self.assertRaises(jobs.TargetRefused) as found:
+                    self.submit(appliances=[name])
+                self.assertIn(message, str(found.exception))
         cases = (
             ("There is no stored credential", dict(credential="nothing")),
             ("not bound to the appliance dp3", dict(appliances=["dp3"])),
-            ("10.0.0.1 is not a registered appliance",
-             dict(appliances=["10.0.0.1"])),
-            ("is not an appliance", dict(appliances=["bad!name"])),
-            ("tls_mode none", dict(appliances=["dp-open"])),
+            ("(soma: trust none)", dict(appliances=["dp-open"])),
+            ("The pin of dp-moved (soma) must be reviewed first",
+             dict(appliances=["dp-moved"])),
             ("only by commands that only read",
              dict(command="credtest.change")),
             ("may not submit", dict(principal=VIEWER)),
@@ -497,7 +507,7 @@ class TestUse(CredentialsCase):
         self.assertEqual({u.principal for u in store.uses("ro")}, {"olga"})
 
     def test_a_job_with_it_checks_every_connection(self):
-        # mast.datapower.datapower.tls refuses unchecked connections
+        # mast.trust refuses unchecked connections
         # inside stored_credential
         self.add()
         self.submit()
@@ -753,9 +763,9 @@ class TestCredentialsApi(WebCase):
         self.addCleanup(patcher.stop)
         commands.register("credtest", make_cli())
         self.addCleanup(commands.unregister, "credtest")
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp3", "10.0.0.3")
-        registry.env_add("lab", members=["dp1"])
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp3", "datapower", "10.0.0.3")
+        registry.fleet_add("lab", "datapower", members=["dp1"])
 
     def call(self, method, path, body=None, client=None):
         client = client or self.client

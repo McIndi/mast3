@@ -96,7 +96,8 @@ class Collect(ApplianceParams):
         collected (mast targets update --poll yes)."""
         if isinstance(data, dict) and not data.get("appliances"):
             from mast import registry
-            polled = [a.name for a in registry.list_appliances() if a.poll]
+            polled = [a.name for a in registry.list_targets("datapower")
+                      if a.attr("poll")]
             if not polled:
                 raise ValueError(
                     "no appliance is polled: give the appliances, or turn "

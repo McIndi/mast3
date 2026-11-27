@@ -253,7 +253,7 @@ def targets_of(appliance, snapshot_id=None):
     snapshot_id=None)`
 
     The ports to probe for one registered appliance (a
-    `mast.registry.Appliance`): `[(host, port, target)]`, where
+    `mast.registry.Target`): `[(host, port, target)]`, where
     `target` says what it is (`kind` is `listener`, with the `domain`,
     `class` and `name` of the object, or `management`). The listeners
     come from the snapshot `snapshot_id` (the newest that worked if
@@ -289,14 +289,15 @@ def targets_of(appliance, snapshot_id=None):
                 # ports that MAST reaches; the configuration has those
                 # of the appliance itself
                 mapped = _MAPPED.get(obj.class_)
-                if mapped and getattr(appliance, mapped):
-                    host, port = appliance.address, getattr(appliance, mapped)
+                if mapped and appliance.attributes.get(mapped):
+                    host, port = appliance.address, \
+                        appliance.attributes[mapped]
                 key = (host, port)
                 found.setdefault(key, {
                     "kind": "listener", "domain": obj.domain,
                     "class": obj.class_, "name": obj.name})
-    for port, what in ((appliance.soma_port or 5550, "XML management"),
-                       (appliance.web_port or 9090, "WebGUI")):
+    for port, what in ((appliance.attr("soma_port", 5550), "XML management"),
+                       (appliance.attr("web_port", 9090), "WebGUI")):
         found.setdefault((appliance.address, port),
                          {"kind": "management", "name": what})
     return [(host, port, target) for (host, port), target in found.items()], \
@@ -396,7 +397,7 @@ class Probe(Params):
         if isinstance(data, dict) and not data.get("appliances") and \
                 not data.get("targets"):
             from mast import registry
-            found = [a.name for a in registry.list_appliances()]
+            found = [a.name for a in registry.list_targets("datapower")]
             if not found:
                 raise ValueError("there is no registered appliance; give "
                                  "the appliances or the targets")

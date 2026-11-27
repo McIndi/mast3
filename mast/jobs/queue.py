@@ -74,14 +74,11 @@ __all__ = [
     "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "appliance_names", "stored_credential", "STORED_CREDENTIAL_WIDGET",
-    "NotPassive",
+    "NotPassive", "TargetRefused",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner", "NotQueued",
 ]
 
-# The widget of the parameter that names the appliances, see
-# mast.plugin_utils.params.APPLIANCES
-_APPLIANCES_WIDGET = "appliances"
 # The widget of the parameter that names a stored credential, see
 # mast.plugin_utils.params.STORED_CREDENTIAL
 STORED_CREDENTIAL_WIDGET = "stored_credential"
@@ -228,34 +225,38 @@ def _require(session, job_id):
     return job
 
 
-def _targets(model, params):
-    """Return the appliances that a command with these parameters talks
-    to: the name of each registered appliance, and the address of each
-    unregistered target, lower case. An environment becomes its
-    appliances, and an address that a registered appliance has becomes
-    that appliance, so that two names for one appliance are one target.
-    A name that is not registered and not an address is kept as it was
-    typed; the command reports it when it runs."""
-    # Imported here because it reads the appliance registry, which a
-    # program that only reads the queue does not need
+def _targets(cmd, params):
+    """Return the names of the targets that a command with these
+    parameters acts on, lower case, in order: a fleet becomes its
+    targets. Raises `TargetRefused` for a name that is not a registered
+    target or fleet, and for a target of a kind that the command does
+    not accept, before anything is queued."""
+    names = appliance_names(cmd.model, params)
+    if not names:
+        return []
+    # Imported here because it reads the registry, which a program that
+    # only reads the queue does not need
     from mast import registry
-
-    targets = []
-    for name in appliance_names(model, params):
-        try:
-            found = []
-            for appliance in registry.resolve([name]):
-                if not appliance.registered:
-                    known = registry.by_address(appliance.address)
-                    appliance = known or appliance
-                found.append(appliance.name if appliance.registered
-                             else appliance.address)
-        except registry.UnknownName:
-            found = [name]
+    try:
+        found = registry.resolve(names)
+    except registry.UnknownName as exc:
+        raise TargetRefused(str(exc)) from None
+    wanted = tuple(getattr(cmd, "targets", ()) or ())
+    needs = tuple(getattr(cmd, "needs", ()) or ())
+    if wanted or needs:
         for target in found:
-            target = target.strip().lower()
-            if target and target not in targets:
-                targets.append(target)
+            if not registry.accepts(target, wanted, needs):
+                raise TargetRefused(
+                    "{} is of the kind {}, and {} accepts {}.".format(
+                        target.name, " + ".join(registry.kinds_of(target)),
+                        getattr(cmd, "id", None) or "the command",
+                        " or ".join(wanted) if wanted else
+                        "targets that can " + ", ".join(needs)))
+    targets = []
+    for target in found:
+        name = target.name.strip().lower()
+        if name not in targets:
+            targets.append(name)
     return targets
 
 
@@ -269,7 +270,7 @@ def appliance_names(model, params):
     from mast.cli import params as cli_params
     names = []
     for spec in cli_params.options(model):
-        if spec.widget == _APPLIANCES_WIDGET:
+        if spec.target:
             value = params.get(spec.name) if isinstance(params, dict) \
                 else getattr(params, spec.name)
             if value:
@@ -318,6 +319,16 @@ def new_job_id():
     example) gives the id to `submit`.
     """
     return uuid.uuid4().hex
+
+
+class TargetRefused(ValueError):
+    """
+    _class_: `mast.jobs.queue.TargetRefused`
+
+    A job that was not queued because of its targets: a name that is
+    not a registered target or fleet, or a target of a kind that the
+    command does not accept. The message says which.
+    """
 
 
 class NotPassive(ValueError):
@@ -375,7 +386,7 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         raise NotQueued(command)
     if not isinstance(params, cmd.model):
         params = cmd.model(**(params or {}))
-    targets = _targets(cmd.model, params)
+    targets = _targets(cmd, params)
     authorize(principal, "submit", command=command, targets=targets)
     _, credential = stored_credential(cmd.model, params)
     if credential:

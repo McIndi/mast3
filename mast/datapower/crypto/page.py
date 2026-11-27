@@ -128,7 +128,7 @@ def _may(action):
 
 def _names():
     from mast import registry
-    return {a.id: a for a in registry.list_appliances()}
+    return {a.id: a for a in registry.list_targets("datapower")}
 
 
 def _latest(session):
@@ -338,7 +338,7 @@ def overview():
     for appliance in appliances.values():
         snapshot = last.get(newest.get(appliance.id))
         rows.append({
-            "name": appliance.name, "environments": list(appliance.environments),
+            "name": appliance.name, "environments": list(appliance.fleets),
             "last": None if snapshot is None else {
                 "id": snapshot.id, "collected_at": _iso(snapshot.collected_at),
                 "ok": snapshot.ok, "error": snapshot.error,

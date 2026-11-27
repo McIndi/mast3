@@ -242,17 +242,18 @@ def _record(session, name):
 
 def _bindings(session, record):
     # Imported here: the registry tables are in the same database
-    from mast.registry.models import ApplianceRecord, EnvironmentRecord
+    from mast.registry.models import (
+        FleetRecord as EnvironmentRecord, TargetRecord as ApplianceRecord)
     found = []
     for binding in session.scalars(select(CredentialBinding).where(
             CredentialBinding.credential_id == record.id)
             .order_by(CredentialBinding.id)):
-        if binding.appliance_id is not None:
-            target = session.get(ApplianceRecord, binding.appliance_id)
+        if binding.target_id is not None:
+            target = session.get(ApplianceRecord, binding.target_id)
             if target is not None:
                 found.append(Binding(kind="appliance", name=target.name))
-        elif binding.environment_id is not None:
-            target = session.get(EnvironmentRecord, binding.environment_id)
+        elif binding.fleet_id is not None:
+            target = session.get(EnvironmentRecord, binding.fleet_id)
             if target is not None:
                 found.append(Binding(kind="environment", name=target.name))
     return found
@@ -274,7 +275,8 @@ def _set_bindings(session, record, bindings):
     """Bind `record` to `bindings`: names of environments or of
     appliances (an environment first, as `mast.registry.resolve`
     does). Return the bindings as `Binding`s."""
-    from mast.registry.models import ApplianceRecord, EnvironmentRecord
+    from mast.registry.models import (
+        FleetRecord as EnvironmentRecord, TargetRecord as ApplianceRecord)
     if isinstance(bindings, str):
         bindings = [bindings]
     rows = []
@@ -288,7 +290,7 @@ def _set_bindings(session, record, bindings):
             EnvironmentRecord.name == name)).first()
         if environment is not None:
             rows.append(CredentialBinding(
-                credential_id=record.id, environment_id=environment.id))
+                credential_id=record.id, fleet_id=environment.id))
             continue
         appliance = session.scalars(select(ApplianceRecord).where(
             ApplianceRecord.name == name)).first()
@@ -298,7 +300,7 @@ def _set_bindings(session, record, bindings):
                 "credential can be bound only to those (see "
                 "mast targets).".format(name))
         rows.append(CredentialBinding(
-            credential_id=record.id, appliance_id=appliance.id))
+            credential_id=record.id, target_id=appliance.id))
     session.execute(delete(CredentialBinding).where(
         CredentialBinding.credential_id == record.id))
     for row in rows:
@@ -456,19 +458,19 @@ def delete_credential(name, principal=LOCAL):
 def _bound_ids(session, record):
     """Return the ids of the appliances that `record` is bound to,
     directly or through an environment."""
-    from mast.registry.models import EnvironmentMember
+    from mast.registry.models import FleetMember as EnvironmentMember
     ids = set()
     environments = []
     for binding in session.scalars(select(CredentialBinding).where(
             CredentialBinding.credential_id == record.id)):
-        if binding.appliance_id is not None:
-            ids.add(binding.appliance_id)
-        elif binding.environment_id is not None:
-            environments.append(binding.environment_id)
+        if binding.target_id is not None:
+            ids.add(binding.target_id)
+        elif binding.fleet_id is not None:
+            environments.append(binding.fleet_id)
     if environments:
         ids.update(session.scalars(
-            select(EnvironmentMember.appliance_id).where(
-                EnvironmentMember.environment_id.in_(environments))))
+            select(EnvironmentMember.target_id).where(
+                EnvironmentMember.fleet_id.in_(environments))))
     return ids
 
 
@@ -490,7 +492,7 @@ def list_credentials(appliances=None):
             resolved = registry.resolve(list(appliances))
         except registry.UnknownName:
             return []
-        if not resolved or not all(item.registered for item in resolved):
+        if not resolved:
             return []
         targets = {item.id for item in resolved}
     with db.session(write=False) as session:
@@ -627,10 +629,11 @@ def check_targets(name, appliances):
     _function_: `mast.credentials.store.check_targets(name, appliances)`
 
     Return `(credential, targets)`: the `Credential` called `name` and
-    the `mast.registry.Appliance`s that `appliances` (names that a user
+    the `mast.registry.Target`s that `appliances` (names that a user
     typed) stand for. Raises `Forbidden` if there is no such
-    credential, or if one of the appliances is not registered, not
-    bound to it, or not checked by TLS (`tls_mode` `none`).
+    credential, or if one of the targets is not registered, not bound
+    to it, has a TLS endpoint that is not checked (trust `none`), or an
+    endpoint whose pin must be reviewed.
     """
     from mast import registry
     try:
@@ -644,21 +647,23 @@ def check_targets(name, appliances):
     with db.session(write=False) as session:
         bound = _bound_ids(session, _record(session, name))
     for target in targets:
-        if not target.registered:
-            raise Forbidden(
-                "{} is not a registered appliance. A stored credential is "
-                "used only on registered appliances (see "
-                "mast targets).".format(target.name))
         if target.id not in bound:
             raise Forbidden(
                 "The credential {} is not bound to the appliance {}. An "
                 "admin can bind it (mast credentials rebind).".format(
                     name, target.name))
-        if target.tls_mode == "none":
-            raise Forbidden(
-                "The appliance {} does not check the TLS certificate "
-                "(tls_mode none). A stored credential is not sent to "
-                "it.".format(target.name))
+        for trust in target.trust:
+            if trust.protocol == "tls" and trust.mode == "none":
+                raise Forbidden(
+                    "MAST does not check the TLS certificate of {} ({}: "
+                    "trust none). A stored credential is not sent to "
+                    "it.".format(target.name, trust.endpoint))
+            if trust.review:
+                raise Forbidden(
+                    "The pin of {} ({}) must be reviewed first: {}. A stored "
+                    "credential is not sent to it until an admin reviews "
+                    "it (mast targets review or pin).".format(
+                        target.name, trust.endpoint, trust.review))
     return credential, targets
 
 

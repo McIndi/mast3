@@ -30,6 +30,7 @@ from mast.datapower.ssh import page as terminal_page
 from mast.datapower.ssh import sessions
 from mast.jobs.auth import Principal
 from mast.testsuite.unit.test_mast_credentials import ADMIN
+from mast.testsuite.unit.registry_helpers import register
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin
 from mast.testsuite.unit.web_helpers import WebCase
 
@@ -119,6 +120,8 @@ class TerminalCase(WebCase):
 
     def open(self, names=("dp1", "dp2"), user=None, principal=None, **kw):
         kw.setdefault("credentials", ["admin:" + PASSWORD])
+        # A session is a job, and jobs run only on registered targets
+        register(*names)
         return self.manager.open(user or self.operator,
                                  principal or self.as_operator, list(names),
                                  **kw)
@@ -329,7 +332,7 @@ class TestStoredCredential(TerminalCase):
                              return_value=key_file)
         patcher.start()
         self.addCleanup(patcher.stop)
-        registry.add("dp1", "10.0.0.1")
+        registry.add("dp1", "datapower", "10.0.0.1")
         credentials.create("changer", "admin", PASSWORD, "change", ["dp1"],
                            principal=ADMIN)
 
@@ -338,7 +341,7 @@ class TestStoredCredential(TerminalCase):
                             credentials=None, credential="changer")
         self.assertTrue(session.panes["dp1"].connected)
         # The shell was made inside stored_credential(): an unpinned host
-        # key is refused there (mast.datapower.datapower.tls)
+        # key is refused there (mast.trust)
         self.assertTrue(FakeShell.made[0].stored)
         self.assertEqual(FakeShell.made[0].password, PASSWORD)
         uses = credentials.uses("changer")
@@ -370,8 +373,8 @@ class TestTerminalPage(WebCase):
         self.addCleanup(patcher.stop)
         self.addCleanup(manager.close_all)
         self.manager = manager
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp2", "datapower", "10.0.0.2")
         credentials.create("collector", "reader", PASSWORD, "collect",
                            ["dp1", "dp2"], principal=ADMIN)
         credentials.create("changer", "admin", PASSWORD, "change",
@@ -388,6 +391,8 @@ class TestTerminalPage(WebCase):
 
     def open(self, client, **body):
         body.setdefault("appliances", ["dp1", "dp2"])
+        # A session is a job, and jobs run only on registered targets
+        register(*body["appliances"])
         if "credential" not in body:
             body.setdefault("credentials", ["admin:" + PASSWORD])
         return self.call(client, "POST", "/ssh/sessions", body)
@@ -442,14 +447,14 @@ class TestTerminalPage(WebCase):
         self.assertIn("host key is not pinned: dp1, dp2",
                       answer.get_json()["error"])
         for name in ("dp1", "dp2"):
-            registry.pin_ssh(name, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI"
+            registry.pin(name, "ssh", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI"
                              "Kq0nOD5u6bKLmP8nkdLqyKKUvG9SkGKDYS2Hh6S1hHi",
                              "admin")
         answer = self.open(admin, credential="changer")
         self.assertEqual(answer.status_code, 201, answer.get_json())
         self.assertEqual(len(credentials.uses("changer")), 2)
         # Not bound to dp3
-        registry.add("dp3", "10.0.0.3")
+        registry.add("dp3", "datapower", "10.0.0.3")
         answer = self.open(admin, credential="changer",
                            appliances=["dp1", "dp3"])
         self.assertEqual(answer.status_code, 403)
@@ -597,7 +602,7 @@ class TestMastSsh(TerminalCase):
                              return_value=key_file)
         patcher.start()
         self.addCleanup(patcher.stop)
-        registry.add("dp1", "10.0.0.1")
+        registry.add("dp1", "datapower", "10.0.0.1")
         credentials.create("changer", "admin", PASSWORD, "change", ["dp1"],
                            principal=ADMIN)
         credentials.create("collector", "reader", PASSWORD, "collect",
@@ -611,7 +616,7 @@ class TestMastSsh(TerminalCase):
         with self.assertRaises(jobs.Forbidden) as caught:
             self.recorder("changer")
         self.assertIn("not pinned: dp1", str(caught.exception))
-        registry.pin_ssh("dp1", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKq0nO"
+        registry.pin("dp1", "ssh", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKq0nO"
                          "D5u6bKLmP8nkdLqyKKUvG9SkGKDYS2Hh6S1hHi", "admin")
         with self.assertRaises(jobs.Forbidden):
             self.recorder("collector")

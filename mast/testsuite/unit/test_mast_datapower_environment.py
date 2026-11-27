@@ -30,9 +30,9 @@ class RegistryCase(SqliteCase):
     def setUp(self):
         super().setUp()
         for name in ("dp1", "dp2", "dp3"):
-            registry.add(name, "{}.example.test".format(name))
-        registry.env_add("lab", members=["dp1", "dp2"])
-        registry.env_add("prod", production=True, members=["dp2", "dp3"])
+            registry.add(name, "datapower", "{}.example.test".format(name))
+        registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
+        registry.fleet_add("prod", "datapower", production=True, members=["dp2", "dp3"])
 
 
 class TestEnvironmentLookups(RegistryCase):
@@ -65,9 +65,9 @@ class TestEnvironmentLookups(RegistryCase):
 class TestDataPowerFromTheRegistry(RegistryCase):
 
     def test_a_registered_name_has_its_address_and_settings(self):
-        registry.update("dp1", soma_port=5551, web_port=9091, ssh_port=2222,
-                        soma_scheme="http", soma_uri="/mgmt",
-                        retry_interval=3)
+        registry.update("dp1", attributes={
+            "soma_port": 5551, "web_port": 9091, "ssh_port": 2222,
+            "soma_scheme": "http", "soma_uri": "/mgmt", "retry_interval": 3})
         dp = DataPower("dp1", "user:pass")
         self.assertTrue(dp.registered)
         self.assertEqual(dp.hostname, "dp1")
@@ -90,7 +90,8 @@ class TestDataPowerFromTheRegistry(RegistryCase):
     def test_a_relative_spec_file_is_in_mast_home(self):
         import os
         from mast.config import MAST_HOME
-        registry.update("dp1", soma_spec_file="etc/v10.6.0.11-C.xml")
+        registry.update("dp1", attributes={
+            "soma_spec_file": "etc/v10.6.0.11-C.xml"})
         dp = DataPower("dp1", "user:pass")
         self.assertEqual(dp.test_case, os.path.join(
             MAST_HOME, "etc", "v10.6.0.11-C.xml"))

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Targets · Admin · MAST{% endblock %}
+{% block scripts %}<script type="module" src="{{ url_for('static', filename='js/admin-targets.js') }}"></script>{% endblock %}
+{% block content %}
+<h1 class="h4">Targets</h1>
+<p class="small text-body-secondary">A target has a base kind (see Admin → Plugins), the attributes of that kind, and extensions of other kinds. Each endpoint (a port that MAST connects to) is checked by a certificate authority, a pinned certificate or host key, or not at all. When the address or a port changes, a pin must be reviewed before MAST connects again. <code>mast targets</code> does the same.</p>
+<div class="alert alert-danger d-none" role="alert" data-error></div>
+<div class="alert alert-success d-none" role="status" data-notice></div>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Kind</th><th>Address</th><th>Trust</th><th>Fleets</th><th></th></tr></thead>
+        <tbody data-target-rows><tr><td colspan="6" class="text-body-secondary">Loading…</td></tr></tbody>
+    </table>
+</div>
+
+<section class="d-none mt-3" data-trust-panel aria-live="polite">
+    <h2 class="h6" data-trust-title>Trust</h2>
+    <p class="small text-body-secondary">MAST connected to each endpoint, without a credential, and shows what it found. Compare it with what the target itself shows (on its console, or by someone you trust) before you pin it: from then on MAST sends credentials only to this certificate or host key.</p>
+    <div class="row g-3" data-trust-cards></div>
+    <div class="mt-2 d-flex flex-wrap gap-1">
+        <button class="btn btn-sm btn-primary" type="button" data-pin-confirm>Pin what is checked</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-trust-close>Close</button>
+    </div>
+</section>
+
+<h2 class="h5 mt-4" data-editor-title>Add a target</h2>
+<form class="row g-2" data-target-form autocomplete="off">
+    <input type="hidden" name="original">
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="t-name">Name</label>
+        <input class="form-control form-control-sm" id="t-name" name="name" required>
+        <div class="form-text">What users type.</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="t-kind">Kind</label>
+        <select class="form-select form-select-sm" id="t-kind" name="kind" required></select>
+        <div class="form-text">It never changes.</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="t-address">Address</label>
+        <input class="form-control form-control-sm" id="t-address" name="address" placeholder="the name">
+        <div class="form-text">Hostname or IP address.</div>
+    </div>
+    <div class="col-12 col-sm-6 col-lg-3">
+        <label class="form-label small" for="t-notes">Notes</label>
+        <input class="form-control form-control-sm" id="t-notes" name="notes">
+    </div>
+    <fieldset class="col-12 row g-2 m-0 p-0" data-attributes></fieldset>
+    <div class="col-12">
+        <button class="btn btn-sm btn-primary" type="submit" data-save>Add</button>
+        <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-cancel-edit>Cancel</button>
+    </div>
+</form>
+
+<section class="d-none mt-3" data-extensions>
+    <h3 class="h6">Extensions</h3>
+    <ul class="list-unstyled small" data-extension-list></ul>
+    <form class="row g-2" data-extension-form autocomplete="off">
+        <div class="col-12 col-sm-4 col-lg-3">
+            <label class="form-label small" for="x-kind">Add the extension</label>
+            <select class="form-select form-select-sm" id="x-kind" name="kind"></select>
+        </div>
+        <div class="col-12 col-sm-4 col-lg-3">
+            <label class="form-label small" for="x-entry">Entry</label>
+            <input class="form-control form-control-sm" id="x-entry" name="entry" placeholder="for a kind that it has more than once">
+        </div>
+        <fieldset class="col-12 row g-2 m-0 p-0" data-extension-attributes></fieldset>
+        <div class="col-12"><button class="btn btn-sm btn-outline-primary" type="submit">Add the extension</button></div>
+    </form>
+</section>
+
+<h2 class="h5 mt-5">Fleets</h2>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Name</th><th>Kind</th><th>Production</th><th>Targets</th><th>Description</th><th></th></tr></thead>
+        <tbody data-fleet-rows></tbody>
+    </table>
+</div>
+<form class="row g-2 align-items-end" data-fleet-form autocomplete="off">
+    <div class="col-12 col-sm-4 col-lg-3">
+        <label class="form-label small" for="f-name">New fleet</label>
+        <input class="form-control form-control-sm" id="f-name" name="name" required>
+    </div>
+    <div class="col-12 col-sm-4 col-lg-2">
+        <label class="form-label small" for="f-kind">Kind</label>
+        <select class="form-select form-select-sm" id="f-kind" name="kind" required></select>
+    </div>
+    <div class="col-12 col-sm-4 col-lg-3">
+        <label class="form-label small" for="f-description">Description</label>
+        <input class="form-control form-control-sm" id="f-description" name="description">
+    </div>
+    <div class="col-6 col-sm-3 col-lg-2">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="f-production" name="production">
+            <label class="form-check-label small" for="f-production">Production</label>
+        </div>
+    </div>
+    <div class="col-6 col-lg-2"><button class="btn btn-sm btn-primary" type="submit">Add</button></div>
+</form>
+{% endblock %}

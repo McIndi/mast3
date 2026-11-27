@@ -113,15 +113,22 @@ def _crypto():
         return {}
 
 
+def _soma_mode(appliance):
+    """How the certificate of the XML management interface is checked."""
+    trust = appliance.trust_for("soma")
+    return "ca" if trust is None else trust.mode
+
+
 def _appliance_json(appliance, status, cache, detail=False, crypto=None):
     found = (crypto or {}).get(appliance.id)
     return {
         "name": appliance.name,
-        "environments": list(appliance.environments),
-        "poll": appliance.poll,
-        "tls_mode": appliance.tls_mode,
-        "pinned": bool(appliance.pin_sha256 or appliance.ssh_host_key),
-        "pin_changed": bool(appliance.tls_mismatch or appliance.ssh_mismatch),
+        "environments": list(appliance.fleets),
+        "poll": appliance.attr("poll"),
+        "tls_mode": _soma_mode(appliance),
+        "pinned": any(t.pin for t in appliance.trust),
+        "pin_changed": any(t.mismatch for t in appliance.trust),
+        "review": any(t.review for t in appliance.trust),
         "status": _status_json(status, cache, detail),
         # From the newest snapshot of the crypto inventory, if any
         "crypto": None if found is None else {
@@ -177,7 +184,7 @@ def appliances_status():
     return flask.jsonify({
         "appliances": [_appliance_json(a, latest.get(a.id), cache,
                                        crypto=crypto)
-                       for a in registry.list_appliances()],
+                       for a in registry.list_targets("datapower")],
         "polling": _polling(),
         "now": datetime.now(timezone.utc).isoformat(),
     })

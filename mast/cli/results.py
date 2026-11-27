@@ -159,7 +159,7 @@ def stored_credential(name=None):
     credential (see `mast.jobs.runner`), whose name is `name`. The code
     that connects to an appliance then refuses every connection that
     does not check who the appliance is (see
-    `mast.datapower.datapower.tls`).
+    `mast.trust`).
     """
     token = _stored.set(name or True)
     try:

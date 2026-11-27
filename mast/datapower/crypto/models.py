@@ -79,7 +79,7 @@ class CryptoSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     appliance_id: Mapped[int] = mapped_column(
-        ForeignKey("appliances.id", ondelete="CASCADE"))
+        ForeignKey("targets.id", ondelete="CASCADE"))
     job_id: Mapped[str | None] = mapped_column(String(32))
     collected_at: Mapped[datetime] = mapped_column(UTCDateTime)
     firmware: Mapped[str | None] = mapped_column(String(64))
@@ -224,7 +224,7 @@ class CryptoProbeResult(Base):
     snapshot_id: Mapped[int | None] = mapped_column(
         ForeignKey("crypto_snapshots.id", ondelete="SET NULL"))
     appliance_id: Mapped[int | None] = mapped_column(
-        ForeignKey("appliances.id", ondelete="CASCADE"))
+        ForeignKey("targets.id", ondelete="CASCADE"))
     job_id: Mapped[str | None] = mapped_column(String(32))
     host: Mapped[str] = mapped_column(String(255))
     port: Mapped[int] = mapped_column(Integer)

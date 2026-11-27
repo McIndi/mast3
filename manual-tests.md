@@ -12,10 +12,10 @@ cd build\assemble
 
 cd ..\..\ && python mast-setup && cd build\assemble
 
-# Add the appliances and the environment
-mast targets add -n dp1 -A 192.168.0.10
-mast targets add -n dp2 -A 192.168.0.20
-mast fleets add -n lab -m dp1 -m dp2
+# Add the appliances and the fleet
+mast targets add -n dp1 -k datapower -A 192.168.0.10
+mast targets add -n dp2 -k datapower -A 192.168.0.20
+mast fleets add -n lab -k datapower -m dp1 -m dp2
 
 # Setup creds (choose one)
 
@@ -25,8 +25,8 @@ set XOR_MAST_CREDS=<from mast datapower xor>
 # Pin the certificate and the SSH host key of dp1 (shows them and asks;
 # compare them with the appliance's console). A self-signed appliance
 # needs this before a stored credential works with it.
-mast targets pin -n dp1 --both
-mast targets list                          # dp1: pin, pinned
+mast targets pin -n dp1
+mast targets list                          # dp1: soma:pin ssh:pin
 
 # Or store a credential (asks for the password), test it, and use it.
 # The appliance's certificate must be pinned, or one that the MAST host trusts.
@@ -37,10 +37,16 @@ mast datapower save -a lab --credential lab-read # refused: only reads
 mast credentials uses -n lab-read
 # Pin a wrong fingerprint: the job fails with "The certificate of dp1
 # changed" and sends nothing; list shows CHANGED. Then pin again.
-mast targets pin -n dp1 -f 0000000000000000000000000000000000000000000000000000000000000000
+mast targets pin -n dp1 -e soma -f 0000000000000000000000000000000000000000000000000000000000000000
 mast datapower list-domains -a dp1 --credential lab-read
 mast targets list
-mast targets pin -n dp1
+mast targets pin -n dp1 -e soma
+# Change the port and back: the pin must be reviewed (REVIEW), and the
+# job is refused until the review keeps it.
+mast targets update -n dp1 -s soma_port=5551
+mast targets update -n dp1 --clear soma_port
+mast datapower list-domains -a dp1 --credential lab-read
+mast targets review -n dp1 -e soma
 
 # Try ssh (choose one)
 mast datapower ssh -a lab -c %MAST_CREDS% -d default
@@ -66,11 +72,11 @@ mast datapower get-filestore -a lab -c %MAST_CREDS% -n -D default -l local: -o t
     grep -R README tmp/.
 
 # Remove the directory
-mast contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113/README.md --dry-run
-mast contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113 --dry-run
+mast-python contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113/README.md --dry-run
+mast-python contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113 --dry-run
 
-mast contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113/README.md
-mast contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113
+mast-python contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113/README.md
+mast-python contrib\dprm.py -a lab -c %MAST_CREDS% -n -d default -p local:/20231113
 
 # Take a normal backup
 mast.bat datapower normal-backup -a lab -c %XOR_MAST_CREDS% -n -D all-domains -C "Daily Backup 20231113" -o tmp
@@ -80,7 +86,7 @@ mast.bat datapower normal-backup -a lab -c %MAST_CREDS% -n -D all-domains -C "Da
 mast datapower restore-normal-backup -a lab -c %MAST_CREDS% -n -f tmp\dp1\NormalBackup\20231113103737\20231113103737-dp1-all-domains.zip -D default --timeout 1200
 
 # Generate docs
-mast contrib/gendocs.py
+mast-python contrib/gendocs.py
 
 # List users
 mast datapower list-users -n -a lab -c %MAST_CREDS%
@@ -177,8 +183,8 @@ enough), the web UI in a browser. On Windows, use the `.bat` launchers.
 # Phase D: the Terminal page
 
 Two appliances: two containers, or one container registered twice
-(`mast targets add -n dp-a ...` and `-n dp-b` with the same address
-and ports), with SSH on. Pin both (`mast targets pin -n NAME --both`).
+(`mast targets add -n dp-a -k datapower ...` and `-n dp-b` with the same
+address and ports), with SSH on. Pin both (`mast targets pin -n NAME`).
 
     # As a viewer: no Terminal in the menu; /terminal is 403.
     # As an operator: both in the target bar, user name and password,
@@ -273,7 +279,7 @@ The home of the Phase A test, with the credential collector and a
 worker running.
 
     # 1. Collect status for dp1 (Admin -> Appliances: Collect status, or)
-    ./mast targets update -n dp1 --poll yes
+    ./mast targets update -n dp1 -s poll=yes
     ./mast datapower collect-status --credential collector  # a table: dp1 reachable
 
     # 2. Log in: the first page is Appliances. dp1 shows firmware, CPU,
@@ -323,7 +329,7 @@ in `etc\local\jobs.conf`.
     mast jobs show -j <start of the id> -H      # with the request history
 
     # Exit status 1 when an appliance cannot be reached: add an
-    # unreachable appliance (mast targets add -n dp3 -A 192.0.2.1) to
+    # unreachable appliance (mast targets add -n dp3 -k datapower -A 192.0.2.1) to
     # the lab environment (env-set-members -n lab -m dp1 -m dp2 -m dp3).
     # The command stops with the error.
     mast datapower save -n -a lab -c %MAST_CREDS% -t 5
@@ -388,7 +394,7 @@ DataPower takes a few minutes to start. Inside the client container:
     /opt/mast/mast -c "import urllib.request; urllib.request.urlopen('https://pypi.org', timeout=10)"
 
     # Use the address that podman inspect printed
-    /opt/mast/mast targets add -n dp1 -A <address>
+    /opt/mast/mast targets add -n dp1 -k datapower -A <address>
     /opt/mast/mast fleets add -n lab -m dp1
     MAST_CREDS=admin:admin
 

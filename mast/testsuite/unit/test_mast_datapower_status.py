@@ -206,9 +206,9 @@ class CollectCase(SqliteCase):
 
     def setUp(self):
         super().setUp()
-        registry.add("dp1", "10.0.0.1", poll=True)
-        registry.add("dp2", "10.0.0.2", poll=True)
-        registry.add("dp3", "10.0.0.3")
+        registry.add("dp1", "datapower", "10.0.0.1", attributes={"poll": True})
+        registry.add("dp2", "datapower", "10.0.0.2", attributes={"poll": True})
+        registry.add("dp3", "datapower", "10.0.0.3")
         FakeEnvironment.appliances_by_name = {}
         patcher = mock.patch("mast.plugin_utils.params.Environment",
                              FakeEnvironment)
@@ -227,8 +227,8 @@ class TestCollect(CollectCase):
         self.assertEqual(params.appliances, ["dp1", "dp2"])
         self.assertEqual(collector.Collect(appliances=["dp3"]).appliances,
                          ["dp3"])
-        registry.update("dp1", poll=False)
-        registry.update("dp2", poll=False)
+        registry.update("dp1", attributes={"poll": False})
+        registry.update("dp2", attributes={"poll": False})
         with self.assertRaises(ValidationError) as found:
             collector.Collect()
         self.assertIn("no appliance is polled", str(found.exception))
@@ -428,9 +428,9 @@ class TestAppliancesPage(WebCase):
                              return_value=self.key_file)
         patcher.start()
         self.addCleanup(patcher.stop)
-        registry.add("dp1", "10.0.0.1", poll=True)
-        registry.add("dp2", "10.0.0.2", poll=True)
-        registry.env_add("lab", members=["dp1", "dp2"])
+        registry.add("dp1", "datapower", "10.0.0.1", attributes={"poll": True})
+        registry.add("dp2", "datapower", "10.0.0.2", attributes={"poll": True})
+        registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
         credentials.create("collector", "reader", "Read-0nly-pass",
                            "collect", ["lab"], principal=ADMIN)
         credentials.record_test("collector", True, can_write=True,
@@ -569,7 +569,7 @@ class TestMigration(CollectCase):
         self.assertFalse({"status_latest", "status_samples",
                           "status_rollups"} & self.tables())
         db.configure(self.url)
-        self.assertEqual([a.name for a in registry.list_appliances()],
+        self.assertEqual([a.name for a in registry.list_targets()],
                          ["dp1", "dp2", "dp3"])
         self.assertEqual(db.revision(), db.HEAD)
         self.assertEqual(store.latest(), {})

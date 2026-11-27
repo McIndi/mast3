@@ -108,19 +108,19 @@ In `$MAST_HOME` (on Windows, `mast.bat` for `./mast` and `mast-python.bat` for `
         :::bash
         ./mast users add -u NAME -r admin
 
-3. Add the appliances and the environments, or import them from MAST 3.15.2 or
-older:
+3. Add the appliances (targets of the kind `datapower`) and the fleets, or import
+them from MAST 3.15.2 or older:
 
         :::bash
-        ./mast targets add -n prod-dp1 -A 10.0.0.1
-        ./mast fleets add -n prod -p -m prod-dp1
+        ./mast targets add -n prod-dp1 -k datapower -A 10.0.0.1
+        ./mast fleets add -n prod -k datapower -p -m prod-dp1
         ./mast targets import --dry-run      # from etc/local/hosts.conf ...
 
 4. Pin each appliance whose certificate is self-signed. MAST shows the certificate
 and the SSH host key; compare them with the appliance before you confirm:
 
         :::bash
-        ./mast targets pin -n prod-dp1 --both
+        ./mast targets pin -n prod-dp1
 
 5. Store a credential for a DataPower user that may only read (the Operator's Guide
 shows how to make that user), and test it:
@@ -132,8 +132,8 @@ shows how to make that user), and test it:
 6. Start `mastd` (see "Installing mastd"), or `mast web` and `mast worker`, and log
 in to `https://<server>:5000/`. The Operator's Guide has a short tour of the web UI.
 
-7. Turn on "Collect status" for the appliances (Admin → Appliances, or
-`./mast targets update -n prod-dp1 --poll yes`), and start the polling with the
+7. Turn on the attribute `poll` of the appliances (Admin → Targets, or
+`./mast targets update -n prod-dp1 -s poll=yes`), and start the polling with the
 stored credential on the Appliances page. From then on it shows the status of each
 appliance, as long as a worker runs.
 

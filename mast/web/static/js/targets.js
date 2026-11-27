@@ -244,15 +244,15 @@ if (bar) {
 }
 
 // The names of the registry, as suggestions for the input: the
-// environments first, then the appliances
+// fleets first, then the targets
 async function suggest() {
     const list = bar.querySelector("[data-target-names]");
     try {
-        const environments = (await api.get("/environments")).environments;
-        const appliances = (await api.get("/appliances")).appliances;
+        const fleets = (await api.get("/fleets")).fleets;
+        const targets = (await api.get("/targets")).targets;
         list.replaceChildren(
-            ...environments.map((e) => el("option", {value: e.name, label: "environment: " + e.members.join(" ")})),
-            ...appliances.map((a) => el("option", {value: a.name, label: a.address})));
+            ...fleets.map((f) => el("option", {value: f.name, label: "fleet of " + f.kind + ": " + f.members.join(" ")})),
+            ...targets.map((t) => el("option", {value: t.name, label: t.kinds.join(" + ") + " at " + t.address})));
     } catch (error) {
         // Suggestions are a help; the input works without them
     }

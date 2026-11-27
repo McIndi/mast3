@@ -783,7 +783,7 @@ class Inventory(ApplianceParams):
         """With no appliances, every registered appliance."""
         if isinstance(data, dict) and not data.get("appliances"):
             from mast import registry
-            found = [a.name for a in registry.list_appliances()]
+            found = [a.name for a in registry.list_targets("datapower")]
             if not found:
                 raise ValueError("there is no registered appliance; give "
                                  "the appliances")

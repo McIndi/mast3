@@ -219,19 +219,18 @@ def credentials_page():
                                  purposes=store.PURPOSES)
 
 
-@blueprint.get("/admin/appliances")
-def appliances_page():
+@blueprint.get("/admin/targets")
+def targets_page():
     """
-    _function_: `mast.web.pages.admin.appliances_page()`
+    _function_: `mast.web.pages.admin.targets_page()`
 
-    Admin → Appliances: the appliances and the environments of the
-    registry (`/api/v1/appliances`, `/api/v1/environments`).
+    Admin → Targets: the targets and the fleets of the registry, their
+    extensions and the trust of their endpoints (`/api/v1/targets`,
+    `/api/v1/fleets`, `/api/v1/kinds`).
 
-    Exposed at: `/admin/appliances` via GET
+    Exposed at: `/admin/targets` via GET
     """
-    from mast import registry
-    return flask.render_template("admin_appliances.html",
-                                 tls_modes=registry.TLS_MODES)
+    return flask.render_template("admin_targets.html")
 
 
 @blueprint.get("/admin/schedules")
@@ -309,7 +308,7 @@ def list_plugins():
 
 page = Page(name="admin", title="Admin", order=90, min_role="admin",
             blueprint=blueprint, nav=(("Users", "/admin/users"),
-                                      ("Appliances", "/admin/appliances"),
+                                      ("Targets", "/admin/targets"),
                                       ("Credentials", "/admin/credentials"),
                                       ("Schedules", "/admin/schedules"),
                                       ("Plugins", "/admin/plugins")))

@@ -139,7 +139,7 @@ def _check_stored(name, targets, who):
     if credential.purpose != store.CHANGE:
         raise Forbidden("The credential {} is not for changes (purpose "
                         "change).".format(name))
-    unpinned = [t.name for t in targets if not t.ssh_host_key]
+    unpinned = [t.name for t in targets if not _ssh_pinned(t)]
     if unpinned:
         raise Forbidden(
             "A stored credential is never sent over SSH to an appliance "
@@ -359,3 +359,9 @@ def close(session_id):
 
 page = Page(name="terminal", title="Terminal", order=70, min_role="operator",
             blueprint=blueprint)
+
+
+def _ssh_pinned(target):
+    """True if the SSH endpoint of the target has a pinned host key."""
+    trust = target.trust_for("ssh")
+    return trust is not None and bool(trust.pin)

@@ -248,9 +248,9 @@ function polling(answer) {
     let text = "";
     pollingForm.classList.add("d-none");
     if (!answer.appliances.length) {
-        text = "There are no appliances yet. An admin adds them in Admin → Appliances.";
+        text = "There are no appliances yet. An admin adds them in Admin → Targets.";
     } else if (!polled) {
-        text = "No appliance is polled. Turn on \"Collect status\" for them in Admin → Appliances.";
+        text = "No appliance is polled. Turn on their attribute \"poll\" in Admin → Targets.";
     } else if (!enabled.length) {
         if (answer.polling.may_manage) {
             text = "No schedule polls the appliances yet. Choose a stored credential for collecting " +

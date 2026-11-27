@@ -191,7 +191,7 @@ class _Recorder(object):
                 "The credential {} is not for changes (purpose "
                 "change).".format(credential))
         unpinned = [a.name for a in registry.resolve(names)
-                    if not a.ssh_host_key]
+                    if not _ssh_pinned(a)]
         if unpinned:
             raise store.Forbidden(
                 "A stored credential is never sent over SSH to an appliance "
@@ -321,3 +321,8 @@ def _main(params, env, recorder):
             break
     raise SystemExit
 
+
+def _ssh_pinned(target):
+    """True if the SSH endpoint of the target has a pinned host key."""
+    trust = target.trust_for("ssh")
+    return trust is not None and bool(trust.pin)

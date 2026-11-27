@@ -56,38 +56,41 @@ roles and the other `mast users` commands, and has a short tour of the
 web UI. The Installation Guide lists the steps of a first run, from the
 certificate to a stored credential.
 
-# Your appliances and environments
+# Your appliances and fleets
 
-MAST keeps the appliances and the environments that it knows in its
-database: the appliance registry. Give each appliance a name that is
-easy to type, and the address to connect to:
+MAST keeps the targets that it knows in its database: the registry. A
+DataPower appliance is a target of the kind `datapower`. Give each one
+a name that is easy to type, and the address to connect to:
 
     :::bash
-    ./mast targets add -n dev_dp_1 -A 10.0.1.1
-    ./mast targets add -n dev_dp_2 -A 10.0.1.2
-    ./mast targets add -n prod_dp_1 -A 10.2.1.1
-    ./mast targets add -n prod_dp_2 -A 10.2.1.2 --soma-port 5551
+    ./mast targets add -n dev_dp_1 -k datapower -A 10.0.1.1
+    ./mast targets add -n dev_dp_2 -k datapower -A 10.0.1.2
+    ./mast targets add -n prod_dp_1 -k datapower -A 10.2.1.1
+    ./mast targets add -n prod_dp_2 -k datapower -A 10.2.1.2 -s soma_port=5551
 
-A setting that an appliance does not have (the SOMA port, the SOMA spec
-file and so on) takes the default of `[global]` in
+The settings of an appliance are the attributes of its kind
+(`./mast plugins kinds` lists them), given as `-s NAME=VALUE`. A port
+that is not set is the standard port of DataPower (SOMA 5550, WebGUI
+9090, SSH 22). Another setting that is not set (the SOMA spec file and
+so on) takes the default of `[global]` in
 `$MAST_HOME/etc/default/appliances.conf`, which you can change in
 `$MAST_HOME/etc/local/appliances.conf`.
 
-An environment is a named group of appliances. A command that is given
-the name of an environment acts on all of its appliances:
+A fleet is a named group of targets of one kind. A command that is
+given the name of a fleet acts on all of its targets:
 
     :::bash
-    ./mast fleets add -n dev -m dev_dp_1 -m dev_dp_2
-    ./mast fleets add -n prod -p -m prod_dp_1 -m prod_dp_2
-    ./mast fleets add -n all -m dev_dp_1 -m dev_dp_2 -m prod_dp_1 -m prod_dp_2
+    ./mast fleets add -n dev -k datapower -m dev_dp_1 -m dev_dp_2
+    ./mast fleets add -n prod -k datapower -p -m prod_dp_1 -m prod_dp_2
+    ./mast fleets add -n all -k datapower -m dev_dp_1 -m dev_dp_2 -m prod_dp_1 -m prod_dp_2
 
-`-p` marks a production environment. `./mast targets list` and
+`-p` marks a production fleet. `./mast targets list` and
 `./mast fleets list` show what is there; `update`, `remove`,
-`env-set-members` and `env-remove` change it. An admin can do the same
-in the web UI, under Admin → Appliances.
+`set-members` and `fleets remove` change it. An admin can do the same
+in the web UI, under Admin → Targets.
 
-You can still give a command a hostname or an IP address that is not in
-the registry; it uses the defaults of `[global]`.
+Commands run only on registered targets: add an appliance before you
+give its name to a command.
 
 ## Coming from MAST 3.15.2 or older
 

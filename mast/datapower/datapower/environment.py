@@ -33,7 +33,7 @@ def get_appliances(env_name):
 
 def which_environments(hostname):
     """returns a list of environments to which hostname belongs."""
-    return registry.which_environments(hostname)
+    return registry.which_fleets(hostname)
 
 
 def which_environment(hostname):
@@ -46,7 +46,7 @@ def which_environment(hostname):
 def is_environment(name):
     """Returns True if name is an environment of the registry, False
     otherwise"""
-    return registry.is_environment(name)
+    return registry.is_fleet(name)
 
 
 def get_environment(name, credentials=None):

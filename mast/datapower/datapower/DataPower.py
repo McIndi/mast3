@@ -25,7 +25,7 @@ Management Interface (ssh).
 from mast.util import _s, _b
 from .dpSOMALib import SomaRequest as Request
 from .WSClientLib import etree
-from . import tls as _tls
+from mast import trust as _tls
 from mast.logging import make_logger, logged
 from mast.cli.results import checkpoint, say
 # from lxml import etree
@@ -616,7 +616,7 @@ class DataPower(object):
         with in the logs.
         * `check_hostname`: `False` is the same as `tls="none"`.
         * `tls`: How the TLS certificate is checked (see
-        `mast.datapower.datapower.tls`): None (what the registry says;
+        `mast.trust`): None (what the registry says;
         `ca` for an unregistered address), `"ca"`, `"pin"` or `"none"`
         (not at all; a pinned certificate is still checked).
         """
@@ -661,20 +661,17 @@ class DataPower(object):
         logger.addHandler(logging.NullHandler())
 
         if record is not None:
-            if record.soma_port is not None:
-                self.port = record.soma_port
-            if record.web_port is not None:
-                self.web_port = record.web_port
-            if record.ssh_port is not None:
-                self.ssh_port = record.ssh_port
-            if record.soma_scheme:
-                self.scheme = record.soma_scheme
-            if record.soma_uri:
-                self.uri = record.soma_uri
-            if record.soma_spec_file:
-                self.test_case = record.soma_spec_file
-            if record.retry_interval is not None:
-                self.retry_interval = record.retry_interval
+            # The attributes of the target (or the defaults of the kind
+            # datapower); one that has neither keeps the default of
+            # [global] in appliances.conf
+            for attribute, field in (
+                    ("soma_port", "port"), ("web_port", "web_port"),
+                    ("ssh_port", "ssh_port"), ("soma_scheme", "scheme"),
+                    ("soma_uri", "uri"), ("soma_spec_file", "test_case"),
+                    ("retry_interval", "retry_interval")):
+                value = record.attr(attribute)
+                if value is not None and value != "":
+                    setattr(self, field, value)
 
         # A relative spec file (etc/v11.0.0.3-C.xml in appliances.conf) is
         # in MAST_HOME, whatever the current directory is.
@@ -697,10 +694,11 @@ class DataPower(object):
         """
         _method_: `mast.datapower.datapower.DataPower.tls_policy`
 
-        The `mast.datapower.datapower.tls.Policy` for the SOMA port of
+        The `mast.trust.Policy` for the SOMA port (the endpoint `soma`) of
         this appliance.
         """
-        return _tls.policy_for(self.hostname, self._record, self.tls)
+        return _tls.policy_for(self.hostname, self._record, self.tls,
+                               endpoint="soma")
 
     def __str__(self):
         """
@@ -824,12 +822,14 @@ class DataPower(object):
             username, password = _s(self.credentials).split(':', 1)
 
             # The host key is checked after the key exchange and before
-            # the login, see mast.datapower.datapower.tls.host_key_policy
+            # the login, see mast.trust.host_key_policy
             ssh_config = get_config("ssh.conf")
             record = self._record
+            trust = None if record is None else record.trust_for("ssh")
             self._ssh.set_missing_host_key_policy(_tls.host_key_policy(
                 self.hostname,
-                pinned=record.ssh_host_key if record is not None else None,
+                pinned=trust.pin if trust is not None else None,
+                review=trust.review if trust is not None else None,
                 registered=record is not None,
                 auto_add=ssh_config.getboolean("ssh", "auto_add_keys"),
                 warn=self._warn_host_key))
@@ -1708,7 +1708,7 @@ class DataPower(object):
             return self._environment
 
         from mast import registry
-        _in = registry.which_environments(self.hostname)
+        _in = registry.which_fleets(self.hostname)
         if not _in:
             return "-"
         return ", ".join(_in)

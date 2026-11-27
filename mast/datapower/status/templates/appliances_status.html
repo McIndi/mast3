@@ -40,5 +40,5 @@
         <tbody data-rows><tr><td colspan="11" class="text-body-secondary">Loading…</td></tr></tbody>
     </table>
 </div>
-<p class="small text-body-secondary">The status comes from <code>mast datapower collect-status</code>, which the schedule <code>status-poll</code> runs. An appliance is polled if <em>Collect status</em> is on for it (Admin → Appliances). An object is counted as down when it is enabled but not up. The page refreshes every 30 seconds.</p>
+<p class="small text-body-secondary">The status comes from <code>mast datapower collect-status</code>, which the schedule <code>status-poll</code> runs. An appliance is polled if its attribute <em>poll</em> is on (Admin → Targets). An object is counted as down when it is enabled but not up. The page refreshes every 30 seconds.</p>
 {% endblock %}
