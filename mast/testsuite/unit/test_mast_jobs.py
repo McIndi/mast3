@@ -738,6 +738,75 @@ class TestLease(JobsCase):
         self.assertEqual(jobs.reap(), [job_id])
 
 
+class TestJobTargets(JobsCase):
+    """A job records the ids and the revisions of its targets, and runs
+    on those targets only if they did not change (step 4c of
+    docs/design/mast-4.0.md)."""
+
+    def records(self, job_id):
+        from mast.jobs.models import JobTarget
+        with db.session(write=False) as session:
+            return [(row.appliance, row.target_id, row.revision)
+                    for row in session.scalars(
+                        select(JobTarget).where(JobTarget.job_id == job_id)
+                        .order_by(JobTarget.id))]
+
+    def test_a_job_records_its_targets(self):
+        from mast import registry as targets
+        registry_ids = {name: targets.get(name).id for name in ("dp1", "dp2")}
+        job_id = jobs.submit("test.checkout", {"appliances": ["dp2", "dp1"]})
+        self.assertEqual(self.records(job_id), [
+            ("dp2", registry_ids["dp2"], 1), ("dp1", registry_ids["dp1"], 1),
+            ("resource:the-checkout", None, None)])
+
+    def test_a_fleet_is_its_targets_when_the_job_is_queued(self):
+        from mast import registry as targets
+        targets.fleet_add("lab", "endpoint", members=["dp1", "dp2"])
+        job_id = jobs.submit("test.work", {"appliances": ["lab"]})
+        self.assertEqual(jobs.get(job_id).params["appliances"],
+                         ["dp1", "dp2"])
+        # A target added to the fleet later is not in the job
+        targets.fleet_set_members("lab", ["dp1", "dp2", "dp3"])
+        jobs.run_next("w1")
+        found = jobs.get(job_id)
+        self.assertEqual(found.status, jobs.SUCCEEDED, found.error)
+        self.assertEqual(found.targets, ["dp1", "dp2"])
+        self.assertIn("working on dp1, dp2",
+                      [e.message for e in jobs.events(job_id)])
+
+    def test_a_changed_target_stops_the_job_before_it_starts(self):
+        from mast import registry as targets
+        job_id = jobs.submit("test.work", {"appliances": ["dp1", "dp2"]})
+        targets.update("dp2", attributes={"port": 2})
+        jobs.run_next("w1")
+        found = jobs.get(job_id)
+        self.assertEqual(found.status, jobs.FAILED)
+        self.assertIn("dp2 changed (revision 1, now 2)", found.error)
+        self.assertNotIn("working on", " ".join(
+            e.message for e in jobs.events(job_id)))
+
+    def test_a_removed_target_stops_the_job(self):
+        from mast import registry as targets
+        job_id = jobs.submit("test.work", {"appliances": ["dp1"]})
+        targets.remove("dp1")
+        jobs.run_next("w1")
+        found = jobs.get(job_id)
+        self.assertEqual(found.status, jobs.FAILED)
+        self.assertIn("dp1 was removed", found.error)
+
+    def test_notes_are_not_a_change(self):
+        from mast import registry as targets
+        job_id = jobs.submit("test.work", {"appliances": ["dp1"]})
+        found = targets.update("dp1", notes="the lab one")
+        self.assertEqual(found.revision, 1)
+        jobs.run_next("w1")
+        self.assertEqual(jobs.get(job_id).status, jobs.SUCCEEDED)
+
+
+class TestJobTargetsPostgres(PostgresMixin, TestJobTargets):
+    pass
+
+
 class TestRunner(JobsCase):
     def test_a_job_runs(self):
         job_id = submit("dp1", credentials=["admin:hunter2"])

@@ -447,6 +447,18 @@ class TestUse(CredentialsCase):
             with self.subTest(message=message):
                 self.assert_refused(message, **kwargs)
 
+    def test_a_changed_target_gets_no_credential(self):
+        self.add()
+        job_id = self.submit(appliances=["dp1"])
+        registry.update("dp1", attributes={"soma_port": 5551})
+        jobs.run_next("w1")
+        found = jobs.get(job_id)
+        self.assertEqual(found.status, jobs.FAILED)
+        self.assertIn("dp1 changed", found.error)
+        # The credential was not opened: no use, nothing seen
+        self.assertEqual(store.uses("ro"), [])
+        self.assertEqual(seen, [])
+
     def test_what_is_allowed(self):
         self.add()
         self.add("rw", purpose="change")

@@ -372,6 +372,15 @@ def _call(job_id, worker_id, store, guard, redact):
     redacted."""
     try:
         command, values = queue.load(job_id, worker_id)
+        # A target that was removed or changed since the job was queued
+        # gets nothing: not a credential, not a request
+        changed = queue.changed_targets(job_id)
+        if changed:
+            redact[0] = secrets.redactor(command.model, values)
+            return {"status": FAILED,
+                    "error": "The targets changed since the job was "
+                             "queued: {}. Queue it again.".format(
+                                 "; ".join(changed))}
         _, name = queue.stored_credential(command.model, values)
         values, found = _with_stored_credential(job_id, command, values)
         redact[0] = secrets.redactor(command.model, values, extra=found)

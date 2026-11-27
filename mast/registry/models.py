@@ -62,7 +62,9 @@ class TargetRecord(Base):
     # The version of the attributes of the kind that they were checked
     # against (mast.plugins.Kind.version)
     schema_version: Mapped[int] = mapped_column(Integer)
-    # Raised by every change to the target, its extensions or its trust
+    # Raised by every change to the configuration of the target: its
+    # name, address, attributes, extensions or trust (not its notes). A
+    # job records it, and does not start if it changed
     revision: Mapped[int] = mapped_column(Integer)
     notes: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime)

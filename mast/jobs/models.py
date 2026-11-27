@@ -148,10 +148,16 @@ class JobTarget(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     job_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
-    # The address of the appliance, after environments and aliases
-    # are resolved. Or "resource:<name>" for something else that the
-    # job locks, see mast.jobs.queue
+    # The name of the target, lower case, after fleets are resolved. Or
+    # "resource:<name>" for something else that the job locks, see
+    # mast.jobs.queue
     appliance: Mapped[str] = mapped_column(String(255), index=True)
+    # The id and the revision of the target when the job was queued
+    # (mast.registry.Target). The runner refuses to start a job whose
+    # target was removed or changed since. None for a resource. No
+    # foreign key: the job keeps the record after the target is gone.
+    target_id: Mapped[int | None] = mapped_column(Integer)
+    revision: Mapped[int | None] = mapped_column(Integer)
 
 
 class JobEvent(Base):
