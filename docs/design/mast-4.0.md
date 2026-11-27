@@ -144,6 +144,8 @@ Core registers a plugin only after the plugin is fully validated. A plugin that 
 
 **Done when:** missing, incompatible, conflicting and broken plugins give diagnostics that say what to do, and core stays available.
 
+**Status.** The manifest (`mast.plugins.Manifest`) has the provider, the version, the plugin API, the supported core versions (a version specifier), the commands, the target kinds and the pages. Every command declares `effect`, its target kinds, its target and secret parameters (`Option(target=True)`, `Option(secret=True)`) and its locks (`locks`, which was `resources`). Registration checks every command first, and a plugin with one fault is left out with its commands and pages. A failure is `broken`, `incompatible`, `conflict` or `invalid`, with a fix, in `mast plugins list` and Admin → Plugins. A target kind that two plugins give belongs to neither. Core commands may accept only core kinds or any kind (`*`), never a plugin kind. The interfaces for target attributes, credential types, endpoints and trust come with step 4, schema versions with step 7, and crypto collectors with step 8. The result structure of a command is not declared yet: commands return `Text` or `Table`. The purpose `collect` of a stored credential now follows `effect`, not `exclusive`.
+
 ### 4. Targets, fleets, credentials and trust
 
 The appliance-specific core model is replaced:

@@ -143,7 +143,7 @@ def _show(appliance):
     return "\n".join(lines)
 
 
-@targets.command("add", id="add-target")
+@targets.command("add", effect="change", id="add-target")
 def add(params: Add):
     """Add an appliance. A setting that is not given takes the default of
     [global] in appliances.conf."""
@@ -151,7 +151,7 @@ def add(params: Add):
         registry.add, params.name, **_fields(params))))
 
 
-@targets.command("update", id="update-target")
+@targets.command("update", effect="change", id="update-target")
 def update(params: Update):
     """Change the settings of an appliance, or rename it."""
     found = _do(registry.update, params.name,
@@ -161,14 +161,14 @@ def update(params: Update):
     return Text("Updated " + _show(found))
 
 
-@targets.command("remove", id="remove-target")
+@targets.command("remove", effect="change", id="remove-target")
 def remove(params: NameParams):
     """Remove an appliance, and take it out of its environments."""
     _do(registry.remove, params.name)
     return Text("Removed {}.".format(params.name))
 
 
-@targets.command("list", id="list-targets")
+@targets.command("list", effect="read", id="list-targets")
 def list_appliances(params: Params):
     """List the appliances. CHANGED: the last connection found another
     certificate or SSH host key than the pinned one."""
@@ -214,7 +214,7 @@ def _confirm(question, yes):
     return answer.strip().lower() in ("y", "yes")
 
 
-@targets.command("pin", id="pin-target")
+@targets.command("pin", effect="change", id="pin-target")
 def pin(params: Pin):
     """Pin the TLS certificate of the SOMA port of an appliance, and so
     check its TLS by that pin (the TLS check pin), or with --ssh its SSH
@@ -306,7 +306,7 @@ class Unpin(NameParams):
         False, help="Remove the pinned certificate and SSH host key.")
 
 
-@targets.command("unpin", id="unpin-target")
+@targets.command("unpin", effect="change", id="unpin-target")
 def unpin(params: Unpin):
     """Remove the pinned certificate of an appliance (its TLS check
     becomes ca), or with --ssh its pinned SSH host key."""
@@ -350,7 +350,7 @@ def _show_env(environment):
         " ".join(environment.members) or "no appliances")
 
 
-@fleets.command("add", id="add-fleet")
+@fleets.command("add", effect="change", id="add-fleet")
 def env_add(params: EnvAdd):
     """Add an environment."""
     return Text("Added " + _show_env(_do(
@@ -358,7 +358,7 @@ def env_add(params: EnvAdd):
         params.production, params.members)))
 
 
-@fleets.command("update", id="update-fleet")
+@fleets.command("update", effect="change", id="update-fleet")
 def env_update(params: EnvUpdate):
     """Change the description or the production flag of an environment."""
     production = None if params.production is None \
@@ -367,21 +367,21 @@ def env_update(params: EnvUpdate):
         registry.env_update, params.name, params.description, production)))
 
 
-@fleets.command("set-members", id="set-fleet-members")
+@fleets.command("set-members", effect="change", id="set-fleet-members")
 def env_set_members(params: EnvMembers):
     """Set the appliances of an environment."""
     return Text("Set " + _show_env(_do(
         registry.env_set_members, params.name, params.members)))
 
 
-@fleets.command("remove", id="remove-fleet")
+@fleets.command("remove", effect="change", id="remove-fleet")
 def env_remove(params: EnvParams):
     """Remove an environment. Its appliances stay."""
     _do(registry.env_remove, params.name)
     return Text("Removed the environment {}.".format(params.name))
 
 
-@fleets.command("list", id="list-fleets")
+@fleets.command("list", effect="read", id="list-fleets")
 def env_list(params: Params):
     """List the environments."""
     found = registry.env_list()
@@ -405,7 +405,7 @@ class Import(Params):
         False, short="d", help="Only show what would be done.")
 
 
-@targets.command("import", id="import-targets")
+@targets.command("import", effect="change", id="import-targets")
 def import_files(params: Import):
     """Move the appliances and environments of hosts.conf,
     environments.conf and appliances.conf into the registry. Every
@@ -427,7 +427,7 @@ class Export(Params):
         False, short="f", help="Replace files that are there.")
 
 
-@targets.command("export", id="export-targets")
+@targets.command("export", effect="read", id="export-targets")
 def export_files(params: Export):
     """Write the registry as hosts.conf, environments.conf and
     appliances.conf, which MAST 3.15.2 reads, to go back to it."""

@@ -175,7 +175,7 @@ def _check(command, params, principal, name):
             from mast.credentials import store
             store.check_use(credential, queue.appliance_names(cmd.model, model),
                             as_schedule, command=command,
-                            exclusive=getattr(cmd, "exclusive", True))
+                            effect=getattr(cmd, "effect", None))
     except Forbidden as exc:
         raise ScheduleError(str(exc))
     return model.model_dump(mode="json")

@@ -28,12 +28,16 @@ all the commands.
 """
 from mast.cli import Cli
 
-__all__ = ["PROVIDER", "cli"]
+__all__ = ["PROVIDER", "KIND", "cli"]
 
 PROVIDER = "datapower"
+# The kind of target of the plugin: a DataPower appliance. A command
+# that acts on no appliance gives `targets=()`.
+KIND = "datapower"
 
 cli = Cli(
     description="Manage IBM DataPower appliances: system, backups, "
                 "deployment, accounts, network, developer, crypto, status "
                 "and terminal commands.",
-    provider=PROVIDER)
+    provider=PROVIDER,
+    targets=(KIND,))

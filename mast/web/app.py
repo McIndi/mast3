@@ -23,9 +23,9 @@ The Flask application of the web UI.
 `mast.web.auth`), and every request that can change something needs
 the CSRF token of the session (see `mast.web.security`).
 
-The pages come from the entry points in the group `mast_web_page`
-(see `mast.web.page`): the core has Jobs, Commands and Admin. The JSON
-API is `mast.web.api`, under `/api/v1`.
+The pages are those of core (Jobs, Commands and Admin) and those that
+the manifest of each plugin names (see `mast.web.page`). The JSON API
+is `mast.web.api`, under `/api/v1`.
 """
 import flask
 
@@ -111,8 +111,8 @@ def create_app(server_conf=None, pages=None):
 
     * `server_conf`: The parsed `server.conf`. The default is the one
     of the MAST home.
-    * `pages`: The `mast.web.page.Page`s. The default is every entry
-    point in `mast_web_page`.
+    * `pages`: The `mast.web.page.Page`s. The default is those of core
+    and of the plugins (`mast.web.page.load_pages`).
     """
     values = settings(server_conf)
     app = flask.Flask(__name__)

@@ -61,13 +61,39 @@ differences:
 `mast.datapower.web.log`.
 * **The version** of MAST no longer follows the bundled Python. The
 development version is `4.0.0.dev0`.
+* **A stored credential for collecting follows the effect of the
+command.** Every command now declares whether it only reads or changes
+(`effect`). A credential with the purpose `collect` can be used by every
+command that only reads, and by none that changes. In 3.x it could be
+used only by the commands that share their appliances
+(`exclusive=False`). So it can now also be used by commands that read
+but need the appliances to themselves, among them `get-file`,
+`normal-backup`, `export`, `fetch-logs`, `copy-directory` and
+`object-audit`; these can read secrets such as the files in `cert:`.
+Bind a credential for collecting only to the appliances that its jobs
+may read. The commands that write on an appliance only for a moment
+(`export-certs`, `get-pmr-info`, `secure-backup`) count as changing.
+* **The pages of a plugin are in its manifest.** The entry point group
+`mast_web_page` is gone: the pages of core are listed in
+`mast/web/page.py`, and a plugin names its pages in its manifest.
 
 ## New
 
-* `mast plugins list`: the installed plugins, and each plugin that was
-left out with the reason. A plugin is a distribution with an entry
-point `mast_plugin`; one that cannot be loaded does not stop the rest of
-MAST.
+* **Plugin API 1.** A plugin is a distribution with an entry point
+`mast_plugin` that names its manifest: its provider, version, plugin
+API, the versions of MAST that it works with, its kinds of target and
+its pages. Every command declares its effect (`read` or `change`), the
+kinds of target that it accepts, and its target and secret parameters.
+Core checks all of it before it registers any command of the plugin. A
+plugin with one fault is left out whole, with none of its commands or
+pages, and the rest of MAST works.
+* `mast plugins list` and the new Admin → Plugins page show the
+installed plugins, and each one that was left out with what is wrong
+(`broken`, `incompatible`, `conflict` or `invalid`) and what to do. A
+job or schedule of a plugin that is missing fails with the same advice.
+* `--help` of a command, and its form on the Commands page, say whether
+it only reads or changes. The catalog of the API has `effect` and
+`targets` for each command.
 * The Commands page groups the commands by provider and category
 (`datapower · system`), and shows the command line and the permission
 path of each command.

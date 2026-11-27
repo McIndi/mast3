@@ -295,7 +295,8 @@ def _fmt(value):
         if isinstance(value, float) and value.is_integer() else str(value)
 
 
-@cli.command("collect-status", group="status", exclusive=False, passive=True)
+@cli.command("collect-status", effect="read", group="status", exclusive=False,
+             passive=True)
 def collect(params: Collect):
     """Ask the appliances for their status, and keep it for the
 Appliances page of the web UI. With no appliances, every appliance

@@ -29,11 +29,21 @@ schedule, and the permission paths are made from them
 The CLI, the web UI and the API all find commands here. Two commands
 with the same id, or two plugins with the same provider, make the
 registration fail, always in the same way (`RegistrationError`).
+
+Registration is all or nothing. Before any command of a provider is
+registered, every one is checked against plugin API 1: it declares its
+effect, its kinds of target are those of its plugin, and its target
+parameters agree with them (`mast.cli.Command.problems`). A plugin
+with one fault is left out whole, and `mast plugins list` says why
+(`mast.plugins.failures`). A fault in core is a `RegistrationError`.
 """
 from mast import plugins, roots
+from mast.cli import ANY_TARGET
 
-__all__ = ["register", "unregister", "ensure", "resolve", "command_id", "providers", "commands", "cli_for", "clis",
-           "reset", "UnknownCommand", "RegistrationError"]
+__all__ = ["register", "unregister", "ensure", "resolve", "command_id",
+           "providers", "commands", "cli_for", "clis", "missing",
+           "leave_out", "reset",
+           "UnknownCommand", "RegistrationError"]
 
 CORE = roots.CORE
 
@@ -46,7 +56,8 @@ _index = None
 
 
 class UnknownCommand(Exception):
-    """There is no command with that id."""
+    """There is no command with that id. The message says why, and
+    what to do if a plugin is missing."""
 
 
 class RegistrationError(Exception):
@@ -118,23 +129,54 @@ def _core_clis():
     return _loaded[CORE]
 
 
+def missing(provider):
+    """
+    _function_: `mast.jobs.registry.missing(provider)`
+
+    Return why there is no plugin `provider`, and what to do: for a job
+    or a schedule of a plugin that is not installed, or was left out.
+    """
+    failed = plugins.failure(provider)
+    if failed is not None:
+        return "the plugin {} was left out: {}. {}".format(
+            provider, failed.reason, failed.fix)
+    return ("no installed plugin gives the provider {!r}. Install the "
+            "plugin; `mast plugins list` shows those that are "
+            "installed.".format(provider))
+
+
 def _plugin_cli(provider):
     if provider not in _loaded:
         manifest = plugins.manifests().get(provider)
         if manifest is None:
-            raise UnknownCommand(provider)
+            raise UnknownCommand(missing(provider))
         try:
             cli = roots.load(manifest.commands)
         except Exception as exc:
-            plugins.fail(provider, "its commands cannot be loaded: {}".format(
-                exc))
-            raise UnknownCommand(provider) from None
+            plugins.fail(provider, plugins.BROKEN,
+                         "its commands cannot be loaded: {}".format(exc))
+            raise UnknownCommand(missing(provider)) from None
         if getattr(cli, "provider", None) != provider:
-            plugins.fail(provider, "{} is not a Cli of the provider {!r}".format(
-                manifest.commands, provider))
-            raise UnknownCommand(provider)
+            plugins.fail(provider, plugins.INVALID,
+                         "{} is not a Cli of the provider {!r}".format(
+                             manifest.commands, provider))
+            raise UnknownCommand(missing(provider))
         _loaded[provider] = [cli]
     return _loaded[provider]
+
+
+def leave_out(provider, kind, reason):
+    """
+    _function_: `mast.jobs.registry.leave_out(provider, kind, reason)`
+
+    Leave the plugin `provider` out from now on in this process, with
+    all its commands: for a fault found after its commands were
+    registered, such as a page of the web UI that does not load. `kind`
+    and `reason` are those of `mast.plugins.fail`.
+    """
+    plugins.fail(provider, kind, reason)
+    _loaded.pop(provider, None)
+    _invalidate()
 
 
 def providers():
@@ -176,25 +218,59 @@ def cli_for(provider):
     return found[0]
 
 
+def _kinds(provider):
+    """The kinds of target that the commands of `provider` may accept,
+    or None for any (a Cli given to register)."""
+    if provider == CORE:
+        return {ANY_TARGET} | plugins.CORE_KINDS
+    manifest = plugins.manifests().get(provider)
+    if manifest is None:
+        return None
+    return set(manifest.target_kinds)
+
+
+def _problems(provider, command):
+    """What is wrong with one command of `provider`."""
+    found = []
+    if command.provider != provider:
+        found.append("it has the provider {!r}".format(command.provider))
+    if provider != CORE and command.id_name != command.name:
+        found.append("the id of a plugin command is its name, not "
+                     "{!r}".format(command.id_name))
+    found += command.problems()
+    allowed = _kinds(provider)
+    if allowed is not None:
+        for kind in command.targets:
+            if kind not in allowed:
+                found.append("it accepts the target kind {!r}, which "
+                             "{} does not give".format(
+                                 kind, "core" if provider == CORE
+                                 else "the plugin"))
+    return found
+
+
+# How many faults a RegistrationError names
+_SHOWN = 3
+
+
 def _provider_index(provider, found):
-    """The commands of one provider by id. Raises `RegistrationError`."""
-    index = {}
+    """The commands of one provider by id. Raises `RegistrationError`
+    with every fault, if there is one."""
+    index, faults = {}, []
     for cli in found:
         for command in cli.commands.values():
-            if command.provider != provider:
-                raise RegistrationError(
-                    "{}: the command {} has the provider {!r}".format(
-                        provider, command.name, command.provider))
-            if provider != CORE and command.id_name != command.name:
-                raise RegistrationError(
-                    "{}: the id of a plugin command is its name, not "
-                    "{!r}".format(command.invocation, command.id_name))
+            for problem in _problems(provider, command):
+                faults.append("{}: {}".format(command.invocation, problem))
             if command.id in index:
-                raise RegistrationError(
-                    "{}: the id {} is also {}".format(
-                        command.invocation, command.id,
-                        index[command.id].invocation))
+                faults.append("{}: the id {} is also {}".format(
+                    command.invocation, command.id,
+                    index[command.id].invocation))
             index[command.id] = command
+    if faults:
+        message = "; ".join(faults[:_SHOWN])
+        if len(faults) > _SHOWN:
+            message += " (and {} more)".format(len(faults) - _SHOWN)
+        raise RegistrationError(message)
     return index
 
 
@@ -212,7 +288,7 @@ def _build():
             if provider == CORE or provider in _registered:
                 raise
             # None of the commands of the plugin are registered
-            plugins.fail(provider, str(exc))
+            plugins.fail(provider, plugins.INVALID, str(exc))
             _loaded.pop(provider, None)
     return index
 
@@ -246,7 +322,12 @@ def resolve(command_id):
     try:
         return _commands()[command_id]
     except (KeyError, TypeError):
-        raise UnknownCommand(command_id) from None
+        pass
+    provider = command_id.partition(".")[0] \
+        if isinstance(command_id, str) else None
+    if provider and provider not in providers():
+        raise UnknownCommand("{}: {}".format(command_id, missing(provider)))
+    raise UnknownCommand("there is no command {}".format(command_id))
 
 
 def command_id(command):

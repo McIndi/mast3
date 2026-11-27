@@ -135,7 +135,7 @@ def display_output(string):
 
 class SSH(Params):
     appliances: list[str] = Option(
-        default_factory=list, short="a",
+        default_factory=list, short="a", target=True,
         help="The hostname(s), ip addresse(s), environment name(s) or "
              "appliance name(s) you would like to affect. "
              "Appliances and environments are kept in the "
@@ -185,7 +185,7 @@ class _Recorder(object):
         from mast.jobs.runner import new_worker_id
         names = [a.name for a in registry.resolve(appliances)]
         found = store.check_use(credential, names, LOCAL,
-                                command="datapower.terminal", exclusive=True)
+                                command="datapower.terminal", effect="change")
         if found.purpose != store.CHANGE:
             raise store.Forbidden(
                 "The credential {} is not for changes (purpose "
@@ -244,7 +244,8 @@ class _Recorder(object):
             pass
 
 
-@cli.command("ssh", group="terminal", queued=False, interactive=True)
+@cli.command("ssh", effect="change", group="terminal", queued=False,
+             interactive=True)
 def main(params: SSH):
     """An interactive SSH session with one or more DataPower appliances:
 each line typed goes to every appliance.

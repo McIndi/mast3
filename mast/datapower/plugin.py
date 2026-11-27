@@ -19,6 +19,9 @@ _module_: `mast.datapower.plugin`
 
 The manifest of the DataPower plugin: the entry point `mast_plugin`
 names it. It imports nothing else of the plugin.
+
+Until the plugin is its own distribution (mcindi-mast-datapower), it
+has the version of MAST and works only with that version.
 """
 from mast import __version__
 from mast.plugins import Manifest
@@ -29,4 +32,10 @@ manifest = Manifest(
     provider="datapower",
     title="IBM DataPower",
     version=__version__,
-    commands="mast.datapower.commands:cli")
+    api=1,
+    core="=={}".format(__version__),
+    commands="mast.datapower.commands:cli",
+    target_kinds=("datapower",),
+    pages=("mast.datapower.status.page:page",
+           "mast.datapower.crypto.page:page",
+           "mast.datapower.ssh.page:page"))

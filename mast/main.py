@@ -130,16 +130,17 @@ def main(argv=None):
         from mast.jobs import registry
         try:
             cli = registry.cli_for(root)
-        except registry.UnknownCommand:
-            reasons = [f.reason for f in plugins.failures() if f.name == root]
-            return _fail("the plugin {} cannot be loaded: {}".format(
-                root, "; ".join(reasons) or "unknown reason"))
-        return cli.run(rest) or 0
+            # Check every command of the plugin before one runs
+            registry.commands(root)
+        except registry.UnknownCommand as exc:
+            return _fail(exc)
+        if plugins.failure(root) is None:
+            return cli.run(rest) or 0
 
-    failed = [f for f in plugins.failures() if f.name == root]
-    if failed:
-        return _fail("the plugin {} was left out: {}".format(
-            root, failed[0].reason))
+    failed = plugins.failure(root)
+    if failed is not None:
+        return _fail("the plugin {} was left out: {}. {}".format(
+            root, failed.reason, failed.fix))
     return _fail("{!r} is not a root of mast. Run `mast --help`.".format(root))
 
 

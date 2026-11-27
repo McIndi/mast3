@@ -41,6 +41,11 @@ on the command line: `datapower.get-status` is
 `mast datapower get-status`. The commands of core (provider `core`) are
 under several roots of the `mast` command, so each one gives its
 canonical name: `mast crypto inventory` is `core.crypto-inventory`.
+
+Every command of a provider declares what it does (plugin API 1, see
+`mast.plugins`): its `effect` (`read` or `change`), the kinds of
+target that it accepts, its target and secret parameters (from its
+`Params` model), and its scheduling locks.
 """
 import sys
 import inspect
@@ -59,11 +64,25 @@ from collections import defaultdict
 from pydantic import ValidationError
 
 __all__ = [
-    "Cli", "Command", "Params", "Option",
+    "Cli", "Command", "Params", "Option", "READ", "CHANGE", "EFFECTS",
+    "ANY_TARGET",
     "Result", "Text", "Table", "say", "captured", "listening",
     "checkpoint", "guarded",
     "SUCCEEDED", "PARTIAL", "FAILED",
 ]
+
+
+# The effects of a command. `change` is anything that changes a target
+# or MAST, even for a moment: a command that writes a temporary file on
+# an appliance changes it. A permission to change is needed as well as
+# one to execute (see docs/design/mast-4.0.md).
+READ = "read"
+CHANGE = "change"
+EFFECTS = (READ, CHANGE)
+# In `targets`: a command of core that takes a target of any kind. The
+# kind must give what the command needs (a crypto collector, for
+# example), which is checked when it runs.
+ANY_TARGET = "*"
 
 
 def params_model(fn):
@@ -110,14 +129,23 @@ class Command(object):
     instance or the fields of the model as keyword arguments.
     * `model`: The `Params` subclass.
     * `parser`: The `argparse` parser for this command.
-    * `exclusive`: False if the command only reads from the
-    appliances. The job queue runs such a command while other jobs
-    use the same appliances.
-    * `resources`: The names of what the command must not share with
-    another job, besides its appliances: a directory that it changes,
+    * `effect`: `read` or `change` (see `EFFECTS`): whether the command
+    changes a target or MAST. A command that reads secrets (`get-file`)
+    still only reads. `None` only for a `Cli` without a provider.
+    * `targets`: The kinds of target that the command accepts, such as
+    `("datapower",)`, or `(ANY_TARGET,)`. Empty for a command that acts
+    on no target.
+    * `target_params`, `secret_params`: The names of the parameters
+    that name targets, and of those that hold secrets (`Option(target=
+    True)` and `Option(secret=True)`).
+    * `exclusive`: False if the command can share its targets with
+    other jobs that are not exclusive. It is not the effect: a command
+    can read and still need its targets for itself.
+    * `locks`: The names of what the command must not share with
+    another job, besides its targets: a directory that it changes,
     for example. Or a function that takes the `Params` instance and
     returns the names. The job queue locks them as it locks the
-    appliances.
+    targets.
     * `queued`: False if the command must never go through the job
     queue. Such a command talks to no appliance, and its parameters
     or its result must not be stored.
@@ -132,12 +160,21 @@ class Command(object):
     datapower ssh`). It runs only on the command line.
     """
     def __init__(self, name, fn, category, model, parser, exclusive=True,
-                 resources=None, queued=True, passive=False, internal=False,
-                 group=None, provider=None, id_name=None, interactive=False):
+                 locks=None, queued=True, passive=False, internal=False,
+                 group=None, provider=None, id_name=None, interactive=False,
+                 effect=None, targets=()):
         if passive and exclusive:
             raise ValueError(
-                "{}: a passive command only reads (exclusive=False)".format(
-                    name))
+                "{}: a passive command shares its targets "
+                "(exclusive=False)".format(name))
+        if effect is not None and effect not in EFFECTS:
+            raise ValueError("{}: the effect is one of {}, not {!r}".format(
+                name, ", ".join(EFFECTS), effect))
+        if isinstance(targets, str) or not all(
+                isinstance(kind, str) and kind for kind in targets):
+            raise ValueError(
+                "{}: targets is a tuple of kinds of target, not {!r}".format(
+                    name, targets))
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -145,7 +182,9 @@ class Command(object):
         self.model = model
         self.parser = parser
         self.exclusive = exclusive
-        self.resources = resources
+        self.locks = locks
+        self.effect = effect
+        self.targets = tuple(targets)
         self.queued = queued
         self.passive = passive
         self.internal = internal
@@ -172,6 +211,39 @@ class Command(object):
     def invocation(self):
         """The command line that runs the command."""
         return self.parser.prog
+
+    @property
+    def target_params(self):
+        """The names of the parameters that name targets."""
+        return tuple(spec.name for spec in _params.options(self.model)
+                     if spec.target)
+
+    @property
+    def secret_params(self):
+        """The names of the parameters that hold secrets."""
+        return tuple(spec.name for spec in _params.options(self.model)
+                     if spec.secret)
+
+    def problems(self):
+        """
+        _method_: `mast.cli.Command.problems(self)`
+
+        Return what is wrong with the declarations of the command (plugin
+        API 1), as a list of messages. The registry refuses a provider
+        with a command that has one.
+        """
+        found = []
+        if self.effect is None:
+            found.append("it declares no effect (effect=\"read\" or "
+                         "effect=\"change\")")
+        if self.targets and not self.target_params:
+            found.append("it accepts targets ({}) but no parameter names "
+                         "them (Option(target=True))".format(
+                             ", ".join(self.targets)))
+        if self.target_params and not self.targets:
+            found.append("its parameter {} names targets, but it accepts "
+                         "no kind of target".format(self.target_params[0]))
+        return found
 
     @property
     def doc(self):
@@ -247,10 +319,10 @@ class Cli(object):
             cli.run()
     """
     def __init__(self, description="", main=None, provider=None, prog=None,
-                 queued=True):
+                 queued=True, targets=()):
         """
         _method_: `mast.cli.Cli.__init__(self, description="", main=None,
-        provider=None, prog=None, queued=True)`
+        provider=None, prog=None, queued=True, targets=())`
 
         This is the constructor for this class. A few options are
         available which allows defining how the program will appear
@@ -278,12 +350,16 @@ class Cli(object):
         * `queued`: The default of `queued` for the commands of this
         `Cli` (see `Command`). The management commands of core give
         `False`: they run directly, and are never jobs.
+        * `targets`: The default of `targets` for the commands of this
+        `Cli` (see `Command`): the DataPower plugin gives
+        `("datapower",)`.
         """
         if provider is not None and main is not None:
             raise ValueError("a Cli with main cannot have a provider")
         self.provider = provider
         self.main = main
         self.queued = queued
+        self.targets = tuple(targets)
         self.commands = {}
         if prog is None and provider is not None:
             prog = "mast {}".format(provider)
@@ -338,9 +414,9 @@ class Cli(object):
         raise KeyError(key)
 
     def create_subparser(self, fn, name=None, category=None,
-                         exclusive=True, resources=None, queued=None,
+                         exclusive=True, locks=None, queued=None,
                          passive=False, internal=False, group=None, id=None,
-                         interactive=False):
+                         interactive=False, effect=None, targets=None):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -359,14 +435,16 @@ class Cli(object):
         * `category`, `group`: See `Command`.
         * `id`: The canonical name of the command, if it is not `name`.
         Only core gives one (see `Command.id_name`).
-        * `exclusive`, `resources`, `queued`, `passive`, `internal`: See
-        `Command`.
+        * `exclusive`, `locks`, `queued`, `passive`, `internal`,
+        `effect`, `targets`: See `Command`.
         """
         if not name:
             name = fn.__name__
         name = name.replace("_", "-")
         if queued is None:
             queued = self.queued
+        if targets is None:
+            targets = self.targets
         if name in self.commands:
             raise ValueError("the command {} is already defined".format(name))
         if id is not None and self.provider is None:
@@ -386,15 +464,17 @@ class Cli(object):
                 name,
                 help=_summary(desc),
                 description=desc,
+                epilog=_epilog(effect, targets),
                 formatter_class=argparse.RawDescriptionHelpFormatter)
         else:
             _parser = self.parser
             if not _parser.description:
                 _parser.description = desc
         command = Command(name, fn, category, model, _parser, exclusive,
-                          resources, queued, passive, internal, group=group,
+                          locks, queued, passive, internal, group=group,
                           provider=self.provider, id_name=id,
-                          interactive=interactive)
+                          interactive=interactive, effect=effect,
+                          targets=targets)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
@@ -415,8 +495,9 @@ class Cli(object):
         return fn
 
     def command(self, name=None, category=None, exclusive=True,
-                resources=None, queued=None, passive=False, internal=False,
-                group=None, id=None, interactive=False):
+                locks=None, queued=None, passive=False, internal=False,
+                group=None, id=None, interactive=False, effect=None,
+                targets=None):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -431,10 +512,15 @@ class Cli(object):
         * `category`, `group`: Where the catalog and the web GUI list
         the command. See `Command`.
         * `id`: The canonical name, if it is not `name` (core only).
-        * `exclusive`: Give False for a command that only reads from
-        the appliances. See `Command`.
-        * `resources`: What the command must not share with another
-        job, besides its appliances. See `Command`.
+        * `effect`: `"read"` or `"change"`. Every command of a provider
+        gives it. See `Command`.
+        * `targets`: The kinds of target that the command accepts. The
+        default is the `targets` of the `Cli`; give `()` for a command
+        that acts on no target. See `Command`.
+        * `exclusive`: Give False for a command that can share its
+        targets with other jobs. See `Command`.
+        * `locks`: What the command must not share with another
+        job, besides its targets. See `Command`.
         * `queued`: Give False for a command that must never go
         through the job queue. The default is the `queued` of the
         `Cli`. See `Command`.
@@ -450,8 +536,8 @@ class Cli(object):
                 print("The Cli decorator cannot be used when main is specified")
                 sys.exit(-1)
             return self.create_subparser(
-                fn, name, category, exclusive, resources, queued, passive,
-                internal, group, id, interactive)
+                fn, name, category, exclusive, locks, queued, passive,
+                internal, group, id, interactive, effect, targets)
         return inner
 
     def run(self, argv=None):
@@ -539,6 +625,19 @@ class _Section(object):
         """The commands of this category, by name."""
         return {name: command for name, command in self.cli.commands.items()
                 if command.category == self.category}
+
+
+def _epilog(effect, targets):
+    """What `--help` says at the end about what the command does."""
+    if effect is None:
+        return None
+    text = "Effect: {}.".format(
+        "it only reads" if effect == READ else
+        "it changes its targets or MAST")
+    if targets:
+        text += " Targets: {}.".format(
+            "any kind" if ANY_TARGET in targets else ", ".join(targets))
+    return text
 
 
 def _summary(doc):

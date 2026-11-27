@@ -237,7 +237,7 @@ class TestCollect(CollectCase):
         from mast.cli import Cli
         cli = Cli(provider="t")
         with self.assertRaises(ValueError):
-            @cli.command("x", passive=True)
+            @cli.command("x", passive=True, effect="change")
             def x(params: collector.Collect):
                 pass
         self.assertTrue(collector.cli.commands["collect-status"].passive)

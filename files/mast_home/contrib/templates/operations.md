@@ -655,9 +655,12 @@ it is bound to, directly or through an environment. A hostname that is
 not in the registry is refused, so that nobody can send it to a host of
 their own.
 * The purpose `collect` is for a DataPower user that may only read: it
-is used only by commands that only read (those that the Commands page
-marks "This command only reads"). The purpose `change` is for any
-command, and only admins may use it.
+is used only by commands whose effect is `read` (the Commands page and
+`--help` say "This command only reads"). Some of these read secrets:
+`get-file` can download the files in `cert:`, and `normal-backup` and
+`export` the configuration. Bind a `collect` credential only to the
+appliances whose files and configuration its users may read. The
+purpose `change` is for any command, and only admins may use it.
 * A stored credential is sent only to an appliance whose certificate is
 checked (`ca` or `pin`, see "Checking who the appliance is"): not with
 `--no-check-hostname`, not to an appliance with `--tls-mode none`, not

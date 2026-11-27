@@ -34,14 +34,16 @@ from unittest import mock
 
 import mast
 
-EXPECTED_WEB_PAGES = {
-    "jobs": "mast.web.pages.jobs:page",
-    "commands": "mast.web.pages.commands:page",
-    "admin": "mast.web.pages.admin:page",
-    "appliances": "mast.datapower.status.page:page",
-    "crypto": "mast.datapower.crypto.page:page",
-    "terminal": "mast.datapower.ssh.page:page",
-}
+# The pages of the web UI: those of core, then those of the DataPower
+# plugin, which its manifest names
+EXPECTED_WEB_PAGES = (
+    "mast.web.pages.jobs:page",
+    "mast.web.pages.commands:page",
+    "mast.web.pages.admin:page",
+    "mast.datapower.status.page:page",
+    "mast.datapower.crypto.page:page",
+    "mast.datapower.ssh.page:page",
+)
 
 EXPECTED_DAEMON_PLUGINS = {
     "mastd_web_plugin": "mast.web:Plugin",
@@ -120,21 +122,23 @@ class TestMASTPackaging(unittest.TestCase):
         found = {name: ep.value for name, ep in _entry_points("mastd_plugin").items()}
         self.assertEqual(found, EXPECTED_DAEMON_PLUGINS)
 
-    def test_web_page_entry_points(self):
-        found = {name: ep.value for name, ep in _entry_points("mast_web_page").items()}
-        self.assertEqual(found, EXPECTED_WEB_PAGES)
+    def test_the_pages_of_the_web_ui(self):
+        # The entry points of pages were replaced by the list of core
+        # and the manifests of the plugins (plugin API 1)
+        from mast.datapower.plugin import manifest
+        from mast.web.page import CORE_PAGES, Page
+        from mast import roots
+        self.assertEqual(_entry_points("mast_web_page"), {})
+        self.assertEqual(CORE_PAGES + manifest.pages, EXPECTED_WEB_PAGES)
+        for target in EXPECTED_WEB_PAGES:
+            with self.subTest(page=target):
+                self.assertIsInstance(roots.load(target), Page)
 
     def test_every_entry_point_loads(self):
-        for group in ("mast_web_page", "mastd_plugin"):
-            for name, ep in _entry_points(group).items():
-                with self.subTest(group=group, name=name):
-                    # load() raises on a bad import or a missing attribute.
-                    loaded = ep.load()
-                    if group == "mast_web_page":
-                        from mast.web.page import Page
-                        self.assertIsInstance(loaded, Page)
-                    else:
-                        self.assertTrue(callable(loaded))
+        for name, ep in _entry_points("mastd_plugin").items():
+            with self.subTest(name=name):
+                # load() raises on a bad import or a missing attribute.
+                self.assertTrue(callable(ep.load()))
 
     def test_the_console_script_is_mast(self):
         # The one command, also in a development home and a pip install,

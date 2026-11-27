@@ -66,9 +66,9 @@ class Look(ApplianceOptions):
 
 
 def make_cli():
-    cli = Cli(provider="credtest")
+    cli = Cli(provider="credtest", targets=("datapower",))
 
-    @cli.command("look", exclusive=False)
+    @cli.command("look", exclusive=False, effect="read")
     def look(params: Look):
         """Only read; repeat the password in every form."""
         from mast.cli.results import (
@@ -86,10 +86,21 @@ def make_cli():
                      [[name, forms] for name in params.appliances],
                      history="<Password>{}</Password>".format(password))
 
-    @cli.command("change")
+    @cli.command("change", effect="change")
     def change(params: Look):
         """Change the appliances."""
         seen[:] = params.credentials
+        return Table(["appliance"], [[name] for name in params.appliances])
+
+    # The purpose of a credential follows the effect, not exclusive
+    @cli.command("read-alone", effect="read")
+    def read_alone(params: Look):
+        """Read, with the appliances to itself."""
+        return Table(["appliance"], [[name] for name in params.appliances])
+
+    @cli.command("change-shared", effect="change", exclusive=False)
+    def change_shared(params: Look):
+        """Change, and share the appliances."""
         return Table(["appliance"], [[name] for name in params.appliances])
 
     return cli
@@ -432,6 +443,16 @@ class TestUse(CredentialsCase):
                     principal=ADMIN)
         self.assertEqual(len(jobs.list_jobs()), 3)
 
+    def test_the_purpose_follows_the_effect(self):
+        self.add()
+        # A command that reads may use a credential for collecting,
+        # also if it needs the appliances to itself
+        self.submit(command="credtest.read-alone")
+        # One that changes may not, also if it shares them
+        with self.assertRaises(Forbidden) as caught:
+            self.submit(command="credtest.change-shared")
+        self.assertIn("purpose collect", str(caught.exception))
+
     def test_credentials_and_a_stored_credential_exclude_each_other(self):
         with self.assertRaises(ValidationError) as found:
             Look(appliances=["dp1"], credentials=["u:p"], credential="ro")
@@ -564,6 +585,7 @@ class TestTesting(CredentialsCase):
 
     def test_the_test_command_only_reads(self):
         command = commands.resolve(TEST_COMMAND)
+        self.assertEqual(command.effect, "read")
         self.assertFalse(command.exclusive)
         self.assertIn("credential",
                       [spec.name for spec in __import__(

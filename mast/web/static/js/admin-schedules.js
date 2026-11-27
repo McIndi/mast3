@@ -56,7 +56,7 @@ function showParams(values) {
         return;
     }
     paramsBox.append(el("p", {className: "small mast-help mb-2"}, command.doc.split("\n\nParameters:")[0]));
-    if (command.exclusive) {
+    if (command.effect === "change") {
         paramsBox.append(el("p", {className: "small text-body-secondary mb-2"},
             "This command can change the appliances: it needs a stored credential for changing."));
     }

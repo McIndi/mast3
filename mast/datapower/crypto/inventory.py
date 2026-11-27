@@ -58,7 +58,7 @@ from lxml import etree
 from pydantic import field_validator, model_validator
 from sqlalchemy import select
 
-from mast.cli import Option, Table, say
+from mast.cli import ANY_TARGET, Option, Table, say
 from mast.cli.results import stored_credential_name
 from mast.logging import make_logger
 from mast.plugin_utils.params import ApplianceParams, timeout_option
@@ -839,7 +839,8 @@ def _targets(params):
     return found
 
 
-@_datapower.command("collect-crypto", group="inventory", exclusive=False,
+@_datapower.command("collect-crypto", effect="read", group="inventory",
+                    exclusive=False,
                     passive=True)
 def inventory_appliance(params: InventoryOne):
     """Read the crypto inventory of one appliance and keep it as a
@@ -899,7 +900,8 @@ class _Inventoried(Table):
         return list(self._oks)
 
 
-@cli.command("inventory", id="crypto-inventory", group="inventory",
+@cli.command("inventory", effect="read", targets=(ANY_TARGET,),
+             id="crypto-inventory", group="inventory",
              exclusive=False, passive=True)
 def inventory(params: Inventory):
     """Read the crypto inventory of the appliances: the certificates,

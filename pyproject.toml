@@ -47,6 +47,8 @@ requires-python = ">=3.13"
 dependencies = [
     # The command line and the help.
     "pydantic>=2", "markdown", "pygments", "colorama",
+    # The versions of MAST that a plugin supports (mast.plugins).
+    "packaging",
     # The web GUI: a Flask app served by CherryPy.
     "flask", "cherrypy",
     # The appliances: SOMA (XML), SSH, and the crypto and backup reports.
@@ -77,15 +79,6 @@ mast = "mast.main:entry"
 # The plugins: each one is a provider of commands, see mast/plugins.py
 [project.entry-points.mast_plugin]
 datapower = "mast.datapower.plugin:manifest"
-
-# The pages of the web UI, see mast/web/page.py
-[project.entry-points.mast_web_page]
-jobs = "mast.web.pages.jobs:page"
-commands = "mast.web.pages.commands:page"
-admin = "mast.web.pages.admin:page"
-appliances = "mast.datapower.status.page:page"
-crypto = "mast.datapower.crypto.page:page"
-terminal = "mast.datapower.ssh.page:page"
 
 [project.entry-points.mastd_plugin]
 mastd_web_plugin = "mast.web:Plugin"

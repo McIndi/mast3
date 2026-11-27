@@ -80,10 +80,10 @@ class Params(BaseModel):
 
 
 def Option(default=PydanticUndefined, *, help="", short=None, widget=None,
-           secret=False, default_factory=None):
+           secret=False, target=False, default_factory=None):
     """
     _function_: `mast.cli.params.Option(default, help="", short=None,
-    widget=None, secret=False, default_factory=None)`
+    widget=None, secret=False, target=False, default_factory=None)`
 
     Declare one parameter of a command.
 
@@ -98,7 +98,10 @@ def Option(default=PydanticUndefined, *, help="", short=None, widget=None,
     * `widget`: A hint for the web GUI about how to ask for the value.
     `mast.cli` does not interpret it.
     * `secret`: If True, the value is kept out of `repr()`, and so out
-    of the logs.
+    of the logs. It is a secret parameter of the command (see
+    `mast.cli.Command.secret_params`).
+    * `target`: If True, the value names the targets that the command
+    acts on (see `mast.cli.Command.target_params`).
     * `default_factory`: A function that returns the default. Use it
     for a `list`.
     """
@@ -108,7 +111,8 @@ def Option(default=PydanticUndefined, *, help="", short=None, widget=None,
     kwargs = {
         "description": help,
         "json_schema_extra": {_META: {"short": short, "widget": widget,
-                                      "secret": secret}},
+                                      "secret": secret,
+                                      "target": target}},
     }
     if secret:
         kwargs["repr"] = False
@@ -132,7 +136,8 @@ class OptionSpec(object):
     * `default`: The default value. `None` if the parameter is required.
     * `required`: True if the parameter has no default.
     * `choices`: The permitted values, or `None` if any value is permitted.
-    * `help`, `short`, `widget`, `secret`: As given to `Option`.
+    * `help`, `short`, `widget`, `secret`, `target`: As given to
+    `Option`.
     """
     name: str
     kind: str
@@ -144,6 +149,7 @@ class OptionSpec(object):
     short: typing.Optional[str]
     widget: typing.Optional[str]
     secret: bool
+    target: bool = False
 
     @property
     def long(self):
@@ -227,6 +233,7 @@ def options(model):
             short=meta.get("short"),
             widget=meta.get("widget"),
             secret=bool(meta.get("secret")),
+            target=bool(meta.get("target")),
         ))
     return specs
 

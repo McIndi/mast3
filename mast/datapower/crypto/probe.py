@@ -58,7 +58,7 @@ from datetime import datetime, timezone
 from pydantic import field_validator, model_validator
 from sqlalchemy import select
 
-from mast.cli import Option, Params, Table, say
+from mast.cli import ANY_TARGET, Option, Params, Table, say
 from mast.logging import make_logger
 
 from mast.crypto.cli import section as cli
@@ -376,7 +376,7 @@ def latest_results(appliance_ids=None):
 
 class Probe(Params):
     appliances: list[str] = Option(
-        default_factory=list, short="a",
+        default_factory=list, short="a", target=True,
         help="The registered appliances or environments to probe. The "
              "default is every registered appliance.")
     targets: list[str] = Option(
@@ -432,7 +432,8 @@ def _summary(result):
     return "; ".join(parts)
 
 
-@cli.command("probe", id="crypto-probe", group="probes", exclusive=False,
+@cli.command("probe", effect="read", targets=(ANY_TARGET,), id="crypto-probe",
+             group="probes", exclusive=False,
              passive=True)
 def probe(params: Probe):
     """Probe the TLS ports of the appliances as a peer would: the

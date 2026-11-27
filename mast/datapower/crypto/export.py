@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pydantic import model_validator
 from sqlalchemy import func, select
 
-from mast.cli import Option, Params, Table, say
+from mast.cli import ANY_TARGET, Option, Params, Table, say
 from mast.plugin_utils.params import OUT_FILE
 
 from mast.crypto.cli import section as cli
@@ -715,7 +715,7 @@ class Export(Params):
         None, short="s", help="The id of the snapshot to write. Without it, "
                               "the newest snapshot of each appliance.")
     appliances: list[str] = Option(
-        default_factory=list, short="a",
+        default_factory=list, short="a", target=True,
         help="Only the newest snapshots of these appliances.")
     format: str = Option(
         "cbom", short="f",
@@ -734,7 +734,8 @@ class Export(Params):
         return self
 
 
-@cli.command("export", id="crypto-export", group="inventory", exclusive=False)
+@cli.command("export", effect="read", targets=(ANY_TARGET,),
+             id="crypto-export", group="inventory", exclusive=False)
 def export(params: Export):
     """Write the crypto inventory to a file: a CycloneDX 1.6 CBOM (JSON),
 a spreadsheet, or the certificates as CSV. Without --snapshot, the

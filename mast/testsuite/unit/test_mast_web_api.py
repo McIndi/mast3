@@ -58,7 +58,7 @@ class Files(Params):
 def make_cli():
     cli = Cli(provider="webtest")
 
-    @cli.command("copy", category="files")
+    @cli.command("copy", category="files", effect="change")
     def copy(params: Files):
         """Copy the uploaded file to out_file and out_dir."""
         with open(params.file_in) as fin:
@@ -168,6 +168,28 @@ class TestPages(ApiCase):
         self.assertEqual(found["admin"].min_role, "admin")
         self.assertLess(found["jobs"].order, found["admin"].order)
 
+    def test_the_pages_of_the_plugins_come_from_their_manifest(self):
+        names = [page.name for page in load_pages()]
+        for name in ("appliances", "crypto", "terminal"):
+            self.assertIn(name, names)
+
+    def test_the_plugins_page(self):
+        self.login("admin")
+        page = self.client.get("/admin/plugins").get_data(as_text=True)
+        self.assertIn("IBM DataPower", page)
+        self.assertNotIn("data-left-out", page)
+        answer = self.get("/plugins").get_json()
+        (datapower,) = [p for p in answer["plugins"]
+                        if p["provider"] == "datapower"]
+        self.assertEqual(datapower["api"], 1)
+        self.assertEqual(datapower["target_kinds"], ["datapower"])
+        self.assertGreater(datapower["commands"], 90)
+        self.assertEqual(answer["left_out"], [])
+        client = self.app.test_client()
+        self.login("operator", client=client)
+        self.assertEqual(client.get("/admin/plugins").status_code, 403)
+        self.assertEqual(client.get("/api/v1/plugins").status_code, 403)
+
     def test_a_page_refuses_a_lower_role(self):
         cases = (("viewer", "/jobs", 200), ("viewer", "/commands", 403),
                  ("viewer", "/admin/users", 403),
@@ -261,6 +283,13 @@ class TestCommandsApi(ApiCase):
         self.assertIsNone(options["credentials"]["default"])
         self.assertEqual(found["test.look"]["exclusive"], False)
         self.assertFalse(found["test.encode"]["queued"])
+        # What the command declares (plugin API 1)
+        status = found["datapower.get-status"]
+        self.assertEqual((status["effect"], status["targets"]),
+                         ("read", ["datapower"]))
+        self.assertTrue({o["name"]: o for o in status["options"]}
+                        ["appliances"]["target"])
+        self.assertEqual(found["datapower.get-pmr-info"]["effect"], "change")
 
     def test_one_command(self):
         self.login("viewer")

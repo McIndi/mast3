@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Plugins · Admin · MAST{% endblock %}
+{% block content %}
+<h1 class="h4">Plugins</h1>
+<p class="small text-body-secondary">A plugin adds commands (<code>mast PROVIDER COMMAND</code>), kinds of target and pages. This MAST loads plugins made for plugin API {{ api }}. <code>mast plugins list</code> shows the same.</p>
+{% if left_out %}
+<div class="alert alert-warning" role="alert" data-left-out>
+    <h2 class="h6">{{ left_out|length }} {{ "plugin was" if left_out|length == 1 else "plugins were" }} left out</h2>
+    <p class="small mb-0">None of the commands or pages of a plugin that was left out can be used. The rest of MAST works without it.</p>
+</div>
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Provider</th><th>Distribution</th><th>Problem</th><th>What is wrong</th><th>What to do</th></tr></thead>
+        <tbody>
+        {% for item in left_out %}
+            <tr><td class="font-monospace">{{ item.provider }}</td><td>{{ item.distribution or "—" }}</td><td>{{ item.kind }}</td><td class="small">{{ item.reason }}</td><td class="small">{{ item.fix }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead><tr><th>Provider</th><th>Title</th><th>Version</th><th>Distribution</th><th>Plugin API</th><th>MAST</th><th>Target kinds</th><th>Commands</th></tr></thead>
+        <tbody data-plugin-rows>
+        {% for item in plugins %}
+            <tr><td class="font-monospace">{{ item.provider }}</td><td>{{ item.title }}</td><td>{{ item.version }}</td><td>{{ item.distribution or "—" }}</td><td>{{ item.api }}</td><td class="font-monospace">{{ item.core }}</td><td>{{ item.target_kinds|join(", ") or "—" }}</td><td>{{ item.commands }}</td></tr>
+        {% else %}
+            <tr><td colspan="8" class="text-body-secondary">No plugin is installed. Core works without one.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

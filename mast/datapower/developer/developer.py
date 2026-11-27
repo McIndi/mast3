@@ -101,7 +101,7 @@ class Import(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('import', group='services/objects')
+@cli.command('import', effect="change", group='services/objects')
 def _import(params: Import):
     """Import a service/object into the specified appliances"""
     logger = make_logger("mast.developer")
@@ -185,7 +185,7 @@ class Export(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('export', group='services/objects')
+@cli.command('export', effect="read", group='services/objects')
 def export(params: Export):
     """Exports a service or object to be used to import into another
 domain or appliance"""
@@ -239,7 +239,8 @@ class ListProbes(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('list-probes', group='services/objects', exclusive=False)
+@cli.command('list-probes', effect="read", group='services/objects',
+             exclusive=False)
 def list_probes(params: ListProbes):
     """Lists all enabled probes in all specified domains"""
     env = params.environment()
