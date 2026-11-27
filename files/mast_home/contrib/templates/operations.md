@@ -599,8 +599,11 @@ that kind, or has an extension of it.
 
 Commands run only on registered targets and fleets, of a kind that the
 command accepts; anything else is refused before the job is queued. A
-job records the name of each target that it acts on, so that two jobs
-for one target wait for each other.
+job records each target that it acts on, with its revision, so that two
+jobs for one target wait for each other. A fleet becomes its targets
+when the job is queued. If a target is removed or its configuration
+changes (`mast targets show` gives its revision) before the job starts,
+the job fails without sending anything; queue it again.
 
 ## Checking who the target is
 

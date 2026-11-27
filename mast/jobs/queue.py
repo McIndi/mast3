@@ -74,6 +74,7 @@ __all__ = [
     "abandon", "reap",
     "worker_seen", "worker_gone", "workers",
     "appliance_names", "stored_credential", "STORED_CREDENTIAL_WIDGET",
+    "changed_targets",
     "NotPassive", "TargetRefused",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "JobNotFound", "NotOwner", "NotQueued",
@@ -225,35 +226,60 @@ def _require(session, job_id):
     return job
 
 
-def _targets(cmd, params):
-    """Return the names of the targets that a command with these
-    parameters acts on, lower case, in order: a fleet becomes its
-    targets. Raises `TargetRefused` for a name that is not a registered
-    target or fleet, and for a target of a kind that the command does
-    not accept, before anything is queued."""
-    names = appliance_names(cmd.model, params)
-    if not names:
-        return []
+def _resolved(cmd, params):
+    """Return `(targets, values)`: the `mast.registry.Target`s that a
+    command with these parameters acts on, in order and without
+    repeats, and the parameters as a dict with each fleet of a target
+    parameter replaced by the names of its targets. The job keeps those
+    values, so that a later change to a fleet adds no target to it.
+    Raises `TargetRefused` for a name that is not a registered target or
+    fleet, and for a target of a kind that the command does not accept,
+    before anything is queued."""
+    from mast.cli import params as cli_params
+    values = params.model_dump(mode="json") if not isinstance(params, dict) \
+        else dict(params)
+    specs = [spec for spec in cli_params.options(cmd.model) if spec.target]
+    if not any(values.get(spec.name) for spec in specs):
+        return [], values
     # Imported here because it reads the registry, which a program that
     # only reads the queue does not need
     from mast import registry
-    try:
-        found = registry.resolve(names)
-    except registry.UnknownName as exc:
-        raise TargetRefused(str(exc)) from None
     wanted = tuple(getattr(cmd, "targets", ()) or ())
     needs = tuple(getattr(cmd, "needs", ()) or ())
-    if wanted or needs:
-        for target in found:
-            if not registry.accepts(target, wanted, needs):
+    found = []
+    for spec in specs:
+        given = values.get(spec.name)
+        if not given:
+            continue
+        names = [given] if isinstance(given, str) else list(given)
+        try:
+            targets = registry.resolve(names)
+        except registry.UnknownName as exc:
+            raise TargetRefused(str(exc)) from None
+        for target in targets:
+            if (wanted or needs) and \
+                    not registry.accepts(target, wanted, needs):
                 raise TargetRefused(
                     "{} is of the kind {}, and {} accepts {}.".format(
                         target.name, " + ".join(registry.kinds_of(target)),
                         getattr(cmd, "id", None) or "the command",
                         " or ".join(wanted) if wanted else
                         "targets that can " + ", ".join(needs)))
+            if target.id not in [t.id for t in found]:
+                found.append(target)
+        if isinstance(given, str):
+            if len(targets) == 1:
+                values[spec.name] = targets[0].name
+        else:
+            values[spec.name] = [t.name for t in targets]
+    return found, values
+
+
+def _targets(cmd, params):
+    """Return the names of the targets that a command with these
+    parameters acts on, lower case, in order (see `_resolved`)."""
     targets = []
-    for target in found:
+    for target in _resolved(cmd, params)[0]:
         name = target.name.strip().lower()
         if name not in targets:
             targets.append(name)
@@ -386,8 +412,15 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         raise NotQueued(command)
     if not isinstance(params, cmd.model):
         params = cmd.model(**(params or {}))
-    targets = _targets(cmd, params)
-    authorize(principal, "submit", command=command, targets=targets)
+    found, values = _resolved(cmd, params)
+    # The job runs on these targets, whatever happens to a fleet later
+    params = cmd.model(**values)
+    targets = []
+    for target in found:
+        if target.name.strip().lower() not in [t[0] for t in targets]:
+            targets.append((target.name.strip().lower(), target))
+    authorize(principal, "submit", command=command,
+              targets=[name for name, _ in targets])
     _, credential = stored_credential(cmd.model, params)
     if credential:
         # Imported here: a program that only reads the queue does not
@@ -404,7 +437,7 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
         raise NotPassive(
             "{} can change the appliances, so its jobs cannot be "
             "passive".format(command))
-    locked = targets + _locks(cmd, params)
+    locked = targets + [(name, None) for name in _locks(cmd, params)]
     now = _now()
     job_id = job_id or new_job_id()
     with db.session() as session:
@@ -423,8 +456,11 @@ def submit(command, params=None, principal=LOCAL, exclusive=None,
             passive=bool(passive),
             schedule_id=schedule_id))
         session.flush()
-        for target in locked:
-            session.add(JobTarget(job_id=job_id, appliance=target))
+        for name, target in locked:
+            session.add(JobTarget(
+                job_id=job_id, appliance=name,
+                target_id=None if target is None else target.id,
+                revision=None if target is None else target.revision))
         _event(session, job_id, "state", QUEUED, now)
     return job_id
 
@@ -793,6 +829,34 @@ def claim(worker_id, lease_seconds=None, job_id=None, passive_only=False):
 def _owned(job_id, worker_id):
     return (Job.id == job_id, Job.worker_id == worker_id,
             Job.status == RUNNING)
+
+
+def changed_targets(job_id):
+    """
+    _function_: `mast.jobs.queue.changed_targets(job_id)`
+
+    Return what changed in the targets of a job since it was queued: a
+    message for each target that was removed, or whose revision is not
+    the one that the job recorded (see `mast.registry.Target`). An empty
+    list if nothing changed. The runner calls this before it decrypts a
+    credential or calls the command.
+    """
+    # Imported here: a program that only reads the queue does not need
+    # the registry
+    from mast.registry.models import TargetRecord
+    problems = []
+    with db.session(write=False) as session:
+        for row in session.scalars(
+                select(JobTarget).where(JobTarget.job_id == job_id,
+                                        JobTarget.target_id.is_not(None))
+                .order_by(JobTarget.id)):
+            target = session.get(TargetRecord, row.target_id)
+            if target is None:
+                problems.append("{} was removed".format(row.appliance))
+            elif target.revision != row.revision:
+                problems.append("{} changed (revision {}, now {})".format(
+                    target.name, row.revision, target.revision))
+    return problems
 
 
 def load(job_id, worker_id):

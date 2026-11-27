@@ -552,15 +552,17 @@ def update(name, address=None, attributes=None, notes=None,
     Change the address, attributes (a value of None sets one back to
     its default) or notes of a target, and return its `Target`. A new
     address marks every pinned endpoint for review; a new port marks
-    that endpoint.
+    that endpoint. A change of the notes alone does not raise the
+    revision: they are not configuration.
 
     `credential_types` sets the types of stored credential that the
     target takes, as it is configured now (a list of the types of its
     kinds; None for all of them). A credential of another type is then
-    refused on it.
+    refused on it, and the jobs that were queued before do not start.
     """
     with db.session() as session:
         record = _require(session, name)
+        changed_config = False
         if attributes:
             before = dict(record.attributes or {})
             after = check_attributes(record.kind, attributes, before)
@@ -568,6 +570,7 @@ def update(name, address=None, attributes=None, notes=None,
             if changed:
                 _ask_review(session, record, "", changed,
                             "the port changed")
+            changed_config = after != before
             record.attributes = after
             record.schema_version = plugins.schema_version(record.kind)
         if address is not None:
@@ -577,12 +580,19 @@ def update(name, address=None, attributes=None, notes=None,
                             "the address changed from {} to {}".format(
                                 record.address, address))
                 record.address = address
+                changed_config = True
         if credential_types is not _ALL:
-            record.credential_types = _check_credential_types(
+            values = _check_credential_types(
                 kinds_of(_view(session, record)), credential_types)
+            if values != record.credential_types:
+                record.credential_types = values
+                changed_config = True
         if notes is not None:
             record.notes = notes
-        _touch(record)
+        if changed_config:
+            _touch(record)
+        else:
+            record.updated_at = _now()
         session.flush()
         return _view(session, record)
 

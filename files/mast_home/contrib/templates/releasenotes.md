@@ -115,6 +115,14 @@ of a target or the port of a pinned endpoint changes, the endpoint is
 marked REVIEW and MAST does not connect to it until an admin runs
 `mast targets review` (which keeps the pin if the endpoint still shows
 it) or pins it again.
+* **A job runs on the targets that it was queued for.** A fleet is
+replaced by its targets when the job is queued, so a member added later
+is not in it. The job records the id and the revision of each target,
+and if one was removed or its configuration changed (its address,
+attributes, extensions, trust or name; not its notes) before the job
+starts, the job fails with "The targets changed since the job was
+queued" before any credential is opened or request sent. Queue it
+again.
 * **Stored credentials have a type**, `password` or `ssh-key`
 (`mast credentials add -t ssh-key --key-file FILE`). A credential can be
 bound to and used on a target only if its kind takes its type: a
