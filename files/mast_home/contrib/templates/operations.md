@@ -964,6 +964,58 @@ jobs that it submits are recorded as `os:<account>`, the operating
 system account that ran it. Jobs from MAST 3.15.2 and older are
 recorded as `local`; an admin can cancel them, an operator cannot.
 
+## Permission sets and groups
+
+MAST 4.0 replaces the roles with permission sets: rules over the
+*paths* of commands and resources, given to *groups* of users. In this
+release the role of a user still decides what they may do; MAST keeps
+each user in the groups of their role (`viewer`; `viewer` and
+`operator`; or all three for `admin`), and the rules say what they
+would allow. A later release enforces them and removes the roles.
+
+A path names a command or a resource, and its last segment may end in
+`*`:
+
+| Path | What |
+|---|---|
+| `mast/datapower/get-status` | `mast datapower get-status`; `mast/datapower/list-*` is every command of it that starts with `list-` |
+| `mast/core/add-target` | `mast targets add`, a command of core (`mast/core/cancel-own-job`: cancelling one's own jobs) |
+| `mast/credentials/dp-reader` | A stored credential |
+| `mast/targets/dp1`, `mast/fleets/lab` | A target, a fleet |
+
+`r` reads (and discovers a command), `w` changes (and permits the
+change effects of a command), `x` executes a command or uses a
+credential. A command whose effect is `change` needs `w` and `x`. Mind
+what a wildcard matches: `mast/datapower/get-*` includes `get-file`,
+which can read the private keys of an appliance.
+
+A rule allows or denies capabilities; a denial wins. A rule about
+commands on targets needs a scope, `--all-targets`, `-t TARGET` or
+`--fleet FLEET`: without one it grants no target (a denial without one
+applies to all). A renamed target or fleet stays in scope.
+
+    :::bash
+    ./mast permissions add -n lab-reader -d "Read the lab"
+    ./mast permissions add-rule -n lab-reader -p 'mast/datapower/list-*' \
+        --allow rx --fleet lab
+    ./mast permissions add-rule -n lab-reader -p mast/credentials/dp-reader \
+        --allow x --fleet lab
+    ./mast groups add -n lab-ops -s lab-reader
+    ./mast groups add-member -n lab-ops -u alice
+    ./mast permissions check -u alice --command datapower.list-domains -a lab
+    ./mast permissions effective -u alice
+
+`mast permissions add -f FILE` reads a set from JSON:
+`{"description": ..., "rules": [{"path": "mast/datapower/list-*",
+"allow": ["r", "x"], "scope": {"fleets": ["lab"]}}]}`. `check` says
+whether a user may do something and which rules decide it. MAST makes
+the sets and groups `viewer` (the non-secret views of core), `operator`
+(cancel one's own jobs) and `admin` (manage core: identities,
+permissions, targets, fleets, credentials, schedules, jobs); they can
+be changed. A plugin's commands are granted only by a set that names
+them. The API has the same under `/api/v1/permission-sets`,
+`/api/v1/groups` and `/api/v1/permissions/check` (admins).
+
 ## Sessions
 
 A session ends:

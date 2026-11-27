@@ -234,6 +234,8 @@ For a credential, `r` shows its metadata, `w` manages the record, and `x` permit
 
 **Done when:** permission sets and memberships can be managed through the CLI and the API, and administrators can see effective permissions and the rules that match.
 
+**Status.** `mast.permissions` (migration `4004`): permission sets of rules, groups (`user_groups`), the sets of a group and its members. A path is `mast/ROOT/NAME`; a `*` may only end it and matches within the last segment, so `mast/datapower/*` is every command of DataPower and never more. Scopes are kept as ids (a renamed target stays in scope). A denial without a scope applies to every target; an allow without a scope grants no target. Core actions that are not commands have a path of their own (`mast/core/cancel-own-job`). The sets and groups `viewer`, `operator` and `admin` are seeded as the table above says, and no seeded set names a plugin. `mast permissions` (sets, rules, `check`, `effective`), `mast groups` (sets, members) and the admin API manage them and explain decisions. Until step 6, the role of a user decides what they may do and each user is kept in the groups of their role; step 6 enforces the rules, removes `User.role`, and adds service accounts with tokens. A page of the web UI for permissions is part of step 11.
+
 ### 6. Enforcement
 
 * Authenticated MAST identities replace the automatic local OS-admin identity. `mast login` gives revocable tokens for the CLI. A dedicated local setup operation makes the first administrator.
