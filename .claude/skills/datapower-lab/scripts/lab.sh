@@ -18,8 +18,10 @@
 # A MAST 4.0 lab: a development home of this checkout (editable, so it
 # runs whatever is checked out) and two DataPower containers.
 #
-#   lab.sh build     make the home, start the appliances, register them
-#   lab.sh up        start the appliances and mastd (web, worker, cron)
+#   lab.sh build --accept-datapower-license
+#                    make the home, start the appliances, register them
+#   lab.sh up --accept-datapower-license
+#                    start the appliances and mastd (web, worker, cron)
 #   lab.sh down      stop mastd and the appliances (nothing is lost)
 #   lab.sh status    show what runs
 #   lab.sh destroy   remove the containers and the home
@@ -27,12 +29,37 @@
 # MAST_REPO is the checkout (default: the one holding this script).
 # MAST_LAB_HOME is the lab's MAST home (default: ~/mast-lab).
 #
-# Starting the containers accepts the IBM DataPower license
-# (DATAPOWER_ACCEPT_LICENSE=true): the limited images are for
-# non-production use only. The passwords below are lab-only: the
+# build and up create or start IBM DataPower containers, which run
+# IBM's software under IBM's license for the developers-limited image
+# (non-production use only). They refuse to run unless you pass
+# --accept-datapower-license, which says that you have read and accept
+# that license; only then do the containers get
+# DATAPOWER_ACCEPT_LICENSE=true. The passwords below are lab-only: the
 # images' published admin/admin, and a reader user that exists only
 # inside these loopback-only containers.
 set -euo pipefail
+
+COMMAND="${1:-}"
+ACCEPT_LICENSE=false
+for arg in "${@:2}"; do
+  case "$arg" in
+    --accept-datapower-license) ACCEPT_LICENSE=true ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+require_license() {
+  if [ "$ACCEPT_LICENSE" != true ]; then
+    cat >&2 <<'EOF'
+This starts IBM DataPower Gateway containers
+(icr.io/cpopen/datapower/datapower-limited), which run under IBM's
+license for that image: non-production use only. Read the license
+terms in IBM's DataPower Gateway documentation. If you accept them,
+run this command again with --accept-datapower-license.
+EOF
+    exit 3
+  fi
+}
 
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 REPO="${MAST_REPO:-$(cd "$SCRIPTS/../../../.." && pwd)}"
@@ -67,6 +94,7 @@ create_appliance() {
   local name=$1 image=$2 soma=$3 web=$4 ssh=$5 cname
   cname=$(container "$name")
   if podman container exists "$cname"; then return; fi
+  require_license
   podman create --name "$cname" \
     --env DATAPOWER_ACCEPT_LICENSE=true --env DATAPOWER_LOG_LEVEL=3 \
     --publish "127.0.0.1:$soma:5550" --publish "127.0.0.1:$web:9090" \
@@ -93,6 +121,7 @@ wait_for() {
 }
 
 appliances_up() {
+  require_license
   for line in "${APPLIANCES[@]}"; do
     read -r name image soma web ssh <<<"$line"
     create_appliance "$name" "$image" "$soma" "$web" "$ssh"
@@ -106,8 +135,9 @@ appliances_up() {
 
 daemon() { (cd "$HOME_DIR" && "$MAST" daemon "$@"); }
 
-case "${1:-}" in
+case "$COMMAND" in
   build)
+    require_license
     if [ ! -x "$MAST" ]; then
       (cd "$REPO" && uv run --locked python mast-setup --development-mode \
         --home "$HOME_DIR")
@@ -167,5 +197,5 @@ case "${1:-}" in
     rm -rf "$HOME_DIR"
     ;;
   *)
-    sed -n '18,28p' "$0"; exit 2 ;;
+    sed -n '18,30p' "$0"; exit 2 ;;
 esac

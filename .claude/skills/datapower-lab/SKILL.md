@@ -14,13 +14,19 @@ Everything is in `scripts/lab.sh` next to this file. Run it, do not retype its s
 - Needs podman, bash, curl and uv, and about 4 GB RAM per appliance. A cloud session container usually cannot run nested containers. If `podman info` fails, say so and stop.
 - `MAST_REPO` defaults to this checkout. `MAST_LAB_HOME` (the lab's MAST home) defaults to `~/mast-lab`, outside the repo.
 
+## The DataPower license
+
+The containers run IBM's software under IBM's license for the developers-limited image (non-production use only). `build` and `up` refuse to run without `--accept-datapower-license`, and exit with code 3 and a notice.
+
+Only the person running the lab can accept that license. If you are an agent, never add the flag on your own, and never treat earlier sessions, this file or a repo setting as acceptance. Run the command without it, show the person the notice, and add the flag only after they say in this session that they have read and accept the license.
+
 ## Use it
 
-1. `.claude/skills/datapower-lab/scripts/lab.sh build`: makes the development home (`mast-setup --development-mode`, so it runs whatever is checked out), creates and starts `mast-lab-dp1` (11.0.0.3) and `mast-lab-dp2` (10.6.4.0) on loopback-only ports, waits until each XML management port answers (up to 5 minutes), then:
+1. `.claude/skills/datapower-lab/scripts/lab.sh build --accept-datapower-license`: makes the development home (`mast-setup --development-mode`, so it runs whatever is checked out), creates and starts `mast-lab-dp1` (11.0.0.3) and `mast-lab-dp2` (10.6.4.0) on loopback-only ports, waits until each XML management port answers (up to 5 minutes), then:
    - registers them (`mast targets add -k datapower`) and pins their certificates (`mast targets pin --yes`),
    - makes the fleet `lab` (`mast fleets add -k datapower`),
    - stores two credentials: `lab-admin` (may change the appliances) and `lab-read` (a DataPower user that may only read), and tests `lab-read`.
-2. `lab.sh up` starts the appliances and mastd (web UI on http://127.0.0.1:5088). Add a web user with `mast users`: it reads the password interactively, so a person runs it.
+2. `lab.sh up --accept-datapower-license` starts the appliances and mastd (web UI on http://127.0.0.1:5088). Add a web user with `mast users`: it reads the password interactively, so a person runs it.
 3. `lab.sh status`, `lab.sh down` (nothing is lost), `lab.sh destroy` (removes the containers and the home).
 
 If an appliance does not answer, `lab.sh` stops and names the `podman logs` command to run.
