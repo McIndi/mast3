@@ -32,7 +32,9 @@ from mast.plugin_utils.params import (
 from mast.plugin_utils.results import (
     ActionResults, ListResults, SeeDownload)
 
-cli = Cli(namespace="developer")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("developer")
 
 # Caches
 # ======
@@ -47,51 +49,6 @@ cli = Cli(namespace="developer")
 # FlushStylesheetCache(XMLManager)
 #
 
-
-class FlushCache(ApplianceParams):
-    Domain: str = Option(
-        "", short="D", widget=configured("Domain"),
-        help="The domain where xml_manager resides")
-    xml_manager: str = Option(
-        "", short="x", help="The XMLManager whose cache to flush")
-
-
-@logged("mast.datapower.developer")
-@cli.command('flush-document-cache', category='caches')
-def flush_document_cache(params: FlushCache):
-    """Flushes the Document Cache for the specified xml_manager
-in the specified domain."""
-    logger = make_logger("mast.developer")
-    env = params.environment()
-    msg = "Attempting to flush document cache for {} in {} domain on {} XMLManager".format(
-        str(env.appliances), params.Domain, params.xml_manager)
-    logger.info(msg)
-    say(msg)
-
-    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
-    responses = env.perform_action('FlushDocumentCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    return ActionResults(responses, env, suffix="flush_document_cache")
-
-
-@logged("mast.datapower.developer")
-@cli.command('flush-stylesheet-cache', category='caches')
-def flush_stylesheet_cache(params: FlushCache):
-    """Flushes the Stylesheet Cache for the specified xml_manager
-in the specified domain."""
-    logger = make_logger("mast.developer")
-    env = params.environment()
-    msg = "Attempting to flush stylesheet cache for {} in {} domain on {} XMLManager".format(
-        str(env.appliances), params.Domain, params.xml_manager)
-    logger.info(msg)
-    say(msg)
-
-    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
-    responses = env.perform_action('FlushStylesheetCache', **kwargs)
-    logger.debug("Responses received: {}".format(str(responses)))
-
-    return ActionResults(responses, env, suffix="flush_stylesheet_cache")
 
 # services/objects
 # ================
@@ -144,7 +101,7 @@ class Import(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('import', category='services/objects')
+@cli.command('import', group='services/objects')
 def _import(params: Import):
     """Import a service/object into the specified appliances"""
     logger = make_logger("mast.developer")
@@ -228,7 +185,7 @@ class Export(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('export', category='services/objects')
+@cli.command('export', group='services/objects')
 def export(params: Export):
     """Exports a service or object to be used to import into another
 domain or appliance"""
@@ -282,7 +239,7 @@ class ListProbes(ApplianceParams):
 
 
 @logged("mast.datapower.developer")
-@cli.command('list-probes', category='services/objects', exclusive=False)
+@cli.command('list-probes', group='services/objects', exclusive=False)
 def list_probes(params: ListProbes):
     """Lists all enabled probes in all specified domains"""
     env = params.environment()
@@ -310,7 +267,3 @@ def list_probes(params: ListProbes):
                         else:
                             results[k] = [v]
     return ListResults(results, env)
-
-
-if __name__ == '__main__':
-    cli.run()

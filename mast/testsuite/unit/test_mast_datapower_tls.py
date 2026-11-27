@@ -17,7 +17,7 @@
 Unit tests for mast.datapower.datapower.tls: the TLS checks (ca, pin,
 none) against a local TLS server, the SSH host key checks against a
 local paramiko server, and that no credential is sent before a check
-passes. Also `mast-appliances pin` and the pin API.
+passes. Also `mast targets pin` and the pin API.
 """
 import base64
 import contextlib
@@ -553,11 +553,11 @@ class TestSSH(SSHCase):
         with stored_credential():
             with self.assertRaises(tls.NotPinned) as caught:
                 dp.ssh_connect(timeout=10)
-        self.assertIn("mast-appliances pin -n dp1 --ssh", str(caught.exception))
+        self.assertIn("mast targets pin -n dp1 --ssh", str(caught.exception))
         self.assertEqual(self.server.passwords, [])
 
 
-# mast-appliances pin and the API
+# mast targets pin and the API
 # ===============================
 
 
@@ -581,7 +581,7 @@ class TestPinCommand(TLSCase):
                            side_effect=lambda prompt: (print(prompt, end=""),
                                                        answer)[1]):
             try:
-                registry_cli.cli.run(list(args))
+                registry_cli.targets.run(list(args))
             except SystemExit as exc:
                 code = exc.code or 0
         return code, out.getvalue()

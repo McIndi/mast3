@@ -114,7 +114,7 @@ class TestMastdPlugin(unittest.TestCase):
                         server.InsecureServer("no certificate here")):
             with self.subTest(problem=type(problem).__name__):
                 with mock.patch.object(server, "main", side_effect=problem), \
-                        self.assertLogs("mast.datapower.web", "ERROR") as logs:
+                        self.assertLogs("mast.web", "ERROR") as logs:
                     web.Plugin().run()
                 self.assertIn("no certificate here", "\n".join(logs.output))
 

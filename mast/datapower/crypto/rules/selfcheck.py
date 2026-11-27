@@ -82,7 +82,7 @@ def collect_untested(setup):
                         if credential.last_tested_at else
                         "and it was never tested"),
             remediation="Test it (Admin → Credentials → Test, or "
-                        "mast-credentials test -n {} -a APPLIANCE).".format(
+                        "mast credentials test -n {} -a APPLIANCE).".format(
                             credential.name))
 
 

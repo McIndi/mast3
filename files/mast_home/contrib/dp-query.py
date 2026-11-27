@@ -329,7 +329,7 @@ class Main(Params):
              'correspondence of credentials to appliances: `[-a '
              'appliance1 [-a appliance2...]] [-c credential1 [-c '
              'credential2...]]` If you would prefer to not use plain-'
-             'text passwords, you can use the output of `$ mast-system '
+             'text passwords, you can use the output of `$ mast datapower '
              'xor <username:password>`.')
     timeout: int = Option(
         120, short="t",

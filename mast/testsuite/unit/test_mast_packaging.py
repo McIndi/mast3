@@ -95,13 +95,10 @@ class TestMASTPackaging(unittest.TestCase):
         self.assertEqual(mast.__version__, metadata.version("mast"))
 
     def test_version_looks_like_a_version(self):
-        # The version of the Python that the installer bundles (3.15.2),
-        # and a fourth number for a later release with that Python
-        # (3.15.2.1).
-        parts = mast.__version__.split(".")
-        self.assertIn(len(parts), (3, 4), mast.__version__)
-        for part in parts:
-            self.assertTrue(part.isdigit(), mast.__version__)
+        # From 4.0, MAST has its own versions: 4.0.0, and 4.0.0.dev0,
+        # 4.0.0rc1 before a release
+        self.assertRegex(
+            mast.__version__, r"^\d+\.\d+\.\d+((a|b|rc)\d+)?(\.dev\d+)?$")
 
     def test_license_file_is_in_the_metadata(self):
         # Read the License-File field, not the list of installed files.
@@ -139,27 +136,35 @@ class TestMASTPackaging(unittest.TestCase):
                     else:
                         self.assertTrue(callable(loaded))
 
-    def test_every_launcher_has_a_console_script(self):
-        # Each launcher in the installer (`./mast -m <module>`) has a
-        # console script of the same name that runs the same module, for
-        # a development home and a `pip install`.
-        launchers = Path(mast.__file__).resolve().parents[1] / "files" / "invocation_scripts" / "linux"
-        if not launchers.is_dir():
-            self.skipTest("the launchers are only in a source checkout")
+    def test_the_console_script_is_mast(self):
+        # The one command, also in a development home and a pip install,
+        # and the plugin of DataPower
         scripts = _entry_points("console_scripts")
-        for launcher in sorted(launchers.iterdir()):
-            match = re.search(r"\./mast -m (\S+)", launcher.read_text())
-            if match is None:
-                continue
-            with self.subTest(launcher=launcher.name):
-                self.assertIn(launcher.name, scripts)
-                with mock.patch("mast._entry._run") as run:
-                    scripts[launcher.name].load()()
-                run.assert_called_once_with(match.group(1))
+        self.assertEqual(scripts["mast"].value, "mast.main:entry")
+        plugins = {name: ep.value for name, ep in _entry_points("mast_plugin").items()}
+        self.assertEqual(plugins, {"datapower": "mast.datapower.plugin:manifest"})
+
+    def test_the_launchers_are_mast_and_mast_python(self):
+        # The installer has two launchers: `mast` runs `python -m mast`,
+        # and `mast-python` is the bundled interpreter (for contrib and
+        # pip)
+        root = Path(mast.__file__).resolve().parents[1] / "files" / "invocation_scripts"
+        if not root.is_dir():
+            self.skipTest("the launchers are only in a source checkout")
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform):
+                names = sorted(p.name for p in (root / platform).iterdir())
+                self.assertEqual(names, ["mast", "mast-python", "set-env"])
+                self.assertRegex((root / platform / "mast").read_text(),
+                                 r'bin/python3" -m mast "\$@"')
+                self.assertRegex((root / platform / "mast-python").read_text(),
+                                 r'bin/python3" "\$@"')
+        names = sorted(p.name for p in (root / "windows").iterdir())
+        self.assertEqual(names, ["mast-python.bat", "mast.bat", "set-env.bat"])
 
     def test_every_windows_launcher_is_safe_to_call(self):
-        # Each Windows launcher runs the mast.bat next to it by its full,
-        # quoted path: cmd.exe may not look in the current folder
+        # Each Windows launcher calls set-env.bat and Python by their full,
+        # quoted paths: cmd.exe may not look in the current folder
         # (NoDefaultCurrentDirectoryInExePath), and a home under a folder
         # with spaces must work. setlocal keeps the cd and MAST_HOME out
         # of the console of the user, and the exit status of Python is
@@ -176,12 +181,12 @@ class TestMASTPackaging(unittest.TestCase):
                 self.assertIn('SET "MAST_HOME=%~dp0"', text)
                 self.assertIn('cd /d "%MAST_HOME%"', text)
                 self.assertNotRegex(text, r"(?m)^\s*(call\s+)?(mast|set-env)\.bat")
+                self.assertIn('call "%MAST_HOME%set-env.bat"', text)
+                self.assertIn("endlocal & exit /b %MAST_EXIT_CODE%", text)
                 if launcher.name == "mast.bat":
-                    self.assertIn('call "%MAST_HOME%set-env.bat"', text)
-                    self.assertIn('"%MAST_HOME%python\\%PYTHON_VERSION%\\python" %*', text)
+                    self.assertIn('"%MAST_HOME%python\\%PYTHON_VERSION%\\python" -m mast %*', text)
                 else:
-                    self.assertRegex(text, r'call "%MAST_HOME%mast\.bat" -m \S+')
-                    self.assertIn("exit /b %ERRORLEVEL%", text)
+                    self.assertIn('"%MAST_HOME%python\\%PYTHON_VERSION%\\python" %*', text)
 
     def test_every_subpackage_imports(self):
         # Walk the installed package and import every package and module,

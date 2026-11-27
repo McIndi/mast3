@@ -20,8 +20,8 @@ _module_: `mast.registry`
 The appliances and the environments that MAST knows, in the job
 database. Before MAST kept them in `hosts.conf` (the aliases),
 `environments.conf` (the environments) and the sections of
-`appliances.conf` for single appliances; `mast-appliances import` moves
-them here, and `mast-appliances export` writes them back.
+`appliances.conf` for single appliances; `mast targets import` moves
+them here, and `mast targets export` writes them back.
 
 A name that a user types (`-a NAME`) is resolved by `resolve`:
 
@@ -239,7 +239,7 @@ def _check_pin_mode(record):
     if record.tls_mode == "pin" and not record.pin_sha256:
         raise InvalidValue(
             "The TLS check of {} cannot be pin before a certificate is "
-            "pinned. Pin it with mast-appliances pin -n {}.".format(
+            "pinned. Pin it with mast targets pin -n {}.".format(
                 record.name, record.name))
 
 

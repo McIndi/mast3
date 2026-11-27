@@ -25,7 +25,7 @@ Each appliance of the registry has a `tls_mode`:
 `ca_bundle` of the appliance, or the trust store of the system) and be
 for the address of the appliance.
 * `pin`: The SHA-256 of the certificate must be `pin_sha256`, which
-`mast-appliances pin` stored. This is for the self-signed certificates
+`mast targets pin` stored. This is for the self-signed certificates
 that DataPower appliances often have.
 * `none`: Nothing is checked. A stored credential is never sent this
 way.
@@ -163,7 +163,7 @@ def _check_allowed(policy, scheme="https"):
     if policy.mode == "none":
         raise Refused(
             "A stored credential is never sent to {} without checking its "
-            "certificate. Pin it (mast-appliances pin -n {}) or give it a "
+            "certificate. Pin it (mast targets pin -n {}) or give it a "
             "certificate that MAST trusts.".format(policy.name, policy.name))
 
 
@@ -221,7 +221,7 @@ def check_peer(sock, policy):
     if not policy.pin_sha256:
         raise NotPinned(
             "The TLS check of {} is pin, but no certificate is pinned. Pin "
-            "it with mast-appliances pin -n {}.".format(policy.name, policy.name))
+            "it with mast targets pin -n {}.".format(policy.name, policy.name))
     der = sock.getpeercert(binary_form=True)
     got = fingerprint(der or b"")
     expected = normalize_fingerprint(policy.pin_sha256)
@@ -439,7 +439,7 @@ def host_key_policy(name, pinned=None, registered=False, auto_add=True,
             if using_stored_credential():
                 raise NotPinned(
                     "A stored credential is never sent over SSH to {} before "
-                    "its host key is pinned. Pin it with mast-appliances pin "
+                    "its host key is pinned. Pin it with mast targets pin "
                     "-n {} --ssh.".format(name, name))
             if not auto_add:
                 raise paramiko.SSHException(
@@ -447,7 +447,7 @@ def host_key_policy(name, pinned=None, registered=False, auto_add=True,
                     "auto_add_keys of ssh.conf is false.".format(name, got))
             if warn is not None:
                 warn("The SSH host key of {} is not checked ({}). Pin it with "
-                     "mast-appliances pin --ssh.".format(name, got))
+                     "mast targets pin --ssh.".format(name, got))
 
     return PinnedHostKeyPolicy()
 

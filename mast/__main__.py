@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # This file is part of McIndi's Automated Solutions Tool (MAST).
 #
 # MAST is free software: you can redistribute it and/or modify
@@ -12,12 +13,10 @@
 # You should have received a copy of the GNU General Public License
 # along with MAST.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015-2024, McIndi Solutions, All rights reserved.
-from mast import __version__
+# Copyright 2015-2026, McIndi Solutions, All rights reserved.
+"""`python -m mast` is the `mast` command, see `mast.main`."""
+import sys
 
-print(("""
-McIndi's Automated Solutions Tool
-Version {}
+from mast.main import main
 
-Copyright 2015-2024 McIndi Solutions, LLC
-""".format(__version__)))
+sys.exit(main())

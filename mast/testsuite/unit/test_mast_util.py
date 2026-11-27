@@ -41,7 +41,7 @@ class TestRequireOptional(unittest.TestCase):
         message = str(raised.exception.code)
         self.assertIn("some-script.py", message)
         self.assertIn("'no_such_library_for_mast'", message)
-        self.assertIn("mast -m pip install no_such_library_for_mast", message)
+        self.assertIn("mast-python -m pip install no_such_library_for_mast", message)
         logger.error.assert_called_once_with(message)
 
 

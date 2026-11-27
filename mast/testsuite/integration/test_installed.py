@@ -50,13 +50,9 @@ import urllib.request
 from mast.testsuite.integration.fake_soma import DOMAINS, FakeSoma
 from mast.testsuite.integration.homes import TEST_HOME, copy_home
 
-# The launchers of the commands, and the name each one gives in its help
-COMMANDS = (
-    "mast-accounts", "mast-backups", "mast-crypto", "mast-deployment",
-    "mast-developer", "mast-network", "mast-ssh", "mast-system",
-    "mast-jobs", "mast-users", "mast-appliances", "mast-worker",
-    "test-mast",
-)
+# The roots of the mast command that have their own help
+ROOTS = ("datapower", "crypto", "targets", "fleets", "credentials", "jobs",
+         "schedules", "users", "plugins", "worker", "selftest")
 
 CREDENTIALS = "admin:admin"
 # Long enough that a cancel is noticed (within cancel_poll_seconds, one
@@ -98,12 +94,12 @@ class InstalledTestCase(unittest.TestCase):
         # MAST keeps the appliances in its database: import the files,
         # as a user of an older MAST does once
         imported = subprocess.run(
-            [os.path.join(cls.home, "mast-appliances"), "import"],
+            [os.path.join(cls.home, "mast"), "targets", "import"],
             cwd=cls._tmp, env=cls.env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, timeout=TIMEOUT)
         if imported.returncode != 0 or "Added the environment lab" \
                 not in imported.stdout:
-            raise AssertionError("mast-appliances import failed:\n"
+            raise AssertionError("mast targets import failed:\n"
                                  + imported.stdout)
 
     @classmethod
@@ -164,17 +160,17 @@ class InstalledTestCase(unittest.TestCase):
                 os.path.basename(proc.args[0]), timeout))
 
     def list_domains(self, *args, environment="lab"):
-        return ("mast-system", "list-domains", "-a", environment,
+        return ("mast", "datapower", "list-domains", "-a", environment,
                 "-c", CREDENTIALS, "-n", "-t", "30") + args
 
     def newest_job(self):
-        out = self.run_mast("mast-jobs", "list", "-n", "1").stdout
+        out = self.run_mast("mast", "jobs", "list", "-n", "1").stdout
         rows = [line.split() for line in out.splitlines()[2:] if line.strip()]
         return rows[0][0] if rows else None
 
     def show(self, job_id):
         """The fields of `mast-jobs show`, as a dict."""
-        out = self.run_mast("mast-jobs", "show", "-j", job_id).stdout
+        out = self.run_mast("mast", "jobs", "show", "-j", job_id).stdout
         return dict(re.findall(r"^(\w+):\s+(.*?)\s*$", out, re.M))
 
     def status(self, job_id):
@@ -207,21 +203,26 @@ class InstalledTestCase(unittest.TestCase):
 
 class TestLaunchers(InstalledTestCase):
 
-    def test_each_command_runs_from_another_directory(self):
-        for launcher in COMMANDS:
-            with self.subTest(launcher=launcher):
-                proc = self.run_mast(launcher, "-h")
+    def test_each_root_runs_from_another_directory(self):
+        for root in ROOTS:
+            with self.subTest(root=root):
+                proc = self.run_mast("mast", root, "-h")
                 self.assertEqual(proc.returncode, 0, proc.stdout)
-                self.assertIn("usage: {}".format(launcher), proc.stdout)
+                self.assertIn("usage: mast {}".format(root), proc.stdout)
+
+    def test_mast_lists_the_roots_and_the_plugins(self):
+        proc = self.run_mast("mast")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertRegex(proc.stdout, r"(?m)^  datapower +IBM DataPower")
 
     def test_mast_version(self):
-        proc = self.run_mast("mast-version")
+        proc = self.run_mast("mast", "version")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertRegex(proc.stdout, r"Version \d+\.\d+\.\d+")
 
-    def test_mast_runs_the_python_of_the_home_in_the_home(self):
+    def test_mast_python_runs_the_python_of_the_home_in_the_home(self):
         proc = self.run_mast(
-            "mast", "-c", "import os, sys; print(sys.prefix); print(os.getcwd()); "
+            "mast-python", "-c", "import os, sys; print(sys.prefix); print(os.getcwd()); "
                           "print(os.environ['MAST_HOME'])")
         self.assertEqual(proc.returncode, 0, proc.stdout)
         prefix, cwd, mast_home = proc.stdout.strip().splitlines()[-3:]
@@ -237,7 +238,7 @@ class TestLaunchers(InstalledTestCase):
         # The launcher replaces itself with Python (exec), so a signal
         # sent to its process id reaches MAST, as `kill`, systemd and
         # `docker stop` send it.
-        proc = self.start("mast", "-c", "import os, time; print(os.getpid(), flush=True); "
+        proc = self.start("mast-python", "-c", "import os, time; print(os.getpid(), flush=True); "
                                         "time.sleep(60)")
         self.assertEqual(int(proc.stdout.readline()), proc.pid)
 
@@ -248,10 +249,10 @@ class TestLaunchers(InstalledTestCase):
         self.addCleanup(os.remove, os.path.join(self.home, "etc", "local", "server.conf"))
         # Every page needs a login, and the login page needs a user
         added = self.run_mast(
-            "mast", "-c", "from mast.auth import users; "
+            "mast-python", "-c", "from mast.auth import users; "
             "users.add('webtest', 'a long test password', 'viewer')")
         self.assertEqual(added.returncode, 0, added.stdout)
-        proc = self.start("mast-web")
+        proc = self.start("mast", "web")
 
         def answers():
             try:
@@ -284,14 +285,14 @@ class TestExitStatus(InstalledTestCase):
 
     def test_a_bad_option_exits_2_and_makes_no_job(self):
         before = self.newest_job()
-        proc = self.run_mast("mast-system", "list-domains", "-a", "lab",
+        proc = self.run_mast("mast", "datapower", "list-domains", "-a", "lab",
                              "-c", CREDENTIALS, "-t", "not-a-number")
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("--timeout", proc.stdout)
         self.assertEqual(self.newest_job(), before)
 
     def test_mast_jobs_exits_1_for_a_job_that_is_not_there(self):
-        proc = self.run_mast("mast-jobs", "show", "-j", "0" * 32)
+        proc = self.run_mast("mast", "jobs", "show", "-j", "0" * 32)
         self.assertEqual(proc.returncode, 1, proc.stdout)
 
 
@@ -327,7 +328,7 @@ class TestCancel(InstalledTestCase):
         self.reset_requests()
         proc = self.start(*self.list_domains())
         job_id = self.wait_running(before)
-        cancel = self.run_mast("mast-jobs", "cancel", "-j", job_id[:8])
+        cancel = self.run_mast("mast", "jobs", "cancel", "-j", job_id[:8])
         self.assertEqual(cancel.returncode, 0, cancel.stdout)
         out = self.communicate(proc, TIMEOUT)
         self.assertNotEqual(proc.returncode, 0, out)
@@ -336,12 +337,12 @@ class TestCancel(InstalledTestCase):
 
     def test_a_job_that_waits_is_cancelled_at_once(self):
         # No worker runs, so a detached job waits in the queue.
-        self.assertIn("No worker", self.run_mast("mast-jobs", "workers").stdout)
+        self.assertIn("No worker", self.run_mast("mast", "jobs", "workers").stdout)
         proc = self.run_mast(*self.list_domains("--detach"))
         self.assertEqual(proc.returncode, 0, proc.stdout)
         job_id = proc.stdout.split()[0]
         self.assertEqual(self.status(job_id), "queued")
-        cancel = self.run_mast("mast-jobs", "cancel", "-j", job_id)
+        cancel = self.run_mast("mast", "jobs", "cancel", "-j", job_id)
         self.assertIn("cancelled", cancel.stdout)
         self.assertEqual(self.status(job_id), "cancelled")
 
@@ -349,12 +350,12 @@ class TestCancel(InstalledTestCase):
 class TestWorkers(InstalledTestCase):
 
     def start_worker(self, *args):
-        worker = self.start("mast-worker", *args)
+        worker = self.start("mast", "worker", *args)
         first = worker.stdout.readline()
         self.assertIn("runs up to", first)
         worker_id = first.split()[1]
         self.wait_until(
-            lambda: worker_id in self.run_mast("mast-jobs", "workers").stdout,
+            lambda: worker_id in self.run_mast("mast", "jobs", "workers").stdout,
             "the worker")
         return worker, worker_id
 
@@ -366,7 +367,7 @@ class TestWorkers(InstalledTestCase):
     def test_a_worker_does_a_detached_job(self):
         worker, worker_id = self.start_worker()
         job_id = self.detach()
-        follow = self.run_mast("mast-jobs", "follow", "-j", job_id)
+        follow = self.run_mast("mast", "jobs", "follow", "-j", job_id)
         self.assertEqual(follow.returncode, 0, follow.stdout)
         self.assertIn(DOMAINS[1], follow.stdout)
         # The worker id, and the slot of the worker that ran the job
@@ -401,11 +402,11 @@ class TestWorkers(InstalledTestCase):
         out = self.communicate(worker, SLOW * 2)
         self.assertEqual(worker.returncode, 1, out)
         self.assertEqual(self.status(job_id), "lost")
-        self.assertNotIn(worker_id, self.run_mast("mast-jobs", "workers").stdout)
+        self.assertNotIn(worker_id, self.run_mast("mast", "jobs", "workers").stdout)
 
     def test_drain_stops_when_the_queue_is_empty(self):
         job_id = self.detach()
-        worker = self.start("mast-worker", "--drain")
+        worker = self.start("mast", "worker", "--drain")
         out = self.communicate(worker, TIMEOUT)
         self.assertEqual(worker.returncode, 0, out)
         self.assertEqual(self.status(job_id), "succeeded")
@@ -444,14 +445,14 @@ class TestMastd(InstalledTestCase):
     def start_mastd(self):
         # The output is a pipe: mastd must not keep it open in the
         # background, or this waits until the timeout.
-        proc = self.run_mast("mastd", "start", timeout=30)
+        proc = self.run_mast("mast", "daemon", "start", timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         return self.wait_until(self.mastd_pid, "the pid file of mastd")
 
     def wait_for_worker(self, pid):
         self.wait_until(
             lambda: re.search(r"\s{}\s".format(pid),
-                              self.run_mast("mast-jobs", "workers").stdout),
+                              self.run_mast("mast", "jobs", "workers").stdout),
             "the worker of mastd")
 
     def gone(self, pid):
@@ -467,20 +468,20 @@ class TestMastd(InstalledTestCase):
         return proc.stdout.split()[0]
 
     def test_status_start_and_stop(self):
-        self.assertEqual(self.run_mast("mastd", "status").returncode, 3)
+        self.assertEqual(self.run_mast("mast", "daemon", "status").returncode, 3)
         pid = self.start_mastd()
-        status = self.run_mast("mastd", "status")
+        status = self.run_mast("mast", "daemon", "status")
         self.assertEqual(status.returncode, 0, status.stdout)
         self.assertIn(str(pid), status.stdout)
-        stop = self.run_mast("mastd", "stop")
+        stop = self.run_mast("mast", "daemon", "stop")
         self.assertEqual(stop.returncode, 0, stop.stdout)
         self.assertTrue(self.gone(pid))
         self.assertFalse(os.path.exists(self.pidfile))
-        self.assertEqual(self.run_mast("mastd", "status").returncode, 3)
+        self.assertEqual(self.run_mast("mast", "daemon", "status").returncode, 3)
 
     def test_restart(self):
         pid = self.start_mastd()
-        restart = self.run_mast("mastd", "restart")
+        restart = self.run_mast("mast", "daemon", "restart")
         self.assertEqual(restart.returncode, 0, restart.stdout)
         new = self.wait_until(
             lambda: self.mastd_pid() not in (None, pid) and self.mastd_pid(),
@@ -496,7 +497,7 @@ class TestMastd(InstalledTestCase):
         self.reset_requests()
         self.detach()
         job_id = self.wait_running(before)
-        stop = self.run_mast("mastd", "stop")
+        stop = self.run_mast("mast", "daemon", "stop")
         self.assertEqual(stop.returncode, 0, stop.stdout)
         self.assertIn("Waiting for mastd", stop.stdout)
         self.assertTrue(self.gone(pid))
@@ -510,7 +511,7 @@ class TestMastd(InstalledTestCase):
         before = self.newest_job()
         self.detach()
         job_id = self.wait_running(before)
-        stop = self.start("mastd", "stop")
+        stop = self.start("mast", "daemon", "stop")
         self.wait_until(
             lambda: "Waiting for mastd" in stop.stdout.readline(),
             "mastd stop to wait")
@@ -541,7 +542,7 @@ class TestMastd(InstalledTestCase):
                             return text
         text = self.wait_until(logged, "the output of the task in the log")
         self.assertIn("succeeded", text)
-        stop = self.run_mast("mastd", "stop")
+        stop = self.run_mast("mast", "daemon", "stop")
         self.assertEqual(stop.returncode, 0, stop.stdout)
 
 

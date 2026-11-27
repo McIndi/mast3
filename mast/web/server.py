@@ -118,9 +118,9 @@ def check_certificate(server):
     if not problems:
         return
     if sys.platform == "win32":
-        command = "mast.bat contrib\\gen-cert.py"
+        command = "mast-python.bat contrib\\gen-cert.py"
     else:
-        command = "./mast contrib/gen-cert.py"
+        command = "./mast-python contrib/gen-cert.py"
     raise CertificateNotFound(
         "The web GUI uses TLS (secure = true in server.conf), but {}.\n"
         "Set key and cert in the [server] section of "
@@ -181,6 +181,32 @@ def main():
     except Exception:
         logger.exception(
             "Sorry, an unhandled exception occurred while starting CherryPy")
+
+
+def program(argv):
+    """
+    _function_: `mast.web.server.program(argv)`
+
+    `mast web`: start the web server, as `main` does. It takes no
+    arguments but `--help`. Return the exit status.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="mast web",
+        description="Serve the web UI and its API on the host and port "
+                    "of etc/local/server.conf, until it gets SIGTERM or "
+                    "Ctrl + C.")
+    parser.parse_args(argv)
+    logger = make_logger("mast.web")
+    logger.info("Attempting to start web gui.")
+    try:
+        main()
+    except StartupError as e:
+        logger.error(str(e))
+        print("mast web: {}".format(e), file=sys.stderr)
+        return 1
+    logger.info("web gui stopped")
+    return 0
 
 
 def stop_server():

@@ -17,39 +17,44 @@
 """
 _module_: `mast.registry.cli`
 
-`mast-appliances`: the appliances and the environments that MAST
-knows (see `mast.registry`).
+`mast targets` and `mast fleets`: the targets (appliances) and the
+fleets (environments) that MAST knows (see `mast.registry`).
 
-* `add`, `update`, `remove`, `list`: The appliances.
-* `pin`, `unpin`: The pinned TLS certificate and SSH host key of an
-appliance (see `mast.datapower.datapower.tls`).
-* `env-add`, `env-update`, `env-set-members`, `env-remove`, `env-list`:
-The environments.
+`mast targets`:
+
+* `add`, `update`, `remove`, `list`: The targets.
+* `pin`, `unpin`: The pinned TLS certificate and SSH host key of a
+target (see `mast.datapower.datapower.tls`).
 * `import`: Move `hosts.conf`, `environments.conf` and the sections of
 `appliances.conf` for single appliances into the registry.
-* `export`: Write the registry back as those files, to go back to an
-older MAST.
+* `export`: Write the registry back as those files.
 
-Whoever can run `mast-appliances` on the MAST host can read the
-database, so it needs no login; it is an admin.
+`mast fleets`: `add`, `update`, `set-members`, `remove`, `list`.
+
+Whoever can run these on the MAST host can read the database, so they
+need no login; they are an admin.
 """
 import sys
 from typing import Literal
 
 from mast import registry
 from mast.cli import Cli, Option, Params, Table, Text
+from mast.roots import CORE
 from mast.registry import files
 
-__all__ = ["cli"]
+__all__ = ["targets", "fleets"]
 
-cli = Cli(description="Manage the appliances and environments of MAST.",
-          prog="mast-appliances")
+targets = Cli(description="Manage the targets of MAST: register them, and "
+                          "pin their TLS certificates and SSH host keys.",
+              provider=CORE, prog="mast targets", queued=False)
+fleets = Cli(description="Manage the fleets of MAST: named groups of targets.",
+             provider=CORE, prog="mast fleets", queued=False)
 
 YesNo = Literal["yes", "no"]
 
 
 def _fail(message):
-    print("mast-appliances: {}".format(message), file=sys.stderr)
+    print("mast targets: {}".format(message), file=sys.stderr)
     sys.exit(1)
 
 
@@ -82,7 +87,7 @@ class Settings(Params):
     tls_mode: Literal["ca", "pin", "none"] | None = Option(
         None, help="How the TLS certificate of the appliance is checked: "
                    "ca (a trusted certificate authority), pin (the "
-                   "certificate that mast-appliances pin stored) or none "
+                   "certificate that mast targets pin stored) or none "
                    "(not at all; stored credentials are refused).")
     ca_bundle_file: str | None = Option(
         None, help="A PEM file with the certificate authorities that sign "
@@ -138,7 +143,7 @@ def _show(appliance):
     return "\n".join(lines)
 
 
-@cli.command("add")
+@targets.command("add", id="add-target")
 def add(params: Add):
     """Add an appliance. A setting that is not given takes the default of
     [global] in appliances.conf."""
@@ -146,7 +151,7 @@ def add(params: Add):
         registry.add, params.name, **_fields(params))))
 
 
-@cli.command("update")
+@targets.command("update", id="update-target")
 def update(params: Update):
     """Change the settings of an appliance, or rename it."""
     found = _do(registry.update, params.name,
@@ -156,22 +161,22 @@ def update(params: Update):
     return Text("Updated " + _show(found))
 
 
-@cli.command("remove")
+@targets.command("remove", id="remove-target")
 def remove(params: NameParams):
     """Remove an appliance, and take it out of its environments."""
     _do(registry.remove, params.name)
     return Text("Removed {}.".format(params.name))
 
 
-@cli.command("list")
+@targets.command("list", id="list-targets")
 def list_appliances(params: Params):
     """List the appliances. CHANGED: the last connection found another
     certificate or SSH host key than the pinned one."""
     found = registry.list_appliances()
     if not found:
         return Text("There are no appliances. Add one with "
-                    "mast-appliances add, or import hosts.conf and "
-                    "environments.conf with mast-appliances import.")
+                    "mast targets add, or import hosts.conf and "
+                    "environments.conf with mast targets import.")
     def check(mode, mismatch):
         return mode + (" CHANGED" if mismatch else "")
 
@@ -209,7 +214,7 @@ def _confirm(question, yes):
     return answer.strip().lower() in ("y", "yes")
 
 
-@cli.command("pin")
+@targets.command("pin", id="pin-target")
 def pin(params: Pin):
     """Pin the TLS certificate of the SOMA port of an appliance, and so
     check its TLS by that pin (the TLS check pin), or with --ssh its SSH
@@ -301,7 +306,7 @@ class Unpin(NameParams):
         False, help="Remove the pinned certificate and SSH host key.")
 
 
-@cli.command("unpin")
+@targets.command("unpin", id="unpin-target")
 def unpin(params: Unpin):
     """Remove the pinned certificate of an appliance (its TLS check
     becomes ca), or with --ssh its pinned SSH host key."""
@@ -345,7 +350,7 @@ def _show_env(environment):
         " ".join(environment.members) or "no appliances")
 
 
-@cli.command("env-add")
+@fleets.command("add", id="add-fleet")
 def env_add(params: EnvAdd):
     """Add an environment."""
     return Text("Added " + _show_env(_do(
@@ -353,7 +358,7 @@ def env_add(params: EnvAdd):
         params.production, params.members)))
 
 
-@cli.command("env-update")
+@fleets.command("update", id="update-fleet")
 def env_update(params: EnvUpdate):
     """Change the description or the production flag of an environment."""
     production = None if params.production is None \
@@ -362,21 +367,21 @@ def env_update(params: EnvUpdate):
         registry.env_update, params.name, params.description, production)))
 
 
-@cli.command("env-set-members")
+@fleets.command("set-members", id="set-fleet-members")
 def env_set_members(params: EnvMembers):
     """Set the appliances of an environment."""
     return Text("Set " + _show_env(_do(
         registry.env_set_members, params.name, params.members)))
 
 
-@cli.command("env-remove")
+@fleets.command("remove", id="remove-fleet")
 def env_remove(params: EnvParams):
     """Remove an environment. Its appliances stay."""
     _do(registry.env_remove, params.name)
     return Text("Removed the environment {}.".format(params.name))
 
 
-@cli.command("env-list")
+@fleets.command("list", id="list-fleets")
 def env_list(params: Params):
     """List the environments."""
     found = registry.env_list()
@@ -400,7 +405,7 @@ class Import(Params):
         False, short="d", help="Only show what would be done.")
 
 
-@cli.command("import")
+@targets.command("import", id="import-targets")
 def import_files(params: Import):
     """Move the appliances and environments of hosts.conf,
     environments.conf and appliances.conf into the registry. Every
@@ -422,7 +427,7 @@ class Export(Params):
         False, short="f", help="Replace files that are there.")
 
 
-@cli.command("export")
+@targets.command("export", id="export-targets")
 def export_files(params: Export):
     """Write the registry as hosts.conf, environments.conf and
     appliances.conf, which MAST 3.15.2 reads, to go back to it."""

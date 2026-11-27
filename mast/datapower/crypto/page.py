@@ -38,7 +38,7 @@ rules.
 one needs `manage-exception` (an admin).
 * `GET /api/v1/crypto/export?format=cbom|xlsx|csv`: the newest
 snapshot that worked of each appliance as a download, as
-`mast-crypto export` writes it.
+`mast crypto export` writes it.
 * `GET /api/v1/crypto/snapshots?appliance=NAME`: the snapshots of an
 appliance, and `GET /api/v1/crypto/diff?from=ID&to=ID` what changed
 between two of them.
@@ -71,9 +71,9 @@ from .rules import RULES, SEVERITIES, _load
 
 __all__ = ["page", "COMMAND", "SCHEDULE", "PROBE_COMMAND", "PROBE_SCHEDULE"]
 
-COMMAND = "crypto.inventory"
+COMMAND = "core.crypto-inventory"
 SCHEDULE = "crypto-inventory"
-PROBE_COMMAND = "crypto.probe"
+PROBE_COMMAND = "core.crypto-probe"
 PROBE_SCHEDULE = "crypto-probe"
 # Sunday at 03:00
 PROBE_CRON = "0 3 * * 0"
@@ -852,7 +852,7 @@ def probes():
     """
     _function_: `mast.datapower.crypto.page.probes()`
 
-    The newest probe of each port (`mast-crypto probe`), the schedules
+    The newest probe of each port (`mast crypto probe`), the schedules
     of the probe, and what the user may do.
 
     Exposed at: `/api/v1/crypto/probes` via GET

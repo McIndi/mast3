@@ -266,62 +266,31 @@ def generate_markdown(objects):
 
 
 def generate_cli_reference():
-    mast_home = os.environ["MAST_HOME"]
-    scripts = os.listdir(mast_home)
-    scripts = [f for f in scripts if os.path.isfile(os.path.join(mast_home, f))]
-    scripts = [f for f in scripts if f.startswith("mast-")]
-    scripts = [f for f in scripts if "mast-web" not in f]
+    """The help of every root of the `mast` command and of each of its
+    commands, from the command registry (the same parsers as the command
+    line)."""
+    from mast import roots
+    from mast.jobs import registry
 
+    def section(title, help_text):
+        text = help_text.replace("  -", "    -")
+        return "{}\n\n{}\n\n".format(title, textwrap.dedent(text))
+
+    clis = []
+    for name, root in roots.ROOTS.items():
+        if not root.program:
+            clis.append(roots.load(root.target))
+    for provider in registry.providers():
+        if provider != roots.CORE:
+            clis.append(registry.cli_for(provider))
     ret = ""
-    for script in scripts:
-        _script = os.path.join(mast_home, script)
-        ret += "# {}\n\n".format(script.replace("_", "\\_"))
-
-        command = [_script, "--help"]
-        out, err = system_call(command)
-        out = out.decode()
-        if err:
-            err = err.decode()
-        out = out.replace("  -", "    -")
-
-        # The names of the subcommands, from the "commands:" section of
-        # the help. Each name is indented by four spaces; a long name is
-        # on a line of its own, with its description on the next line.
-        subcommands = []
-        section = re.search(r"^commands:\n(.*?)(?:\n\S|\Z)", out,
-                            flags=re.MULTILINE | re.DOTALL)
-        if section is not None:
-            subcommands = re.findall(r"^ {4}([a-z][\w-]*)(?: |$)",
-                                     section.group(1), flags=re.MULTILINE)
-        # print(subcommands)
-        # import sys; sys.exit()
-        # out = re.sub(r"\{.*?\}", r"\1", out, flags=re.MULTILINE)
-        # out = re.sub(r",", r"\n", out, flags=re.MULTILINE)
-        # Put subcommand name in backticks
-        # out = re.sub(r"^\* (.*?)\s-\s", r"* `\1` - ", out, flags=re.MULTILINE)
-        # isolate sub-command categories into section headers
-        # out = re.sub(r"^(.*?Commands:)", r"\n\n\1\n\n", out, flags=re.MULTILINE)
-        # Special case mast-ssh because it has no subcommands
-        if "mast-ssh" in _script:
-            out = out.replace("arguments:", "arguments:\n\n")
-        out = out.replace("----------------------------------------", "")
-        ret += "{}\n\n".format(textwrap.dedent(out))
-        if "mast-ssh" not in _script:
-            # subcommands = [l for l in out.splitlines() if l.startswith("* ")]
-            # subcommands = [x.split(" - ")[0].strip().replace("* ", "").replace("`", "") for x in subcommands]
-            for subcommand in subcommands:
-                if subcommand == "help":
-                    continue
-                command = [_script, subcommand, "--help"]
-                out, err = system_call(command)
-                out, err = out.decode(), err.decode() if err else ''
-                out = out.replace("  -", "    -")
-                out = out.replace("Options:", "Options:\n\n")
-                out = out.replace("----------------------------------------", "")
-                ret += "## {} {}\n\n".format(
-                    script.replace("_", "\\_"),
-                    subcommand.split(" - ")[0].replace("_", "\\_"))
-                ret += "{}\n\n".format(textwrap.dedent(out))
+    for cli in clis:
+        ret += section("# {}".format(cli.parser.prog), cli.parser.format_help())
+        for command in cli.commands.values():
+            ret += section("## {}".format(command.invocation),
+                           "Id: `{}`, permission path: `{}`\n\n{}".format(
+                               command.id, command.path,
+                               command.parser.format_help()))
     return ret
 
 

@@ -175,7 +175,7 @@ class TestLogin(WebCase):
             users.delete(user.name)
         answer = self.client.get("/", follow_redirects=True)
         self.assertEqual(answer.status_code, 503)
-        self.assertIn("mast-users add", answer.get_data(as_text=True))
+        self.assertIn("mast users add", answer.get_data(as_text=True))
         self.assertEqual(self.client.get("/crypto").status_code, 302)
 
     def test_logins_are_logged_without_the_password(self):

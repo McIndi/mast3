@@ -7,8 +7,8 @@ should contain exacly one worksheet each. This worksheet should contain
 the LogTarget configuration in the one and LogTargetStatus. You can generate
 these workbooks with the following commands:
 
-$ ./mast usrbin/getconfig.py -a $HOSTNAMES -c $CREDENTIALS -d all-domains -o LogTarget
-$ ./mast usrbin/getstatus.py -a $HOSTNAMES -c $CREDENTIALS -d all-domains -p LogTargetStatus
+$ ./mast-python usrbin/getconfig.py -a $HOSTNAMES -c $CREDENTIALS -d all-domains -o LogTarget
+$ ./mast-python usrbin/getstatus.py -a $HOSTNAMES -c $CREDENTIALS -d all-domains -p LogTargetStatus
 
 Once those commands are run you should have two files and you can use this
 script to perform the equivalent of a LEFT JOIN on the two worksheets

@@ -17,7 +17,7 @@
 """
 _module_: `mast.auth.cli`
 
-`mast-users`: manage the local users of the web UI.
+`mast users`: manage the local users of the web UI.
 
 * `add`: Add a user, with a temporary password.
 * `set-password`: Give a user a new password.
@@ -28,10 +28,10 @@ again.
 * `list`: The users.
 
 A password is never an option, so that it is not in the history of
-the shell or in the list of processes. `mast-users` asks for it.
+the shell or in the list of processes. `mast users` asks for it.
 
-Whoever can run `mast-users` on the MAST host can read the database
-and the key files, so `mast-users` needs no login.
+Whoever can run `mast users` on the MAST host can read the database
+and the key files, so `mast users` needs no login.
 """
 import getpass
 import sys
@@ -39,11 +39,12 @@ from typing import Literal
 
 from mast.auth import passwords, roles, users
 from mast.cli import Cli, Option, Params, Table, Text
+from mast.roots import CORE
 
 __all__ = ["cli"]
 
-cli = Cli(description="Manage the users of the MAST web UI.",
-          prog="mast-users")
+cli = Cli(description="Manage the users of MAST.", provider=CORE,
+          prog="mast users", queued=False)
 
 Role = Literal[roles.VIEWER, roles.OPERATOR, roles.ADMIN]
 
@@ -54,7 +55,7 @@ def _when(time):
 
 
 def _fail(message):
-    print("mast-users: {}".format(message), file=sys.stderr)
+    print("mast users: {}".format(message), file=sys.stderr)
     sys.exit(1)
 
 
@@ -105,14 +106,14 @@ class SetRole(UserParams):
     role: Role = Option(short="r", help="The new role.")
 
 
-@cli.command("add")
+@cli.command("add", id="add-user")
 def add(params: Add):
-    """Add a user. mast-users asks for the first password, which is
+    """Add a user. mast users asks for the first password, which is
     temporary: the user chooses a new one at the first login.
 
     To make the first admin of a new MAST home:
 
-        mast-users add -u NAME -r admin"""
+        mast users add -u NAME -r admin"""
     name = _do(users.normalize, params.user)
     password = _ask_password(name)
     info = _do(users.add, name, password, params.role)
@@ -121,7 +122,7 @@ def add(params: Add):
                     info.name, info.role))
 
 
-@cli.command("set-password")
+@cli.command("set-password", id="set-user-password")
 def set_password(params: SetPassword):
     """Give a user a new password, and log out every session of the
     user. This also ends a lock after failed logins."""
@@ -133,7 +134,7 @@ def set_password(params: SetPassword):
         "temporary " if params.temporary else "", name))
 
 
-@cli.command("set-role")
+@cli.command("set-role", id="set-user-role")
 def set_role(params: SetRole):
     """Give a user another role, and log out every session of the
     user."""
@@ -141,7 +142,7 @@ def set_role(params: SetRole):
     return Text("{} now has the role {}.".format(info.name, info.role))
 
 
-@cli.command("disable")
+@cli.command("disable", id="disable-user")
 def disable(params: UserParams):
     """Stop a user from logging in, and log out every session of the
     user. The user and their jobs stay."""
@@ -149,14 +150,14 @@ def disable(params: UserParams):
     return Text("Disabled {}.".format(info.name))
 
 
-@cli.command("enable")
+@cli.command("enable", id="enable-user")
 def enable(params: UserParams):
     """Let a disabled user log in again."""
     info = _do(users.enable, params.user)
     return Text("Enabled {}.".format(info.name))
 
 
-@cli.command("delete")
+@cli.command("delete", id="delete-user")
 def delete(params: UserParams):
     """Remove a user. The jobs of the user stay, with the name of the
     user."""
@@ -164,13 +165,13 @@ def delete(params: UserParams):
     return Text("Deleted {}.".format(users.normalize(params.user)))
 
 
-@cli.command("list")
+@cli.command("list", id="list-users")
 def list_users(params: Params):
     """List the users."""
     found = users.list_users()
     if not found:
         return Text("There are no users. Add the first admin with "
-                    "mast-users add -u NAME -r admin")
+                    "mast users add -u NAME -r admin")
     return Table(
         ("User", "Role", "State", "Created", "Last login"),
         [(user.name, user.role,

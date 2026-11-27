@@ -39,7 +39,7 @@ Backups go to `var/backups` by default, which is never emptied.
 transaction, so that it never holds the SQLite lock for long. The
 workers run it each day (`[retention] schedule`, see
 `mast.jobs.worker`); if several do, the first deletes and the others
-find little left. `mast-jobs prune` runs it now, and with `--dry-run`
+find little left. `mast jobs prune` runs it now, and with `--dry-run`
 only counts.
 """
 import os

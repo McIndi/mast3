@@ -601,7 +601,7 @@ class TestCommands(PostureCase):
         users.add("ada", "a-long-password-1", "admin")
         users.add("otto", "a-long-password-2", "operator")
         posture.evaluate(self.snapshot_id)
-        job = jobs.submit("crypto.exception-add", {
+        job = jobs.submit("core.crypto-exception-add", {
             "rule": "cert-expired", "pattern": "old", "expires": "30d",
             "reason": "Replaced in the change of next week"},
             principal=Principal("ada", "admin"))
@@ -610,7 +610,7 @@ class TestCommands(PostureCase):
         self.assertEqual(jobs.result(job).data["rows"][0][1], "cert-expired")
         self.assertTrue(posture.findings_of([self.snapshot_id])[0]["exception"])
         # An operator may not
-        job = jobs.submit("crypto.exception-add", {
+        job = jobs.submit("core.crypto-exception-add", {
             "rule": "cert-expired", "pattern": "x", "expires": "30d",
             "reason": "Replaced in the change of next week"},
             principal=OPERATOR)
@@ -634,7 +634,7 @@ class TestCommands(PostureCase):
                             if r[1] in ("baseline", "mast")))
 
     def test_the_inventory_runs_the_rules(self):
-        # mast-crypto inventory evaluates each snapshot it keeps
+        # mast crypto inventory evaluates each snapshot it keeps
         with mock.patch.object(posture, "evaluate", return_value=4) as run:
             from mast.testsuite.unit.test_mast_datapower_crypto_inventory import (
                 FakeEnvironment)
@@ -925,7 +925,7 @@ class TestCryptoPage(WebCase):
         self.assertEqual(answer.status_code, 202, answer.get_json())
         job = jobs.get(answer.get_json()["job_id"])
         self.assertEqual((job.command, job.params["appliances"]),
-                         ("crypto.inventory", ["dp1", "dp2"]))
+                         ("core.crypto-inventory", ["dp1", "dp2"]))
         self.assertEqual(self.call("POST", "/crypto/schedule",
                                    {"credential": "collector"},
                                    client=operator).status_code, 403)
@@ -997,7 +997,7 @@ class TestCryptoPage(WebCase):
         self.assertEqual(answer.status_code, 202, answer.get_json())
         job = jobs.get(answer.get_json()["job_id"])
         self.assertEqual((job.command, job.params["appliances"]),
-                         ("crypto.probe", ["dp1", "dp2"]))
+                         ("core.crypto-probe", ["dp1", "dp2"]))
         self.assertEqual(self.call("POST", "/crypto/probe-schedule", {},
                                    client=operator).status_code, 403)
         answer = self.call("POST", "/crypto/probe-schedule", {},

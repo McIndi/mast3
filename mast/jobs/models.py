@@ -97,7 +97,7 @@ class Job(Base):
     )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    # The id of the command, for example "backups.normal-backup"
+    # The id of the command, for example "datapower.normal-backup"
     command: Mapped[str] = mapped_column(String(200))
     # The parameters as JSON. Secret parameters are encrypted, see
     # mast.jobs.secrets
@@ -207,7 +207,7 @@ class Schedule(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True)
-    # The id of the command, for example "system.list-domains"
+    # The id of the command, for example "datapower.list-domains"
     command: Mapped[str] = mapped_column(String(200))
     # The parameters as JSON. Never a secret: a schedule uses a stored
     # credential

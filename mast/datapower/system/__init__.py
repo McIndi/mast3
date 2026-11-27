@@ -22,7 +22,3 @@ tasks associated with IBM DataPower appliances.
 from .system import *
 import os
 from mast import __version__
-
-if __name__ == "__main__":
-    cli.run()
-

@@ -29,11 +29,18 @@ A command is a function that takes one parameter, which is annotated
 with a subclass of `mast.cli.Params`. The options, their help and their
 validation come from that model. See `mast.cli.params`.
 
-A `Cli` that has a `namespace` does not call its commands itself. It
+A `Cli` that has a `provider` does not call its commands itself. It
 puts each invocation in the job queue (`mast.jobs`) and shows the
 progress and the result of the job. A command that is registered with
 `queued=False` is the exception: it is always called directly, and
 nothing about it is stored.
+
+Each command of a provider has a canonical id, `PROVIDER.NAME`, and a
+permission path, `mast/PROVIDER/NAME`. For a plugin, `NAME` is the name
+on the command line: `datapower.get-status` is
+`mast datapower get-status`. The commands of core (provider `core`) are
+under several roots of the `mast` command, so each one gives its
+canonical name: `mast crypto inventory` is `core.crypto-inventory`.
 """
 import sys
 import inspect
@@ -86,7 +93,19 @@ class Command(object):
 
     * `name`: The name on the command line, for example `fetch-logs`.
     * `key`: The name of the function, which the web GUI uses.
-    * `category`: The heading under which the web GUI lists the command.
+    * `provider`: The provider of the command (`datapower`, or `core`),
+    or `None` for a `Cli` without one.
+    * `id_name`: The canonical name of the command in its provider. It
+    is `name`, unless core gives another one.
+    * `id`: `PROVIDER.ID_NAME`, the id that jobs and schedules store.
+    * `path`: `mast/PROVIDER/ID_NAME`, the permission path.
+    * `invocation`: The command line that runs it, for example
+    `mast datapower get-status`.
+    * `category`: The part of the product that it belongs to (for
+    DataPower: `system`, `backups`, `crypto`, ...). The catalog and the
+    web GUI group commands by it. It is not part of the id, the path or
+    the command line.
+    * `group`: A finer heading within the category, such as `caches`.
     * `fn`: The function to call. It takes either one `Params`
     instance or the fields of the model as keyword arguments.
     * `model`: The `Params` subclass.
@@ -104,14 +123,17 @@ class Command(object):
     or its result must not be stored.
     * `passive`: True if its jobs neither wait for nor hold up other
     jobs (see `mast.jobs.queue.submit`): a poll that only reads, such
-    as `mast-status collect`. Only with `exclusive=False`.
+    as `mast datapower collect-status`. Only with `exclusive=False`.
     * `internal`: True for a command whose jobs a part of MAST makes
-    and runs itself (the Terminal page's `ssh.terminal`, a record of a
-    session). The Commands page does not offer it, and it cannot be
+    and runs itself (the Terminal page's `datapower.terminal`, a record
+    of a session). The Commands page does not offer it, and it cannot be
     submitted through the web API or scheduled.
+    * `interactive`: True for a command that needs a terminal (`mast
+    datapower ssh`). It runs only on the command line.
     """
     def __init__(self, name, fn, category, model, parser, exclusive=True,
-                 resources=None, queued=True, passive=False, internal=False):
+                 resources=None, queued=True, passive=False, internal=False,
+                 group=None, provider=None, id_name=None, interactive=False):
         if passive and exclusive:
             raise ValueError(
                 "{}: a passive command only reads (exclusive=False)".format(
@@ -127,6 +149,29 @@ class Command(object):
         self.queued = queued
         self.passive = passive
         self.internal = internal
+        self.group = group
+        self.interactive = interactive
+        self.provider = provider
+        self.id_name = id_name or name
+
+    @property
+    def id(self):
+        """`PROVIDER.ID_NAME`, or `None` without a provider."""
+        if self.provider is None:
+            return None
+        return "{}.{}".format(self.provider, self.id_name)
+
+    @property
+    def path(self):
+        """The permission path, `mast/PROVIDER/ID_NAME`."""
+        if self.provider is None:
+            return None
+        return "mast/{}/{}".format(self.provider, self.id_name)
+
+    @property
+    def invocation(self):
+        """The command line that runs the command."""
+        return self.parser.prog
 
     @property
     def doc(self):
@@ -201,10 +246,11 @@ class Cli(object):
             cli = Cli(main=main)
             cli.run()
     """
-    def __init__(self, description="", main=None, namespace=None, prog=None):
+    def __init__(self, description="", main=None, provider=None, prog=None,
+                 queued=True):
         """
         _method_: `mast.cli.Cli.__init__(self, description="", main=None,
-        namespace=None, prog=None)`
+        provider=None, prog=None, queued=True)`
 
         This is the constructor for this class. A few options are
         available which allows defining how the program will appear
@@ -222,25 +268,25 @@ class Cli(object):
         is called from the command line. __NOTE__ that if `main` is
         provided, you cannot create sub-commands using the `command`
         decorator.
-        * `namespace`: If given, `run` executes a command as a job in
-        the job queue, with the id `<namespace>.<name of the command>`
+        * `provider`: If given, `run` executes a command as a job in
+        the job queue, with the id `<provider>.<name of the command>`
         (see `mast.jobs`). Each command then also has the options
-        `--detach` and `--local`. A MAST plugin gives its own name
-        (`mast.datapower.backups` gives `backups`), which is how a
-        worker finds the command.
+        `--detach` and `--local`. A plugin gives its provider name
+        (`datapower`), which is how a worker finds the command.
         * `prog`: The name of the program in the help. The default is
-        `mast-<namespace>`, the name of the launcher of a plugin, or
-        else the name that Python was started with. A module that is
-        run with `python -m` is imported before Python knows that
-        name, so its help would say `-m`.
+        `mast <provider>`, the command line of a plugin.
+        * `queued`: The default of `queued` for the commands of this
+        `Cli` (see `Command`). The management commands of core give
+        `False`: they run directly, and are never jobs.
         """
-        if namespace is not None and main is not None:
-            raise ValueError("a Cli with main cannot have a namespace")
-        self.namespace = namespace
+        if provider is not None and main is not None:
+            raise ValueError("a Cli with main cannot have a provider")
+        self.provider = provider
         self.main = main
+        self.queued = queued
         self.commands = {}
-        if prog is None and namespace is not None:
-            prog = "mast-{}".format(namespace)
+        if prog is None and provider is not None:
+            prog = "mast {}".format(provider)
         self.parser = argparse.ArgumentParser(
             prog=prog,
             description=description,
@@ -263,6 +309,22 @@ class Cli(object):
             result[command.category].append(command)
         return dict(result)
 
+    def section(self, category):
+        """
+        _method_: `mast.cli.Cli.section(self, category)`
+
+        Return an object whose `command` decorator registers commands in
+        this `Cli` with `category`. A plugin whose commands are in
+        several modules gives each module its section:
+
+            :::python
+            cli = provider.cli.section("backups")
+
+            @cli.command("normal-backup", group="backups")
+            def normal_backup(params: NormalBackup): ...
+        """
+        return _Section(self, category)
+
     def find(self, key):
         """
         _method_: `mast.cli.Cli.find(self, key)`
@@ -276,8 +338,9 @@ class Cli(object):
         raise KeyError(key)
 
     def create_subparser(self, fn, name=None, category=None,
-                         exclusive=True, resources=None, queued=True,
-                         passive=False, internal=False):
+                         exclusive=True, resources=None, queued=None,
+                         passive=False, internal=False, group=None, id=None,
+                         interactive=False):
         """
         _method_: `mast.cli.Cli.create_subparser(self, fn)`
 
@@ -293,16 +356,22 @@ class Cli(object):
         * `fn`: The function to create a sub-command for.
         * `name`: The name of the sub-command. The default is the name
         of the function.
-        * `category`: The heading under which the web GUI lists the
-        command.
+        * `category`, `group`: See `Command`.
+        * `id`: The canonical name of the command, if it is not `name`.
+        Only core gives one (see `Command.id_name`).
         * `exclusive`, `resources`, `queued`, `passive`, `internal`: See
         `Command`.
         """
         if not name:
             name = fn.__name__
         name = name.replace("_", "-")
+        if queued is None:
+            queued = self.queued
         if name in self.commands:
             raise ValueError("the command {} is already defined".format(name))
+        if id is not None and self.provider is None:
+            raise ValueError("{}: only a Cli with a provider gives ids".format(
+                name))
         model = params_model(fn)
         if model is None:
             raise TypeError(
@@ -323,19 +392,21 @@ class Cli(object):
             if not _parser.description:
                 _parser.description = desc
         command = Command(name, fn, category, model, _parser, exclusive,
-                          resources, queued, passive, internal)
+                          resources, queued, passive, internal, group=group,
+                          provider=self.provider, id_name=id,
+                          interactive=interactive)
         self.commands[name] = command
         _parser.set_defaults(func=fn, _command=command)
 
         _params.add_arguments(_parser, model)
-        if self.namespace is not None and queued:
+        if self.provider is not None and queued:
             queue = _parser.add_argument_group("job queue")
             queue.add_argument(
                 "--detach", dest="_detach", action="store_true",
                 default=False,
                 help="Put the job in the queue, print its id and return. "
                      "A worker must be running to do the job. See "
-                     "mast-jobs.")
+                     "mast jobs.")
             queue.add_argument(
                 "--local", dest="_local", action="store_true",
                 default=False,
@@ -344,7 +415,8 @@ class Cli(object):
         return fn
 
     def command(self, name=None, category=None, exclusive=True,
-                resources=None, queued=True, passive=False, internal=False):
+                resources=None, queued=None, passive=False, internal=False,
+                group=None, id=None, interactive=False):
         """
         _method_: `mast.cli.Cli.command(self)`
 
@@ -356,18 +428,22 @@ class Cli(object):
 
         * `name`: The name of the sub-command. The default is the name
         of the function.
-        * `category`: The heading under which the web GUI lists the
-        command.
+        * `category`, `group`: Where the catalog and the web GUI list
+        the command. See `Command`.
+        * `id`: The canonical name, if it is not `name` (core only).
         * `exclusive`: Give False for a command that only reads from
         the appliances. See `Command`.
         * `resources`: What the command must not share with another
         job, besides its appliances. See `Command`.
         * `queued`: Give False for a command that must never go
-        through the job queue. See `Command`.
+        through the job queue. The default is the `queued` of the
+        `Cli`. See `Command`.
         * `passive`: Give True for a poll whose jobs neither wait for
         nor hold up other jobs. See `Command`.
         * `internal`: Give True for a command whose jobs a part of MAST
         makes and runs itself. See `Command`.
+        * `interactive`: Give True for a command that needs a terminal.
+        See `Command`.
         """
         def inner(fn):
             if self.main is not None:
@@ -375,7 +451,7 @@ class Cli(object):
                 sys.exit(-1)
             return self.create_subparser(
                 fn, name, category, exclusive, resources, queued, passive,
-                internal)
+                internal, group, id, interactive)
         return inner
 
     def run(self, argv=None):
@@ -406,7 +482,7 @@ class Cli(object):
         except ValidationError as exc:
             command.parser.error("; ".join(
                 _params.error_messages(command.model, exc)))
-        if self.namespace is not None and command.queued:
+        if self.provider is not None and command.queued:
             return self._run_job(command, args, values, log)
         log.info(f"Attempting to execute func: {command.fn}")
         try:
@@ -425,8 +501,10 @@ class Cli(object):
         # Imported here, because mast.jobs imports this module
         from mast.jobs import client, registry
         from mast.jobs.auth import Forbidden
-        registry.register(self.namespace, self)
-        command_id = registry.command_id(self.namespace, command)
+        # A Cli that MAST does not know (in a test, or a script) is
+        # made known, so that a worker in this process finds it
+        registry.ensure(self)
+        command_id = command.id
         log.info(f"Attempting to queue the command: {command_id}")
         try:
             status = client.run(
@@ -439,6 +517,28 @@ class Cli(object):
                 command.parser.prog, exc))
         if status:
             sys.exit(status)
+
+
+class _Section(object):
+    """The commands of one category of a `Cli`, see `Cli.section`."""
+
+    def __init__(self, cli, category):
+        self.cli = cli
+        self.category = category
+
+    def command(self, name=None, **kwargs):
+        """`Cli.command` with the category of this section."""
+        kwargs.setdefault("category", self.category)
+        return self.cli.command(name, **kwargs)
+
+    def run(self, argv=None):
+        return self.cli.run(argv)
+
+    @property
+    def commands(self):
+        """The commands of this category, by name."""
+        return {name: command for name, command in self.cli.commands.items()
+                if command.category == self.category}
 
 
 def _summary(doc):

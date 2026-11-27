@@ -25,7 +25,7 @@ parameters. A client puts a job in the queue and a worker runs it:
     :::python
     from mast import jobs
 
-    job_id = jobs.submit("backups.normal-backup", {
+    job_id = jobs.submit("datapower.normal-backup", {
         "appliances": ["dp1"], "credentials": ["user:password"],
         "Domain": ["default"]})
 

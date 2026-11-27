@@ -278,22 +278,6 @@ class TestNetworkCommands(unittest.TestCase):
                 self.assertIn("dp1-save_config", result.html())
                 self.assertEqual(2, result.html().count("Succeeded"))
 
-    def test_flush_caches(self):
-        cases = (
-            (network.flush_arp_cache, {}, "FlushArpCache", {}),
-            (network.flush_dns_cache, {}, "FlushDNSCache", {}),
-            (network.flush_nd_cache, {}, "FlushNDCache", {}),
-            (network.flush_pdp_cache, {"XACMLPDP": "p"},
-             "FlushPDPCache", {"XACMLPDP": "p"}),
-        )
-        for command, kwargs, action, expected in cases:
-            with self.subTest(action=action):
-                result, messages = self.call(command, **kwargs)
-                self.assertIsInstance(result, ActionResults)
-                self.assertEqual([(action, expected)], result.env.actions)
-                self.assertEqual(1, len(messages))
-                self.assertEqual(1, result.html().count("Failed"))
-
     def test_required_parameters_and_choices(self):
         with self.assertRaises(ValueError):
             network.add_host_alias(appliances=["dp1"], name="n")
@@ -354,7 +338,7 @@ class TestNetworkCommands(unittest.TestCase):
         self.assertIn("0 to 255", err.getvalue())
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(20, len(cli.commands))
+        self.assertEqual(16, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

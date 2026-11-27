@@ -50,6 +50,10 @@ A fix to 3.x goes to `version_3` first and is then merged into `main`. When the 
 | D11 | `git-deploy` is removed. The supported deployment commands stay. |
 | D12 | The documented PyPI install is `python -m pip install mcindi-mast-datapower`. The Linux plugin is published separately. |
 | D13 | The zip installers and the GHCR images bundle core and DataPower, from the same tested lockfile. |
+| D14 | Duplicate commands of 3.x are merged: one 4.0 command for each pair, and both 3.x ids map to it (Q1). |
+| D15 | Core commands have permission paths `mast/core/NAME`. Core resources have reserved roots of their own: `mast/credentials/NAME`, `mast/targets/NAME`, `mast/fleets/NAME`. No plugin may use these names as its provider (Q3). |
+| D16 | Prefix wildcards stay as designed. Their safety rests on the correct `effect` of every command; there is no separate flag for sensitive reads (Q2). |
+| D17 | In the installer, `mast` is the command and the interpreter is `mast-python`. Core has program roots for its processes: `mast web`, `mast worker`, `mast daemon`, `mast version`, `mast selftest`. |
 
 ## Deferred
 
@@ -102,7 +106,7 @@ One mapping connects command identity, permission path and invocation:
 | Permission path | `mast/datapower/get-status` |
 | CLI invocation | `mast datapower get-status` |
 
-* A command name is unique within its provider. Name collisions from the flattening are resolved with descriptive names before registration (see "Open questions", Q1).
+* A command name is unique within its provider. The 13 names that collide when the namespaces are flattened were duplicates of one SOMA action, and are merged (D14).
 * Categories (system, backups, deployment, crypto, ...) are catalog and UI metadata. They do not add CLI levels or permission-path segments.
 * Core commands have explicit canonical names, such as `core.add-target` and `core.cancel-own-job`.
 * The CLI parsers, the help, the web forms and the JSON catalog are generated from the same command specifications.
@@ -171,12 +175,13 @@ Transport settings such as `soma_port`, `ssh_port` and `web_port` are plugin att
 
   ```text
   mast/datapower/get-status
-  mast/datapower/get-*
+  mast/datapower/list-*
   mast/datapower/*
-  mast/core/credentials/dp-reader
+  mast/credentials/dp-reader
   ```
 
-* `mast/datapower/get-status` is `mast datapower get-status`. `mast/datapower/get-*` applies to the matching commands directly beneath `mast datapower`.
+* `mast/datapower/get-status` is `mast datapower get-status`. `mast/datapower/list-*` applies to the matching commands directly beneath `mast datapower`.
+* A prefix grants every command that matches it, whatever the command does: `mast/datapower/get-*` also matches `get-file`, which reads any file of an appliance. The `effect` of each command must be right (D16).
 * Malformed paths, embedded wildcards and unknown capabilities are rejected.
 * The default is deny. Matching grants from all permission sets are combined. An explicit denial that applies wins for the capability that it denies.
 * A target-related rule has an explicit scope: all targets, given targets, or given fleets. Names are resolved to immutable IDs when the policy is saved. A rule with no scope grants no target access.
@@ -188,12 +193,12 @@ Example:
   "name": "datapower-lab-reader",
   "rules": [
     {
-      "path": "mast/datapower/get-*",
+      "path": "mast/datapower/list-*",
       "allow": ["r", "x"],
       "scope": {"fleets": ["dp-lab"]}
     },
     {
-      "path": "mast/core/credentials/dp-reader",
+      "path": "mast/credentials/dp-reader",
       "allow": ["x"],
       "scope": {"fleets": ["dp-lab"]}
     }
@@ -368,9 +373,9 @@ Release **4.0.0** after the Linux fixture suite, the DataPower regression suite,
 
 ## Open questions
 
-These come from a comparison of the plan with the 3.x code at `2427b09`.
+These come from a comparison of the plan with the 3.x code at `2427b09`. Q1 to Q4 are decided (D14 to D16, and step 2).
 
-**Q1. Flat-name collisions.** 3.x has 119 commands. Flattening into `datapower` gives 13 names that occur in two namespaces:
+**Q1 (decided: D14). Flat-name collisions.** 3.x has 119 commands. Flattening into `datapower` gives 13 names that occur in two namespaces:
 
 | Name | 3.x namespaces |
 |---|---|
@@ -381,11 +386,11 @@ These come from a comparison of the plan with the 3.x code at `2427b09`.
 
 The `flush-*` pairs are separate implementations of the same SOMA action (for example `mast/datapower/accounts/accounts.py` and `mast/datapower/system/system.py`, both `FlushAAACache`). Merge each pair into one command, and map both 3.x IDs to it in the import (step 13)? The file commands must be compared before names are chosen. (`crypto.export` and `developer.export` do not collide, because `crypto` moves to core.) The `datapower` root will also have three similar connectivity commands: `check-connectivity`, `test-connectivity` and `tcp-connection-test`.
 
-**Q2. Prefix wildcards over command names.** In the example, `mast/datapower/get-*` with `r` and `x` matches 8 commands: `get-status` and `get-config`, and also `get-file`, `get-filestore`, `get-encrypted-filesystem`, `get-temporary-filesystem`, `get-error-reports` and `get-pmr-info`. `get-pmr-info` generates an error report on the appliance, so its effect is `change`. `get-file` reads any file, including `cert:///`, so with `effect="read"` a "reader" can download key material. The safety of a prefix grant depends on the `effect` of every matching command, and command names become security-relevant. Should the example use a safer path, should sensitive reads need their own grant, or should grants be able to select on `effect` or category? Note that 91 of the 119 commands are `exclusive=True` today, so `exclusive` is no guide to `effect`.
+**Q2 (decided: D16).** Prefix wildcards over command names.** In the example, `mast/datapower/get-*` with `r` and `x` matches 8 commands: `get-status` and `get-config`, and also `get-file`, `get-filestore`, `get-encrypted-filesystem`, `get-temporary-filesystem`, `get-error-reports` and `get-pmr-info`. `get-pmr-info` generates an error report on the appliance, so its effect is `change`. `get-file` reads any file, including `cert:///`, so with `effect="read"` a "reader" can download key material. The safety of a prefix grant depends on the `effect` of every matching command, and command names become security-relevant. Should the example use a safer path, should sensitive reads need their own grant, or should grants be able to select on `effect` or category? Note that 91 of the 119 commands are `exclusive=True` today, so `exclusive` is no guide to `effect`.
 
-**Q3. Permission paths for core.** For plugins, the ID, the path and the invocation are one mapping. For core, `core.add-target` is invoked as `mast targets add`, and its permission path is not defined. `mast/core/credentials/dp-reader` puts a resource beneath the same `mast/core/` prefix as core commands, so `mast/core/*` grants all core commands and all credentials. Define a separate scheme for core commands and core resources?
+**Q3 (decided: D15).** Permission paths for core. For plugins, the ID, the path and the invocation are one mapping. For core, `core.add-target` is invoked as `mast targets add`, and its permission path is not defined. `mast/core/credentials/dp-reader` puts a resource beneath the same `mast/core/` prefix as core commands, so `mast/core/*` grants all core commands and all credentials. Define a separate scheme for core commands and core resources?
 
-**Q4. The DataPower collection command.** Linux has `linux.collect-crypto`. The plan does not name the DataPower command that replaces `crypto.inventory-appliance`. `datapower.collect-crypto`, for symmetry?
+**Q4 (decided: `datapower.collect-crypto`).** The DataPower collection command. Linux has `linux.collect-crypto`. The plan does not name the DataPower command that replaces `crypto.inventory-appliance`. `datapower.collect-crypto`, for symmetry?
 
 **Q5. Unattended local use.** Today every CLI call is an admin: `os_principal()` in `mast/jobs/auth.py`, and `principal_of` treats `os:` and `local` as admin. With `mast login`, cron entries, `contrib` scripts and the Windows service each need a token or a service account. Steps 6 and 12 should say how unattended local use works.
 

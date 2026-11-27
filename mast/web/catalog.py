@@ -29,9 +29,11 @@ import os
 
 from mast.cli import params as cli_params
 from mast.jobs import registry
+from mast.roots import CORE
 
 __all__ = [
-    "option_json", "command_json", "all_commands", "find", "job_values",
+    "option_json", "command_json", "offered", "all_commands", "find",
+    "job_values",
     "out_paths", "job_dir", "CommandNotFound",
     "APPLIANCES", "CREDENTIALS", "UPLOAD", "OUT_DIR", "OUT_FILE",
 ]
@@ -83,19 +85,23 @@ def option_json(spec):
     }
 
 
-def command_json(namespace, command):
+def command_json(command):
     """
-    _function_: `mast.web.catalog.command_json(namespace, command)`
+    _function_: `mast.web.catalog.command_json(command)`
 
-    Return a `mast.cli.Command` as JSON types: `id`, `namespace`,
-    `name`, `category`, `doc` (markdown), `exclusive`, `queued` and
-    `options`.
+    Return a `mast.cli.Command` as JSON types: `id`, `provider`,
+    `name`, `category`, `group`, `invocation` (the command line),
+    `path` (the permission path), `doc` (markdown), `exclusive`,
+    `queued` and `options`.
     """
     return {
-        "id": registry.command_id(namespace, command),
-        "namespace": namespace,
+        "id": command.id,
+        "provider": command.provider,
         "name": command.name,
         "category": command.category or "",
+        "group": command.group or "",
+        "invocation": command.invocation,
+        "path": command.path,
         "doc": command.doc,
         "exclusive": bool(getattr(command, "exclusive", True)),
         "queued": bool(getattr(command, "queued", True)),
@@ -104,39 +110,48 @@ def command_json(namespace, command):
     }
 
 
+def offered(command):
+    """
+    _function_: `mast.web.catalog.offered(command)`
+
+    True if the web UI and the API offer `command`. They do not offer a
+    command that MAST runs itself (`internal`), one that needs a
+    terminal (`interactive`), or a management command of core that
+    never runs as a job (`mast targets add`): the web UI has its own
+    pages for those.
+    """
+    if getattr(command, "internal", False) or \
+            getattr(command, "interactive", False):
+        return False
+    return command.queued or command.provider != CORE
+
+
 def all_commands():
     """
     _function_: `mast.web.catalog.all_commands()`
 
-    Return every command of `mast.jobs.registry` as `command_json`, by
-    namespace, then in the order of their `Cli`.
+    Return every command that the web UI offers (see `offered`) as
+    `command_json`, by provider, then in the order of their `Cli`.
     """
-    found = []
-    for namespace in registry.namespaces():
-        cli = registry.cli_for(namespace)
-        for command in cli.commands.values():
-            if getattr(command, "internal", False):
-                continue
-            found.append(command_json(namespace, command))
-    return found
+    return [command_json(command) for command in registry.commands()
+            if offered(command)]
 
 
 def find(command_id):
     """
     _function_: `mast.web.catalog.find(command_id)`
 
-    Return `(namespace, command)` for an id such as
-    `system.get-status`. Raises `CommandNotFound`, also for an
-    internal command (`mast.cli.Command.internal`).
+    Return the `mast.cli.Command` with an id such as
+    `datapower.get-status`. Raises `CommandNotFound`, also for a
+    command that the web UI does not offer (see `offered`).
     """
     try:
         command = registry.resolve(command_id)
     except registry.UnknownCommand:
         raise CommandNotFound(command_id) from None
-    if getattr(command, "internal", False):
-        # A part of MAST runs it itself (Command.internal)
+    if not offered(command):
         raise CommandNotFound(command_id)
-    return command_id.partition(".")[0], command
+    return command
 
 
 def job_dir(job_id):

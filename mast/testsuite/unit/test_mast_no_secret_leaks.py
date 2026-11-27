@@ -167,7 +167,7 @@ class TestNoSecretLeaks(WebCase):
 
         # A job of the web UI, done by the web server
         answer = self.call("POST", "/jobs", {
-            "command": "system.list-domains",
+            "command": "datapower.list-domains",
             "params": {"appliances": ["dp-fake"], "credential": "leaky"}},
             client=operator)
         self.assertLess(answer.status_code, 300, answer.get_data(as_text=True))
@@ -183,7 +183,7 @@ class TestNoSecretLeaks(WebCase):
         job_ids.append(answer.get_json()["job_id"])
 
         # The status of the appliance, kept for the Appliances page
-        job_ids.append(jobs.submit("status.collect", {
+        job_ids.append(jobs.submit("datapower.collect-status", {
             "appliances": ["dp-fake"], "credential": "leaky",
             "request_delay": 0}, principal=OPERATOR))
         jobs.run_next("w-leak")
@@ -193,14 +193,14 @@ class TestNoSecretLeaks(WebCase):
         # The crypto inventory (a parent and a child job) and its export
         # (as the user operator of the web UI: the parent checks its
         # children as the user who submitted it, who must exist)
-        job_ids.append(jobs.submit("crypto.inventory", {
+        job_ids.append(jobs.submit("core.crypto-inventory", {
             "appliances": ["dp-fake"], "credential": "leaky",
             "request_delay": 0}, principal=Principal("operator", "operator")))
         jobs.run_next("w-leak")
         self.assertEqual(jobs.get(job_ids[-1]).status, jobs.SUCCEEDED,
                          jobs.get(job_ids[-1]).error)
         job_ids += [c.id for c in jobs.list_jobs(parent_id=job_ids[-1])]
-        export = jobs.submit("crypto.export", {"format": "cbom", "out_file": os.path.join(
+        export = jobs.submit("core.crypto-export", {"format": "cbom", "out_file": os.path.join(
             MAST_HOME, job_dir(job_ids[-1]), "inventory")}, principal=OPERATOR)
         jobs.run_next("w-leak")
         self.assertEqual(jobs.get(export).status, jobs.SUCCEEDED,
@@ -208,7 +208,7 @@ class TestNoSecretLeaks(WebCase):
         job_ids.append(export)
 
         # A job of a worker that fails before it sends anything
-        job_ids.append(jobs.submit("system.list-domains", {
+        job_ids.append(jobs.submit("datapower.list-domains", {
             "appliances": ["dp-changed"], "credential": "leaky"},
             principal=OPERATOR))
         jobs.run_next("w-leak")
@@ -235,7 +235,7 @@ class TestNoSecretLeaks(WebCase):
 
         # A schedule, run now
         self.call("POST", "/schedules", {
-            "name": "leaky-look", "command": "system.list-domains",
+            "name": "leaky-look", "command": "datapower.list-domains",
             "params": {"appliances": ["dp-fake"], "credential": "leaky"},
             "cron": "0 2 * * *"}, client=admin, status=201)
         answer = self.call("POST", "/schedules/leaky-look/run", client=admin)
@@ -248,7 +248,7 @@ class TestNoSecretLeaks(WebCase):
         self.call("PATCH", "/credentials/leaky", {"password": self.markers[1]},
                   client=admin, status=200)
         store.rotate_key(principal=ADMIN)
-        job_ids.append(jobs.submit("system.list-domains", {
+        job_ids.append(jobs.submit("datapower.list-domains", {
             "appliances": ["dp-fake"], "credential": "leaky"},
             principal=OPERATOR))
         jobs.run_next("w-leak")
@@ -361,7 +361,7 @@ class TestNoSecretLeaks(WebCase):
             # answers while it was open are in self.answers
             "session_id": [getattr(self, "terminal_id", "none")],
             "number": [1, 3],
-            "command_id": ["system.list-domains", "credtest.look"],
+            "command_id": ["datapower.list-domains", "credtest.look"],
             "filename": None,  # static files: not searched
         }
         if rule.startswith("/api/v1/credentials/"):

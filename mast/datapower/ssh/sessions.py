@@ -65,7 +65,7 @@ __all__ = ["SessionManager", "TerminalSession", "Pane", "Line",
            "DataPowerShell", "Settings", "settings", "NoSuchSession",
            "TooManySessions", "COMMAND", "is_password_prompt", "clean"]
 
-COMMAND = "ssh.terminal"
+COMMAND = "datapower.terminal"
 SECRET = "********"
 # How long a request waits for the answers of a line before it returns
 # with the ones that are done (the others are fetched later)

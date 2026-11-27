@@ -50,7 +50,7 @@ def pull_autoconfig(appliances=[],
     `username:password` and should be provided in a space-seperated list
     if multiple are provided. If you would prefer to not use plain-text
     passwords, you can use the output of
-    `$ mast-system xor <username:password>`.
+    `$ mast datapower xor <username:password>`.
     * `timeout`: The timeout in seconds to wait for a response from
     an appliance for any single request. __NOTE__ Program execution may
     halt if a timeout is reached.
@@ -105,7 +105,7 @@ class Main(Params):
              'should be in the form `username:password` and should be '
              'provided in a space-seperated list if multiple are '
              'provided. If you would prefer to not use plain-text '
-             'passwords, you can use the output of `$ mast-system xor '
+             'passwords, you can use the output of `$ mast datapower xor '
              '<username:password>`.')
     timeout: int = Option(
         120, short="t",

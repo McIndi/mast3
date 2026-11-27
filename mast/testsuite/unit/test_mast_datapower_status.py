@@ -15,7 +15,7 @@
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
 Unit tests for the status of the appliances: the parsing of a poll,
-`mast-status collect` with fake appliances, the rollups and their
+`mast datapower collect-status` with fake appliances, the rollups and their
 retention, and the Appliances page and its API.
 """
 import os
@@ -235,14 +235,14 @@ class TestCollect(CollectCase):
 
     def test_a_passive_command_only_reads(self):
         from mast.cli import Cli
-        cli = Cli(namespace="t")
+        cli = Cli(provider="t")
         with self.assertRaises(ValueError):
             @cli.command("x", passive=True)
             def x(params: collector.Collect):
                 pass
-        self.assertTrue(collector.cli.commands["collect"].passive)
+        self.assertTrue(collector.cli.commands["collect-status"].passive)
         # Its jobs are passive whoever submits them
-        job_id = jobs.submit("status.collect", {"credentials": ["u:p"]})
+        job_id = jobs.submit("datapower.collect-status", {"credentials": ["u:p"]})
         self.assertTrue(jobs.get(job_id).passive)
 
     def test_a_collect_keeps_the_status(self):
@@ -528,7 +528,7 @@ class TestAppliancesPage(WebCase):
         info = schedules.get(status_page.SCHEDULE, principal=ADMIN)
         self.assertEqual((info.command, info.cron, info.enabled,
                           info.params["credential"]),
-                         ("status.collect", "*/5 * * * *", True, "collector"))
+                         ("datapower.collect-status", "*/5 * * * *", True, "collector"))
         # Again: the same schedule, changed and enabled
         schedules.update(status_page.SCHEDULE, principal=ADMIN, enabled=False)
         self.call("POST", "/appliances-status/polling",

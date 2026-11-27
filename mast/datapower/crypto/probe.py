@@ -16,7 +16,7 @@
 """
 _module_: `mast.datapower.crypto.probe`
 
-`mast-crypto probe`: connect to the TLS ports of the appliances, as a
+`mast crypto probe`: connect to the TLS ports of the appliances, as a
 peer would, and record what they accept. It needs no credential: it
 logs in to nothing, and sends nothing but TLS handshakes.
 
@@ -61,7 +61,7 @@ from sqlalchemy import select
 from mast.cli import Option, Params, Table, say
 from mast.logging import make_logger
 
-from . import cli
+from mast.crypto.cli import section as cli
 from .models import CryptoEdge, CryptoObject, CryptoProbeResult
 
 __all__ = ["probe_port", "targets_of", "probe", "OFFERS", "save",
@@ -432,7 +432,8 @@ def _summary(result):
     return "; ".join(parts)
 
 
-@cli.command("probe", category="inventory", exclusive=False, passive=True)
+@cli.command("probe", id="crypto-probe", group="probes", exclusive=False,
+             passive=True)
 def probe(params: Probe):
     """Probe the TLS ports of the appliances as a peer would: the
 listeners of the newest crypto inventory, the XML management and WebGUI

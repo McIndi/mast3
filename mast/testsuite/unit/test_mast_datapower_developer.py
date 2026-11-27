@@ -93,28 +93,14 @@ class TestDeveloperCommands(unittest.TestCase):
             os.environ["MAST_HOME"], "tmp"))
 
     def test_environment_is_built_from_the_shared_parameters(self):
-        result = developer.flush_document_cache(
+        from mast.datapower.system import system
+        result = system.flush_document_cache(
             appliances=["dp1"], credentials=["user:pass"], timeout=5,
             no_check_hostname=True, Domain="default", xml_manager="default")
         self.assertEqual(
             ((["dp1"], ["user:pass"]),
              {"timeout": 5, "check_hostname": False}),
             result.env.created_with)
-
-    def test_flush_caches(self):
-        for command, action in (
-                (developer.flush_document_cache, "FlushDocumentCache"),
-                (developer.flush_stylesheet_cache, "FlushStylesheetCache")):
-            with captured() as messages:
-                result = command(
-                    appliances=["dp1"], Domain="d", xml_manager="m")
-            self.assertIsInstance(result, ActionResults)
-            self.assertEqual(
-                [(action, {"XMLManager": "m", "domain": "d"})],
-                result.env.actions)
-            self.assertEqual(1, len(messages))
-            self.assertIn("Succeeded", result.html())
-            self.assertIn("request: x", result.history)
 
     def test_export_writes_one_file_for_each_appliance(self):
         with captured() as messages:

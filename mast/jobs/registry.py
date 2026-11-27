@@ -17,68 +17,222 @@
 """
 _module_: `mast.jobs.registry`
 
-The commands that can run as jobs.
+The one registry of the commands of MAST: those of core and those of
+each plugin.
 
-A job names its command with an id of the form `namespace.name`, for
-example `backups.normal-backup`. The namespace is a MAST plugin
-(`mast.datapower.backups`) and the name is the name of the command on
-the command line. These ids are stable. They are stored with each job,
-and they are the names that permissions will refer to.
+A command has the id `PROVIDER.NAME`, for example
+`datapower.normal-backup`. The provider is `core` or the name of a
+plugin (see `mast.plugins`). The ids are stored with each job and each
+schedule, and the permission paths are made from them
+(`mast/datapower/normal-backup`).
+
+The CLI, the web UI and the API all find commands here. Two commands
+with the same id, or two plugins with the same provider, make the
+registration fail, always in the same way (`RegistrationError`).
 """
-import importlib
+from mast import plugins, roots
 
-__all__ = ["register", "unregister", "resolve", "command_id",
-           "namespaces", "cli_for", "UnknownCommand"]
+__all__ = ["register", "unregister", "ensure", "resolve", "command_id", "providers", "commands", "cli_for", "clis",
+           "reset", "UnknownCommand", "RegistrationError"]
 
-_clis = {}
+CORE = roots.CORE
+
+# Clis that register() gave (the tests, and scripts), by provider
+_registered = {}
+# The Clis that were loaded, by provider: core has several
+_loaded = {}
+# The commands by id, made from _loaded and _registered
+_index = None
 
 
 class UnknownCommand(Exception):
     """There is no command with that id."""
 
 
-def register(namespace, cli):
-    """
-    _function_: `mast.jobs.registry.register(namespace, cli)`
-
-    Make the commands of `cli` (a `mast.cli.Cli`) available as
-    `namespace.<name>`. The MAST plugins do not need this, `resolve`
-    finds them.
-    """
-    _clis[namespace] = cli
+class RegistrationError(Exception):
+    """Two commands, or two plugins, claim the same name."""
 
 
-def unregister(namespace):
+def register(provider, cli):
     """
-    _function_: `mast.jobs.registry.unregister(namespace)`
+    _function_: `mast.jobs.registry.register(provider, cli)`
+
+    Make the commands of `cli` (a `mast.cli.Cli` whose provider is
+    `provider`) known. The plugins and core do not need this: their
+    commands are found. The tests use it.
+    """
+    if cli.provider != provider:
+        raise RegistrationError("{}: the Cli has the provider {!r}".format(
+            provider, cli.provider))
+    _registered[provider] = cli
+    _invalidate()
+
+
+def unregister(provider):
+    """
+    _function_: `mast.jobs.registry.unregister(provider)`
 
     Undo `register`.
     """
-    _clis.pop(namespace, None)
+    _registered.pop(provider, None)
+    _invalidate()
 
 
-def command_id(namespace, command):
+def ensure(cli):
     """
-    _function_: `mast.jobs.registry.command_id(namespace, command)`
+    _function_: `mast.jobs.registry.ensure(cli)`
 
-    Return the id of `command` (a `mast.cli.Command`) in `namespace`.
+    Register `cli` if MAST does not know its provider.
     """
-    return "{}.{}".format(namespace, command.name)
+    if cli.provider is None:
+        return
+    if cli.provider in providers():
+        return
+    register(cli.provider, cli)
 
 
-def _cli(namespace):
-    if namespace in _clis:
-        return _clis[namespace]
-    if not namespace.isidentifier():
-        raise UnknownCommand(namespace)
-    try:
-        module = importlib.import_module("mast.datapower." + namespace)
-    except ImportError:
-        raise UnknownCommand(namespace) from None
-    cli = getattr(module, "cli", None)
-    if cli is None:
-        raise UnknownCommand(namespace)
-    return cli
+def reset():
+    """
+    _function_: `mast.jobs.registry.reset()`
+
+    Forget what was loaded, and look for the plugins again (for the
+    tests). What `register` gave is kept.
+    """
+    _loaded.clear()
+    plugins.reset()
+    _invalidate()
+
+
+def _invalidate():
+    global _index
+    _index = None
+
+
+def _core_clis():
+    if CORE not in _loaded:
+        found = []
+        for name, root in roots.ROOTS.items():
+            if not root.program:
+                found.append(roots.load(root.target))
+        _loaded[CORE] = found
+    return _loaded[CORE]
+
+
+def _plugin_cli(provider):
+    if provider not in _loaded:
+        manifest = plugins.manifests().get(provider)
+        if manifest is None:
+            raise UnknownCommand(provider)
+        try:
+            cli = roots.load(manifest.commands)
+        except Exception as exc:
+            plugins.fail(provider, "its commands cannot be loaded: {}".format(
+                exc))
+            raise UnknownCommand(provider) from None
+        if getattr(cli, "provider", None) != provider:
+            plugins.fail(provider, "{} is not a Cli of the provider {!r}".format(
+                manifest.commands, provider))
+            raise UnknownCommand(provider)
+        _loaded[provider] = [cli]
+    return _loaded[provider]
+
+
+def providers():
+    """
+    _function_: `mast.jobs.registry.providers()`
+
+    Return the providers, sorted: `core`, then each plugin, and each
+    provider given to `register`.
+    """
+    names = set(plugins.manifests()) | set(_registered)
+    names.discard(CORE)
+    return [CORE] + sorted(names)
+
+
+def clis(provider):
+    """
+    _function_: `mast.jobs.registry.clis(provider)`
+
+    Return the `mast.cli.Cli`s of `provider`: several for core, one for
+    a plugin. Raises `UnknownCommand`.
+    """
+    if provider in _registered:
+        return [_registered[provider]]
+    if provider == CORE:
+        return _core_clis()
+    return _plugin_cli(provider)
+
+
+def cli_for(provider):
+    """
+    _function_: `mast.jobs.registry.cli_for(provider)`
+
+    Return the one `mast.cli.Cli` of a plugin. Raises `UnknownCommand`,
+    also for `core`, which has several (see `clis`).
+    """
+    found = clis(provider)
+    if len(found) != 1:
+        raise UnknownCommand(provider)
+    return found[0]
+
+
+def _provider_index(provider, found):
+    """The commands of one provider by id. Raises `RegistrationError`."""
+    index = {}
+    for cli in found:
+        for command in cli.commands.values():
+            if command.provider != provider:
+                raise RegistrationError(
+                    "{}: the command {} has the provider {!r}".format(
+                        provider, command.name, command.provider))
+            if provider != CORE and command.id_name != command.name:
+                raise RegistrationError(
+                    "{}: the id of a plugin command is its name, not "
+                    "{!r}".format(command.invocation, command.id_name))
+            if command.id in index:
+                raise RegistrationError(
+                    "{}: the id {} is also {}".format(
+                        command.invocation, command.id,
+                        index[command.id].invocation))
+            index[command.id] = command
+    return index
+
+
+def _build():
+    index = {}
+    for provider in providers():
+        try:
+            found = clis(provider)
+        except UnknownCommand:
+            # A plugin that cannot be loaded (see mast.plugins.failures)
+            continue
+        try:
+            index.update(_provider_index(provider, found))
+        except RegistrationError as exc:
+            if provider == CORE or provider in _registered:
+                raise
+            # None of the commands of the plugin are registered
+            plugins.fail(provider, str(exc))
+            _loaded.pop(provider, None)
+    return index
+
+
+def _commands():
+    global _index
+    if _index is None:
+        _index = _build()
+    return _index
+
+
+def commands(provider=None):
+    """
+    _function_: `mast.jobs.registry.commands(provider=None)`
+
+    Return every `mast.cli.Command` (of `provider`, if given), by
+    provider, then in the order of their `Cli`.
+    """
+    return [command for command in _commands().values()
+            if provider is None or command.provider == provider]
 
 
 def resolve(command_id):
@@ -86,53 +240,19 @@ def resolve(command_id):
     _function_: `mast.jobs.registry.resolve(command_id)`
 
     Return the `mast.cli.Command` with the id `command_id`. Raises
-    `UnknownCommand` if there is none.
+    `UnknownCommand`. The queue refuses a command that never runs as a
+    job (`queued=False`, such as `core.add-target`).
     """
-    namespace, _, name = command_id.partition(".")
     try:
-        return _cli(namespace).commands[name]
-    except KeyError:
-        raise UnknownCommand(command_id) from None
-    except UnknownCommand:
+        return _commands()[command_id]
+    except (KeyError, TypeError):
         raise UnknownCommand(command_id) from None
 
 
-def _discovered():
-    """The names of the packages under `mast.datapower` that have a
-    `cli` with a namespace: the MAST plugins whose commands are jobs."""
-    import pkgutil
-    import mast.datapower
-    found = []
-    for info in pkgutil.iter_modules(mast.datapower.__path__):
-        if not info.ispkg:
-            continue
-        try:
-            cli = _cli(info.name)
-        except UnknownCommand:
-            continue
-        except Exception:
-            # A plugin that cannot be imported has no commands here
-            continue
-        if getattr(cli, "namespace", None) == info.name:
-            found.append(info.name)
-    return found
-
-
-def namespaces():
+def command_id(command):
     """
-    _function_: `mast.jobs.registry.namespaces()`
+    _function_: `mast.jobs.registry.command_id(command)`
 
-    Return the namespaces of every command that can run as a job,
-    sorted: the MAST plugins, and every namespace given to `register`.
-    The web UI lists the commands with this.
+    Return the id of `command` (a `mast.cli.Command`).
     """
-    return sorted(set(_discovered()) | set(_clis))
-
-
-def cli_for(namespace):
-    """
-    _function_: `mast.jobs.registry.cli_for(namespace)`
-
-    Return the `mast.cli.Cli` of `namespace`. Raises `UnknownCommand`.
-    """
-    return _cli(namespace)
+    return command.id

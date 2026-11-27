@@ -68,7 +68,7 @@ def _params(command_id, params):
     if not isinstance(params, dict):
         return {}, {"": "The parameters must be an object."}
     try:
-        _, command = catalog.find(command_id)
+        command = catalog.find(command_id)
     except catalog.CommandNotFound:
         return {}, {"": "There is no command {}.".format(command_id)}
     specs = {spec.name: spec for spec in cli_params.options(command.model)}

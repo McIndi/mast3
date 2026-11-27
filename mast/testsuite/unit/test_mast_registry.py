@@ -17,7 +17,7 @@
 """
 Unit tests for mast.registry: the appliances and environments in the
 database, the import of the configuration files of MAST 3.15.2 and the
-export back to them, mast-appliances, and the API of the registry.
+export back to them, mast targets, and the API of the registry.
 """
 import configparser
 import contextlib
@@ -356,7 +356,7 @@ class TestLegacyWarning(SqliteCase):
                 self.assertLogs("mast.registry", "WARNING"):
             registry.resolve(["dp1"])
             registry.resolve(["dp1"])
-        self.assertEqual(err.getvalue().count("mast-appliances import"), 1)
+        self.assertEqual(err.getvalue().count("mast targets import"), 1)
 
     def test_no_files_no_warning(self):
         err = io.StringIO()
@@ -368,7 +368,11 @@ class TestLegacyWarning(SqliteCase):
 class TestMastAppliances(FilesCase):
 
     def run_cli(self, *args):
-        from mast.registry.cli import cli
+        """mast targets ARGS, or mast fleets ARGS after "fleets"."""
+        from mast.registry.cli import fleets, targets
+        cli = targets
+        if args and args[0] == "fleets":
+            cli, args = fleets, args[1:]
         out, err = io.StringIO(), io.StringIO()
         status = 0
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -406,19 +410,19 @@ class TestMastAppliances(FilesCase):
     def test_environments(self):
         self.run_cli("add", "-n", "dp1")
         self.run_cli("add", "-n", "dp2")
-        self.run_cli("env-add", "-n", "lab", "-m", "dp1", "-m", "dp2", "-p")
+        self.run_cli("fleets", "add", "-n", "lab", "-m", "dp1", "-m", "dp2", "-p")
         self.assertTrue(registry.env_get("lab").production)
-        self.run_cli("env-set-members", "-n", "lab", "-m", "dp2")
+        self.run_cli("fleets", "set-members", "-n", "lab", "-m", "dp2")
         self.assertEqual(registry.members("lab"), ["dp2"])
-        self.run_cli("env-update", "-n", "lab", "-p", "no", "-d", "Lab")
+        self.run_cli("fleets", "update", "-n", "lab", "-p", "no", "-d", "Lab")
         self.assertFalse(registry.env_get("lab").production)
-        status, out, _ = self.run_cli("env-list")
+        status, out, _ = self.run_cli("fleets", "list")
         self.assertIn("lab", out)
-        status, _, err = self.run_cli("env-set-members", "-n", "lab",
+        status, _, err = self.run_cli("fleets", "set-members", "-n", "lab",
                                       "-m", "nothing")
         self.assertEqual(status, 1)
         self.assertIn("There is no appliance nothing", err)
-        self.run_cli("env-remove", "-n", "lab")
+        self.run_cli("fleets", "remove", "-n", "lab")
         self.assertEqual(registry.env_list(), [])
 
     def test_import_and_export(self):

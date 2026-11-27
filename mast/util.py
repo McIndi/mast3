@@ -42,7 +42,7 @@ def require_optional(module_name):
         message = (
             "{script} needs the Python library '{name}', which MAST does "
             "not install. To install it, run this command in your MAST "
-            "directory and then try again: mast -m pip install {name}"
+            "directory and then try again: mast-python -m pip install {name}"
         ).format(script=script, name=module_name)
         make_logger("error").error(message)
         sys.exit(message)

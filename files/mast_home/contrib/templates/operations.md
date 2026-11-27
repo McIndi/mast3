@@ -18,7 +18,7 @@ needs is in it, and everything MAST writes goes into it.
 
 | Folder | What it holds | Yours or MAST's |
 |---|---|---|
-| `mast-*`, `mastd`, `test-mast` (`.bat` on Windows) | The launchers. | MAST's |
+| `mast`, `mast-python`, `set-env` (`.bat` on Windows) | The launchers: the `mast` command, and the Python of MAST for the scripts in `contrib`. | MAST's |
 | `python/<version>` | The Python of MAST, with every library. | MAST's |
 | `etc/default` | The default configuration. Do not change it. An upgrade replaces it. | MAST's |
 | `etc/local` | Your configuration, and the keys that MAST makes (`jobs.key`, `server.key`). | Yours |
@@ -52,18 +52,18 @@ change:
     port = 8443
 
 MAST reads the files again each time a program starts. Restart `mastd`,
-`mast-web` and `mast-worker` after a change.
+`mast web` and `mast worker` after a change.
 
 | File | What it configures |
 |---|---|
-| `appliances.conf` | The defaults for every appliance (`[global]`): ports, the SOMA spec file and so on. The appliances themselves, their own settings and the environments are in the database (`mast-appliances`). |
+| `appliances.conf` | The defaults for every appliance (`[global]`): ports, the SOMA spec file and so on. The appliances themselves, their own settings and the environments are in the database (`mast targets`). |
 | `jobs.conf` | The job queue: its database, the workers, the lease, how often a running job looks for a cancel. |
 | `crypto.conf` | The posture rules of the crypto inventory: their thresholds, the weights of the score, how long an exception may last, the rules and packs turned off, and the dates of the PQC and CNSA 2.0 rules. |
 | `server.conf` | The web GUI: host, port, TLS, the secret key, HSTS, sessions (`[auth]`). |
 | `logging.conf` | The level and the size of the logs. |
-| `ssh.conf` | `mast-ssh` and the Terminal page: the timeouts, whether host keys that are not pinned are accepted, and how long a session of the Terminal page lasts. |
+| `ssh.conf` | `mast datapower ssh` and the Terminal page: the timeouts, whether host keys that are not pinned are accepted, and how long a session of the Terminal page lasts. |
 | `service-config.conf` | `git-deploy`, see the [git-deploy Guide](./git-deploy.html). |
-| `xor.conf` | The key of `mast-system xor`. |
+| `xor.conf` | The key of `mast datapower xor`. |
 
 # Running MAST as a service
 
@@ -73,25 +73,25 @@ MAST reads the files again each time a program starts. Restart `mastd`,
 * a worker, which runs the jobs of the queue,
 * the scheduler, which runs the lines of `etc/crontab`.
 
-The worker and the web GUI can also run alone, as `mast-worker` and
-`mast-web`.
+The worker and the web GUI can also run alone, as `mast worker` and
+`mast web`.
 
 ## Linux
 
-`mastd start` starts `mastd` in the background and writes its process
-id to `var/run/mastd.pid`. `mastd status` says whether it runs (exit
+`mast daemon start` starts `mastd` in the background and writes its process
+id to `var/run/mastd.pid`. `mast daemon status` says whether it runs (exit
 status 0 if it runs, 3 if it does not, 1 if it does not but its pid
-file remains). `mastd restart` stops it and starts it again.
+file remains). `mast daemon restart` stops it and starts it again.
 
-`mastd stop` sends `mastd` SIGTERM and waits until it has stopped.
+`mast daemon stop` sends `mastd` SIGTERM and waits until it has stopped.
 `mastd` stops gracefully: it takes no new job and starts no new
 scheduled task, and it stops when the running ones end. The web GUI
 stops last, so it shows the jobs that `mastd` waits for. To stop it at
-once, press Ctrl-C while `mastd stop` waits, or send `mastd` a second
+once, press Ctrl-C while `mast daemon stop` waits, or send `mastd` a second
 SIGTERM: its running jobs are cut off and become `lost`, and its
 running tasks are not waited for.
 
-`mast-worker` stops the same way. On a server, you can run the worker
+`mast worker` stops the same way. On a server, you can run the worker
 as a service of its own, so that you can stop and start the web GUI
 without waiting for the jobs. Then turn off the worker of `mastd` in
 `etc/local/jobs.conf`:
@@ -112,7 +112,7 @@ user `mast`, from `/opt/mast`:
 
     [Service]
     User=mast
-    ExecStart=/opt/mast/mast-worker
+    ExecStart=/opt/mast/mast worker
     # A worker stops when its running jobs end. Give it as long as your
     # longest job (a firmware upgrade, a large backup).
     TimeoutStopSec=1h
@@ -132,8 +132,8 @@ user `mast`, from `/opt/mast`:
     User=mast
     Type=forking
     PIDFile=/opt/mast/var/run/mastd.pid
-    ExecStart=/opt/mast/mastd start
-    ExecStop=/opt/mast/mastd stop
+    ExecStart=/opt/mast/mast daemon start
+    ExecStop=/opt/mast/mast daemon stop
     # mastd stops when its running jobs and scheduled tasks end
     TimeoutStopSec=1h
     Restart=on-failure
@@ -151,8 +151,8 @@ Each launcher replaces itself with the Python process, so systemd,
 
 ## Windows
 
-`mastd.bat install` installs `mastd` as a Windows service, and
-`mastd.bat start` starts it. `mastd.bat install /?` lists the options,
+`mast.bat daemon install` installs `mastd` as a Windows service, and
+`mast.bat daemon start` starts it. `mast.bat daemon install /?` lists the options,
 for example the account that runs the service and whether it starts
 with Windows. The service hosts the web GUI, a worker and the
 scheduler.
@@ -164,7 +164,7 @@ line is a cron expression and a command, for example a backup at 02:00
 every day:
 
     :::text
-    0 2 * * * ./mast-backups normal-backup -a prod -c <credentials> -n -o var/backups/nightly
+    0 2 * * * ./mast datapower normal-backup -a prod -c <credentials> -n -o var/backups/nightly
 
 * The times are in UTC, not in the time zone of the server.
 * The command runs in `$MAST_HOME`, with the shell.
@@ -183,7 +183,7 @@ not a valid task is logged, and the other lines still run.
 have to restart `mastd`.
 
 Credentials in `etc/crontab` are in clear text, or in the form of
-`mast-system xor`, which is not encryption (see "Credentials" below).
+`mast datapower xor`, which is not encryption (see "Credentials" below).
 Make the file readable only by the user that runs `mastd`. For a
 command of MAST, prefer a schedule of the job queue (see "Scheduled
 jobs" below): it uses a stored credential, and its jobs are in the
@@ -192,17 +192,17 @@ Jobs page.
 # The job queue
 
 Each command of the DataPower plugins, and each form of the web GUI, is
-a job. `mast-jobs` shows them:
+a job. `mast jobs` shows them:
 
 | Command | What it shows or does |
 |---|---|
-| `mast-jobs list` | The newest jobs. `-s failed` shows only failed jobs, `-n 50` shows more. |
-| `mast-jobs show -j <id>` | One job: its parameters, its progress and its result. `-H` adds the requests and responses. |
-| `mast-jobs follow -j <id>` | A job until it ends. |
-| `mast-jobs cancel -j <id>` | Cancel a job. |
-| `mast-jobs workers` | The workers that are alive. |
-| `mast-jobs schedule-list` | The scheduled jobs (see "Scheduled jobs"). |
-| `mast-jobs prune` | Delete old jobs and files now (see "Old jobs"). |
+| `mast jobs list` | The newest jobs. `-s failed` shows only failed jobs, `-n 50` shows more. |
+| `mast jobs show -j <id>` | One job: its parameters, its progress and its result. `-H` adds the requests and responses. |
+| `mast jobs follow -j <id>` | A job until it ends. |
+| `mast jobs cancel -j <id>` | Cancel a job. |
+| `mast jobs workers` | The workers that are alive. |
+| `mast schedules list` | The scheduled jobs (see "Scheduled jobs"). |
+| `mast jobs prune` | Delete old jobs and files now (see "Old jobs"). |
 
 The first characters of an id are enough, as long as they are unique.
 
@@ -239,28 +239,28 @@ the appliances before you run it again.
 A job that waits is cancelled at once. A job that runs stops at its
 next step, before its next request to an appliance: at once after
 Ctrl-C in the program that runs it, and within about a second
-(`cancel_poll_seconds`) after `mast-jobs cancel` or the Cancel link of
+(`cancel_poll_seconds`) after `mast jobs cancel` or the Cancel link of
 the web GUI. A request that has started is completed first. What the
 job did before it stopped is not undone.
 
 ## Scheduled jobs
 
 A schedule puts a command in the job queue when its cron expression is
-due. Every worker (`mast-worker`, and the one that `mastd` hosts)
+due. Every worker (`mast worker`, and the one that `mastd` hosts)
 checks the schedules at the start of every minute, unless
 `schedules = false` is in the `[worker]` section of `jobs.conf`. So the
-schedules run whenever a worker runs. Manage them with `mast-jobs` on
+schedules run whenever a worker runs. Manage them with `mast jobs` on
 the MAST server, or as an admin in the web UI under Admin → Schedules,
 which has the form of each command and shows the next five runs:
 
     :::bash
-    ./mast-jobs schedule-add -n nightly-domains -c system.list-domains \
+    ./mast schedules add -n nightly-domains -c system.list-domains \
         -t "0 2 * * *" -s 'appliances=["prod"]' -s credential=collector
-    ./mast-jobs schedule-list
-    ./mast-jobs schedule-run -n nightly-domains     # now, once
-    ./mast-jobs schedule-disable -n nightly-domains # and -enable
-    ./mast-jobs schedule-update -n nightly-domains -t "30 1 * * *"
-    ./mast-jobs schedule-remove -n nightly-domains
+    ./mast schedules list
+    ./mast schedules run -n nightly-domains     # now, once
+    ./mast schedules disable -n nightly-domains # and -enable
+    ./mast schedules update -n nightly-domains -t "30 1 * * *"
+    ./mast schedules remove -n nightly-domains
 
 * The times are in UTC: five fields (minute, hour, day of the month,
 month, day of the week), or `@daily`, `@hourly` and the like.
@@ -287,7 +287,7 @@ runs once. Several workers on one database do not queue a run twice.
 
 The workers that check the schedules also delete old things each day
 at 03:30 UTC, as `[retention]` of `jobs.conf` says. If several do, the
-first one deletes and the others find little left. `mast-jobs prune` does it now; `--dry-run` only counts.
+first one deletes and the others find little left. `mast jobs prune` does it now; `--dry-run` only counts.
 
 | What | Kept for (days) | Setting |
 |---|---|---|
@@ -315,16 +315,16 @@ of 1000 rows, so that the queue is never held up for long.
 
 ## The status of the appliances
 
-`mast-status collect` asks the appliances for their status and keeps it
+`mast datapower collect-status` asks the appliances for their status and keeps it
 for the Appliances page: whether they answer, the firmware, the CPU,
 the memory, the load, the free space, the domains and the objects that
 are down. It keeps no configuration. With no `-a`, it polls every
-appliance whose status is collected (`mast-appliances update -n NAME
+appliance whose status is collected (`mast targets update -n NAME
 --poll yes`, or "Collect status" in Admin → Appliances).
 
     :::bash
-    ./mast-status collect --credential collector     # now, once
-    ./mast-status collect -a dp1 -c user:password
+    ./mast datapower collect-status --credential collector     # now, once
+    ./mast datapower collect-status -a dp1 -c user:password
 
 Poll on a schedule with a stored credential of a user that may only
 read (see "A DataPower user that may only read"). An admin starts it on
@@ -332,7 +332,7 @@ the Appliances page, which makes the schedule `status-poll` (every 5
 minutes by default), or on the command line:
 
     :::bash
-    ./mast-jobs schedule-add -n status-poll -c status.collect \
+    ./mast schedules add -n status-poll -c status.collect \
         -t "*/5 * * * *" -s credential=collector
 
 * One job polls all its appliances, 8 at a time (`--workers`). The
@@ -349,14 +349,14 @@ CPU is empty and the page says "Statistics off: no CPU". Enable the
 `Statistics` object of the `default` domain on the appliance; the CPU
 shows from the next poll. The domains other than `default` are
 asked for their objects every 15 minutes (`--object-status-minutes`).
-* The jobs of `mast-status collect` are passive: they neither wait for
+* The jobs of `mast datapower collect-status` are passive: they neither wait for
 nor hold up other jobs. Each worker also has a slot for passive jobs
 only (`passive_slots` in the `[worker]` section of `jobs.conf`), so a
 long backup or deployment does not stop the status from updating.
 
 ## The crypto inventory
 
-`mast-crypto inventory` reads what cryptography the appliances use and
+`mast crypto inventory` reads what cryptography the appliances use and
 keeps it as a snapshot of each appliance in the job database: the
 certificates (subject, issuer, validity, key algorithm and size,
 signature algorithm, alternative names), the keys, the identification
@@ -368,9 +368,9 @@ key or file content is kept; a key with a plaintext password in its
 configuration is marked so. With no `-a`, every registered appliance.
 
     :::bash
-    ./mast-crypto inventory --credential collector
-    ./mast-crypto inventory -a prod -d app1 -d app2 --credential collector
-    ./mast-jobs schedule-add -n crypto-inventory -c crypto.inventory \
+    ./mast crypto inventory --credential collector
+    ./mast crypto inventory -a prod -d app1 -d app2 --credential collector
+    ./mast schedules add -n crypto-inventory -c crypto.inventory \
         -t "0 2 * * *" -s credential=collector
 
 * Each appliance is a child job of the inventory: the Jobs page shows
@@ -384,13 +384,13 @@ of the job, reads it and deletes it, also when something fails.
 * A user that may only read (see "A DataPower user that may only read")
 can read everything that the inventory needs.
 
-`mast-crypto export` writes the newest snapshot of each appliance (or
+`mast crypto export` writes the newest snapshot of each appliance (or
 the one of `--snapshot ID`) to a file:
 
     :::bash
-    ./mast-crypto export -f cbom      # CycloneDX 1.6 JSON
-    ./mast-crypto export -f xlsx      # a sheet each: certificates, keys, ...
-    ./mast-crypto export -f csv -a prod-dp1
+    ./mast crypto export -f cbom      # CycloneDX 1.6 JSON
+    ./mast crypto export -f xlsx      # a sheet each: certificates, keys, ...
+    ./mast crypto export -f csv -a prod-dp1
 
 The CBOM (cryptographic bill of materials) has:
 
@@ -412,7 +412,7 @@ key exchange group of each port that the probe reached;
 its address and port (`mast:listen`);
 * each file of `cert:`, `pubcert:` and `sharedcert:` as a `file`, with
 the objects that use it (`mast:usedBy`), or `mast:unused`;
-* for each port of the newest `mast-crypto probe`, a `protocol` with
+* for each port of the newest `mast crypto probe`, a `protocol` with
 what it negotiated, the certificates that it served (also those that
 no certificate object has, such as the one of the WebGUI) and what it
 accepted and refused (`mast:accepts`, `mast:refuses`);
@@ -428,9 +428,9 @@ snapshots of every appliance, for any role.
 
 ## The posture rules
 
-Each snapshot that `mast-crypto inventory` keeps is checked by the
+Each snapshot that `mast crypto inventory` keeps is checked by the
 posture rules at once, and their findings are kept with it. The
-**Crypto** page shows them, and `mast-crypto rules` lists the rules:
+**Crypto** page shows them, and `mast crypto rules` lists the rules:
 
 | Rule | Severity | Finds |
 |---|---|---|
@@ -458,9 +458,9 @@ are in `etc/default/crypto.conf`; put changes in
 the rules again on the newest snapshots after a change:
 
     :::bash
-    ./mast-crypto posture                 # the findings, and the self-checks
-    ./mast-crypto posture -a prod-dp1
-    ./mast-crypto rules
+    ./mast crypto posture                 # the findings, and the self-checks
+    ./mast crypto posture -a prod-dp1
+    ./mast crypto rules
 
 The **posture score** of an appliance is 100 minus the weight of each
 finding that no exception covers (critical 40, high 15, medium 5, low 1,
@@ -474,10 +474,10 @@ count again. Only an admin can add or remove one (the action
 `manage-exception`), on the Crypto page or with:
 
     :::bash
-    ./mast-crypto exception-add -r unused-file -p 'cert:///old-*' \
+    ./mast crypto exception-add -r unused-file -p 'cert:///old-*' \
         -R "Kept until the rollback window closes" -e 2027-01-31 -a prod-dp1
-    ./mast-crypto exceptions
-    ./mast-crypto exception-remove -i 3
+    ./mast crypto exceptions
+    ./mast crypto exception-remove -i 3
 
 The object is a name or a shell pattern (`old-*`); the appliance and
 the domain are optional (every one by default). An exception lasts at
@@ -536,8 +536,8 @@ groups alone is accepted. It needs no credential and logs in to
 nothing.
 
     :::bash
-    ./mast-crypto probe                    # every registered appliance
-    ./mast-crypto probe -a prod -t gw.example.com:443
+    ./mast crypto probe                    # every registered appliance
+    ./mast crypto probe -a prod -t gw.example.com:443
 
 * The ports are those of the listeners of the newest inventory (the
 front side handlers that use a server profile, the XML management and
@@ -563,17 +563,17 @@ peers get it?).
 # Appliances and environments
 
 The appliances and the environments are in the job database, the
-*appliance registry*. Manage them with `mast-appliances` on the MAST
+*appliance registry*. Manage them with `mast targets` on the MAST
 server (it needs no login), or as an admin in the web UI under
 Admin → Appliances. Everybody who can log in can see them; the target
 bar of the Commands page suggests their names.
 
     :::bash
-    ./mast-appliances add -n dp1 -A 10.0.0.1 --soma-port 5551
-    ./mast-appliances update -n dp1 --clear soma_port --rename dp-one
-    ./mast-appliances env-add -n prod -p -m dp-one
-    ./mast-appliances list
-    ./mast-appliances env-list
+    ./mast targets add -n dp1 -A 10.0.0.1 --soma-port 5551
+    ./mast targets update -n dp1 --clear soma_port --rename dp-one
+    ./mast fleets add -n prod -p -m dp-one
+    ./mast targets list
+    ./mast fleets list
 
 A job records the name of each registered appliance that it talks to.
 An address that a registered appliance has counts as that appliance, so
@@ -602,10 +602,10 @@ shows the certificate (subject, issuer, validity, SHA-256) and the SSH
 host key (type, fingerprint), and asks before it pins them:
 
     :::bash
-    ./mast-appliances pin -n dp1 --both
-    ./mast-appliances pin -n dp1 -f 3E:6E:D2:...   # a SHA-256 you checked
-    ./mast-appliances pin -n dp1 --ssh -f SHA256:IhWD...
-    ./mast-appliances unpin -n dp1 --both
+    ./mast targets pin -n dp1 --both
+    ./mast targets pin -n dp1 -f 3E:6E:D2:...   # a SHA-256 you checked
+    ./mast targets pin -n dp1 --ssh -f SHA256:IhWD...
+    ./mast targets unpin -n dp1 --both
 
 Compare what it shows with the appliance itself (its console, or a
 colleague who can see it) before you confirm. With `-f` it pins the
@@ -615,7 +615,7 @@ fingerprint that you give and does not connect. In the web UI, the
 An appliance that shows another certificate or host key than the
 pinned one gets nothing: the job fails with "The certificate of NAME
 changed (expected ..., got ...). An admin must check it and pin
-again.", before any request is sent. `mast-appliances list` and
+again.", before any request is sent. `mast targets list` and
 Admin → Appliances mark it CHANGED until an admin pins it again.
 
 `--no-check-hostname` (`-n`) turns off every check of the certificate,
@@ -627,9 +627,9 @@ accepts only that key, before the login. Without a pin, MAST accepts
 any host key with a warning (or none, with `auto_add_keys = false` in
 `ssh.conf`), and never with a stored credential.
 
-`mast-appliances import` moves `hosts.conf`, `environments.conf` and
+`mast targets import` moves `hosts.conf`, `environments.conf` and
 the sections of `appliances.conf` for single appliances of MAST 3.15.2
-into the registry once; `mast-appliances export` writes them back for a
+into the registry once; `mast targets export` writes them back for a
 return to an older MAST. Back up the database (see "Backups") to keep
 the registry.
 
@@ -637,14 +637,14 @@ the registry.
 
 An admin can store a user name and a password for appliances once, and
 operators then run jobs with it by name: they never see the password.
-Manage them with `mast-credentials` on the MAST server (it needs no
+Manage them with `mast credentials` on the MAST server (it needs no
 login), or as an admin in the web UI under Admin → Credentials.
 
     :::bash
-    ./mast-credentials add -n collector -u mastread -p collect -b prod
-    ./mast-credentials test -n collector -a dp1
-    ./mast-credentials list
-    ./mast-system list-domains -a prod --credential collector
+    ./mast credentials add -n collector -u mastread -p collect -b prod
+    ./mast credentials test -n collector -a dp1
+    ./mast credentials list
+    ./mast datapower list-domains -a prod --credential collector
 
 * `add` asks for the password twice; `--password-stdin` reads it from
 the first line of standard input, for scripts. The password is never an
@@ -663,7 +663,7 @@ checked (`ca` or `pin`, see "Checking who the appliance is"): not with
 `--no-check-hostname`, not to an appliance with `--tls-mode none`, not
 over plain `http`, and over SSH only to a pinned host key. To use one
 with a self-signed appliance, pin it first.
-* `test` runs `mast-system check-credentials` with the credential, through
+* `test` runs `mast datapower check-credentials` with the credential, through
 the job queue: it reads the firmware version, and asks the appliance to
 ping itself, an action that changes nothing, to find out whether the
 user can change the appliance. A `collect` credential that can is
@@ -684,7 +684,7 @@ which MAST makes the first time it is needed. On Linux and macOS, the
 file and its folder must be readable only by the account that runs MAST:
 MAST makes the folder private when it makes the key, and refuses the
 credential store if the group or others can read either of them, with
-the `chmod` that fixes it. `./mast-credentials rotate-key` makes a new
+the `chmod` that fixes it. `./mast credentials rotate-key` makes a new
 key, encrypts every credential again with it, and drops the keys older
 than the one before it.
 
@@ -712,17 +712,17 @@ With MAST, as an admin, with a credential that may change the
 appliances (`--credential admin-cred` here, or `-c`):
 
     :::bash
-    ./mast-accounts add-group -a prod --credential admin-cred \
+    ./mast datapower add-group -a prod --credential admin-cred \
         -N mast-read -A '*/*/*?Access=r' -s
-    ./mast-accounts add-user -a prod --credential admin-cred \
+    ./mast datapower add-user -a prod --credential admin-cred \
         -u mastread -p 'A-long-password' -g mast-read -S -s
-    ./mast-credentials add -n collector -u mastread -p collect -b prod
-    ./mast-credentials test -n collector -a prod-dp1
+    ./mast credentials add -n collector -u mastread -p collect -b prod
+    ./mast credentials test -n collector -a prod-dp1
 
 `-S` spares the user the change of password at the first login, which
 DataPower otherwise asks for before it gives the user any data. `-s`
 saves the configuration. `test` should say `works: yes` and
-`can change: no`. Give the same password to `mast-credentials add` when
+`can change: no`. Give the same password to `mast credentials add` when
 it asks.
 
 # The web GUI
@@ -732,7 +732,7 @@ server can reach it. Set `host` and `port` in the `[server]` section
 of `etc/local/server.conf` to change that.
 
 Without TLS (`secure = false`), the host must be `127.0.0.1` or `::1`:
-`mast-web` and `mastd` refuse to serve the web GUI without TLS on an
+`mast web` and `mastd` refuse to serve the web GUI without TLS on an
 address that other hosts can reach, and say why.
 
 The web UI is at `/`. It has these pages, each for a role and up (the
@@ -787,7 +787,7 @@ target bar, side by side (see "The Terminal page").
 * **Admin → Users** (admin): add a user with a temporary password,
 change a role, disable, enable, set a new temporary password, and
 delete. An admin cannot change their own role, disable or delete
-themselves there; `mast-users` can.
+themselves there; `mast users` can.
 * **Admin → Appliances** (admin): the appliances and the environments
 (see "Appliances and environments"), and the **Pin** button, which
 shows the certificate and the SSH host key of an appliance before it
@@ -856,16 +856,16 @@ appliances (`max_appliances_per_session`); one line runs at most 120
 seconds (`command_timeout`). It also closes when its user logs out or
 gets a new password, and when the web server stops.
 * The sessions live in the web server process: run one web server for
-each MAST home (`mast-web`, or `mastd`).
+each MAST home (`mast web`, or `mastd`).
 * The output is shown as text: ANSI colours are removed, not rendered.
 
-On the command line, `mast-ssh` does the same in one terminal. With a
-stored credential (`mast-ssh -a dp1 --credential NAME`: purpose
+On the command line, `mast datapower ssh` does the same in one terminal. With a
+stored credential (`mast datapower ssh -a dp1 --credential NAME`: purpose
 `change`, pinned SSH host keys), its session is recorded as an
 `ssh.terminal` job too, with each line and each use of the credential.
 
     :::bash
-    ./mast-ssh -a dp1 -a dp2 --credential changer
+    ./mast datapower ssh -a dp1 -a dp2 --credential changer
 
 ## Testing the login to the appliances
 
@@ -875,23 +875,23 @@ the stored credential: to its XML management interface (it reads the
 firmware version) and to its SSH (it logs in and out). It changes
 nothing. Each appliance shows `SOMA ok` or `failed` and `SSH ok` or
 `failed`; hover for the firmware or the reason. It runs a passive job
-of `mast-system test-connectivity`, so it is on the Jobs page; with a
+of `mast datapower test-connectivity`, so it is on the Jobs page; with a
 stored credential, SSH needs a pinned host key. On the command line:
 
     :::bash
-    ./mast-system test-connectivity -a dp1 -a dp2 --credential collector
+    ./mast datapower test-connectivity -a dp1 -a dp2 --credential collector
 
 ## Users and roles
 
 Every page needs a login. The users are local to MAST, and are kept in
 the job database. There is no sign-up page: an admin adds the users on
-the MAST server with `mast-users`. Until there is a user, the web GUI
+the MAST server with `mast users`. Until there is a user, the web GUI
 shows only how to add the first admin:
 
     :::bash
-    ./mast-users add -u alice -r admin
+    ./mast users add -u alice -r admin
 
-`mast-users` asks for the password; it is never an option. A new user's
+`mast users` asks for the password; it is never an option. A new user's
 password is temporary, and they choose their own at the first login.
 A password has at least 12 characters and is not the user name.
 
@@ -904,11 +904,11 @@ A password has at least 12 characters and is not the user name.
 The other commands:
 
     :::bash
-    ./mast-users list
-    ./mast-users set-role -u alice -r operator
-    ./mast-users set-password -u alice          # add -t to make it temporary
-    ./mast-users disable -u alice               # and enable
-    ./mast-users delete -u alice
+    ./mast users list
+    ./mast users set-role -u alice -r operator
+    ./mast users set-password -u alice          # add -t to make it temporary
+    ./mast users disable -u alice               # and enable
+    ./mast users delete -u alice
 
 The command line of MAST needs no login. Whoever can run it on the MAST
 server can read its database and its key files, so it is an admin. The
@@ -941,9 +941,9 @@ does not start until it has them, and it says so. Either set `cert` and
 your certificate authority, or make a self-signed certificate:
 
     :::bash
-    ./mast contrib/gen-cert.py
+    ./mast-python contrib/gen-cert.py
 
-`./mast contrib/gen-cert.py -h` shows its options, for example
+`./mast-python contrib/gen-cert.py -h` shows its options, for example
 `--altName` for the names by which people reach the server.
 
 Over TLS, the web GUI tells browsers to use only HTTPS for it for a
@@ -978,13 +978,13 @@ web GUI.
 * MAST removes the passwords that it recognizes from its logs, and the
 values of secret parameters from the progress and the results of a
 job. Treat the logs as sensitive all the same.
-* `mast-system xor` turns credentials into a form that is not plain
+* `mast datapower xor` turns credentials into a form that is not plain
 text, for scripts and for `etc/crontab`. It is not encryption: anybody
 who has MAST can turn it back. Protect such a file as you would protect
 the password.
 
 On a shared server, the command line of a process can be seen by other
-users. Prefer the web GUI, or the form of `mast-system xor` in a file
+users. Prefer the web GUI, or the form of `mast datapower xor` in a file
 that only you can read.
 
 # What MAST protects
@@ -1055,7 +1055,7 @@ Install the new version next to the old one, and move your files to it:
 
 1. Unzip the new version into a new folder, for example
 `/opt/mast-new`.
-2. Stop `mastd`, `mast-web` and the workers. A worker that stops
+2. Stop `mastd`, `mast web` and the workers. A worker that stops
 gracefully finishes its running jobs first.
 3. Copy `etc/local`, `etc/crypto`, `etc/crontab`, `var/jobs` and
 `var/backups` from the old home to the new one.
@@ -1074,7 +1074,7 @@ that the new version works.
 of MAST was started outside its home without a launcher. Use the
 launchers in `$MAST_HOME`, or set `MAST_HOME`.
 
-**`mast-web: The web GUI uses TLS (secure = true in server.conf), but
+**`mast web: The web GUI uses TLS (secure = true in server.conf), but
 ...`**: the web GUI has no certificate. See "TLS" above.
 
 **`This request has no valid CSRF token. Reload the web GUI and try
@@ -1082,12 +1082,12 @@ again.`**: a page of the web GUI was open while the web server
 restarted, or a script posts without the token. Reload the page.
 
 **`No worker is running. The job waits until one starts`**: a job that
-was submitted with `--detach` waits for a worker. Start `mast-worker`
-or `mastd`, or cancel the job with `mast-jobs cancel`.
+was submitted with `--detach` waits for a worker. Start `mast worker`
+or `mastd`, or cancel the job with `mast jobs cancel`.
 
 **A job is `lost`**: its worker stopped or could not reach the database
 for longer than the lease. Look at the appliances, then run the command
-again. `mast-jobs show -j <id> -H` shows how far it got.
+again. `mast jobs show -j <id> -H` shows how far it got.
 
 **The exit status of a command**: 0 if it succeeded, 1 if it failed on
 some or all appliances, 2 for a bad option, 130 after Ctrl-C. See the

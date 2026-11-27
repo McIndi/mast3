@@ -16,11 +16,11 @@
 """
 _module_: `mast.datapower.crypto.inventory`
 
-`mast-crypto inventory`: what cryptography the appliances use, kept in
+`mast crypto inventory`: what cryptography the appliances use, kept in
 the job database (`mast.datapower.crypto.models`) as one snapshot of
 each appliance at each run.
 
-The parent job starts one child job (`inventory-appliance`) for each
+The parent job starts one child job (`datapower.collect-crypto`) for each
 appliance (`mast.jobs.runner.run_children`). For each domain, a child:
 
 1. reads the running and the saved configuration of the whole domain,
@@ -38,7 +38,7 @@ with a name of its own, which is deleted in any case;
 4. reads the ObjectStatus of the domain, for the state of each object
 (a TLS profile can be down while its configuration looks right), and
 keeps the `LocalAddress:LocalPort` of each listener (for
-`mast-crypto probe`; the management services of `default` are kept
+`mast crypto probe`; the management services of `default` are kept
 even when no TLS profile is theirs);
 5. lists the files of `cert:`, `pubcert:` and `sharedcert:` (from the
 `default` domain, once).
@@ -63,7 +63,10 @@ from mast.cli.results import stored_credential_name
 from mast.logging import make_logger
 from mast.plugin_utils.params import ApplianceParams, timeout_option
 
-from . import cli
+from mast.crypto.cli import section as cli
+from mast.datapower.provider import cli as _provider
+
+_datapower = _provider.section("crypto")
 from .models import (
     DETAILS, EXPORT, CryptoCert, CryptoCertCache, CryptoEdge, CryptoFile,
     CryptoObject, CryptoSnapshot)
@@ -836,11 +839,11 @@ def _targets(params):
     return found
 
 
-@cli.command("inventory-appliance", category="inventory", exclusive=False,
-             passive=True)
+@_datapower.command("collect-crypto", group="inventory", exclusive=False,
+                    passive=True)
 def inventory_appliance(params: InventoryOne):
     """Read the crypto inventory of one appliance and keep it as a
-snapshot. mast-crypto inventory runs this for each appliance; run it
+snapshot. mast crypto inventory runs this for each appliance; run it
 yourself only to read one appliance again."""
     from mast.jobs.runner import current_job
     from mast.plugin_utils.results import history
@@ -896,8 +899,8 @@ class _Inventoried(Table):
         return list(self._oks)
 
 
-@cli.command("inventory", category="inventory", exclusive=False,
-             passive=True)
+@cli.command("inventory", id="crypto-inventory", group="inventory",
+             exclusive=False, passive=True)
 def inventory(params: Inventory):
     """Read the crypto inventory of the appliances: the certificates,
 keys, credentials and TLS profiles of every domain, what uses them, and
@@ -915,7 +918,7 @@ collecting."""
     targets = _targets(params)
     say("Reading {} appliance(s)".format(len(targets)))
     children = run_children(
-        "crypto.inventory-appliance",
+        "datapower.collect-crypto",
         [_child_params(params, name, credentials)
          for name, credentials in targets],
         workers=params.workers)

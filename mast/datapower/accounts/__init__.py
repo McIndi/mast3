@@ -23,7 +23,3 @@ appliances.
 from .accounts import *
 import os
 from mast import __version__
-
-if __name__ == "__main__":
-    cli.run()
-

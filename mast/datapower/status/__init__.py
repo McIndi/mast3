@@ -14,7 +14,7 @@
 #
 # Copyright 2015-2024, McIndi Solutions, All rights reserved.
 """
-mast status: the status of the appliances. `mast-status collect` keeps
+mast status: the status of the appliances. `mast datapower collect-status` keeps
 it in the job database for the Appliances page of the web UI
 (`mast.datapower.status.page`).
 """

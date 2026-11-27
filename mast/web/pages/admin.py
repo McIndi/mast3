@@ -36,7 +36,7 @@ temporary: the user chooses a new one at the first login.
 
 An admin cannot change their own role, disable or delete themselves
 here, so that the web UI always keeps an admin who can log in. On the
-command line, `mast-users` can.
+command line, `mast users` can.
 
 Every change is logged to `mast.web.auth.log`, without the password.
 """
@@ -158,7 +158,7 @@ def change_user(name):
     own = target.id == flask.g.mast_user.id
     if own and ("role" in body or body.get("disabled")):
         return _error(400, "You cannot change your own role or disable "
-                           "yourself here. Use mast-users on the MAST host.")
+                           "yourself here. Use mast users on the MAST host.")
     info = target
     try:
         if "role" in body:

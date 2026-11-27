@@ -143,7 +143,7 @@ class TestSessions(TerminalCase):
                          [True, True])
         job = jobs.get(session.job_id)
         self.assertEqual((job.command, job.status, job.submitted_by),
-                         ("ssh.terminal", jobs.RUNNING, "operator"))
+                         ("datapower.terminal", jobs.RUNNING, "operator"))
         self.assertTrue(job.passive)
         line = self.manager.send(session.id, self.operator, "show clock")
         self.assertTrue(line.finished())
@@ -544,16 +544,16 @@ class TestTerminalPage(WebCase):
         admin = self.client_as("admin")
         ids = [c["id"] for c in self.call(admin, "GET", "/commands")
                .get_json()["commands"]]
-        self.assertIn("crypto.probe", ids)
-        self.assertNotIn("ssh.terminal", ids)
-        self.assertEqual(self.call(admin, "GET", "/commands/ssh.terminal")
+        self.assertIn("core.crypto-probe", ids)
+        self.assertNotIn("datapower.terminal", ids)
+        self.assertEqual(self.call(admin, "GET", "/commands/datapower.terminal")
                          .status_code, 404)
         self.assertEqual(self.call(admin, "POST", "/jobs", {
-            "command": "ssh.terminal",
+            "command": "datapower.terminal",
             "params": {"appliances": ["dp1"]}}).status_code, 404)
         from mast.jobs import schedules
         with self.assertRaises(schedules.ScheduleError):
-            schedules.add("t", "ssh.terminal", {"appliances": ["dp1"],
+            schedules.add("t", "datapower.terminal", {"appliances": ["dp1"],
                                                 "credential": "changer"},
                           "0 3 * * *", principal=ADMIN)
         # A worker that took it anyway would refuse to run it
@@ -587,7 +587,7 @@ class TestSessionsPostgres(PostgresMixin, TestSessions):
 
 
 class TestMastSsh(TerminalCase):
-    """mast-ssh on the command line: --credential, and a line typed at
+    """mast datapower ssh on the command line: --credential, and a line typed at
     a password prompt."""
 
     def setUp(self):
@@ -604,7 +604,7 @@ class TestMastSsh(TerminalCase):
                            ["dp1"], principal=ADMIN)
 
     def recorder(self, name):
-        from mast.datapower.ssh.__main__ import _Recorder
+        from mast.datapower.ssh.interactive import _Recorder
         return _Recorder(name, ["dp1"])
 
     def test_a_stored_credential_needs_change_and_a_pinned_host_key(self):
@@ -625,7 +625,7 @@ class TestMastSsh(TerminalCase):
         recorder.finish()
         job = jobs.get(recorder.job_id)
         self.assertEqual((job.command, job.status),
-                         ("ssh.terminal", jobs.SUCCEEDED))
+                         ("datapower.terminal", jobs.SUCCEEDED))
         events = [e.message for e in jobs.events(recorder.job_id)]
         self.assertIn("> show clock", events)
         self.assertIn("> ********", events)

@@ -24,6 +24,6 @@ The local users of MAST, their roles, and their passwords.
 * `mast.auth.users`: Add, change and remove users, and check a login.
 
 The users are kept in the job database (the table `users`), so that
-every process of a MAST home sees the same users. `mast-users`
+every process of a MAST home sees the same users. `mast users`
 manages them on the command line.
 """

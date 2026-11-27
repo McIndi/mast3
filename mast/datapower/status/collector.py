@@ -16,7 +16,7 @@
 """
 _module_: `mast.datapower.status.collector`
 
-`mast-status collect`: ask the appliances for their status and keep it
+`mast datapower collect-status`: ask the appliances for their status and keep it
 in the job database (`mast.datapower.status.models`), for the
 Appliances page.
 
@@ -57,7 +57,9 @@ from mast.plugin_utils.params import ApplianceParams, timeout_option
 
 __all__ = ["cli", "Collect", "collect", "poll", "parse_uptime"]
 
-cli = Cli(namespace="status")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("status")
 
 _STATUS = "{http://www.datapower.com/schemas/management}status"
 _UPTIME = re.compile(r"^\s*(?:(\d+)\s+days?\s*)?(\d+):(\d{2}):(\d{2})\s*$")
@@ -91,14 +93,14 @@ class Collect(ApplianceParams):
     @classmethod
     def _polled_appliances(cls, data):
         """With no appliances, every appliance whose status is
-        collected (mast-appliances update --poll yes)."""
+        collected (mast targets update --poll yes)."""
         if isinstance(data, dict) and not data.get("appliances"):
             from mast import registry
             polled = [a.name for a in registry.list_appliances() if a.poll]
             if not polled:
                 raise ValueError(
                     "no appliance is polled: give the appliances, or turn "
-                    "polling on with mast-appliances update -n NAME --poll yes")
+                    "polling on with mast targets update -n NAME --poll yes")
             data = dict(data, appliances=polled)
         return data
 
@@ -293,11 +295,11 @@ def _fmt(value):
         if isinstance(value, float) and value.is_integer() else str(value)
 
 
-@cli.command("collect", category="status", exclusive=False, passive=True)
+@cli.command("collect-status", group="status", exclusive=False, passive=True)
 def collect(params: Collect):
     """Ask the appliances for their status, and keep it for the
 Appliances page of the web UI. With no appliances, every appliance
-whose status is collected (mast-appliances update --poll yes). An appliance
+whose status is collected (mast targets update --poll yes). An appliance
 that does not answer is recorded as such; the others are still polled.
 Run it on a schedule with a stored credential for collecting."""
     from mast.datapower.status import store

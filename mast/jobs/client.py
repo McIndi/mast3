@@ -83,9 +83,9 @@ def run(command, params, detach=False, local=False, principal=queue.LOCAL):
     _out(job_id)
     if not queue.workers():
         _note("No worker is running. The job waits until one starts "
-              "(mast-worker). Until then, the commands that do their own "
+              "(mast worker). Until then, the commands that do their own "
               "job do not wait for it.")
-    _note("To see the job: mast-jobs show -j {}".format(job_id[:8]))
+    _note("To see the job: mast jobs show -j {}".format(job_id[:8]))
     return 0
 
 
@@ -156,7 +156,7 @@ def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
                           "not known how much of it was done.".format(
                               job_id[:8]))
                 else:
-                    _note("The job {} continues. To see it: mast-jobs show "
+                    _note("The job {} continues. To see it: mast jobs show "
                           "-j {}".format(job_id[:8], job_id[:8]))
                 return INTERRUPTED
             interrupted = True

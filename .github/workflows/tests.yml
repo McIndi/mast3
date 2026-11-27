@@ -89,7 +89,7 @@ jobs:
           MAST_TEST_HOME="$RUNNER_TEMP/mast" uv run --locked pytest mast/testsuite/integration/test_installed.py -v
 
   # mastd as a Windows service, from the installer that users get: it is
-  # installed with mastd.bat, runs a job and a scheduled task, and lets
+  # installed with `mast.bat daemon install`, runs a job and a scheduled task, and lets
   # its running job end when it is stopped. The runner is an
   # administrator, so the tests can install a service.
   windows-service:

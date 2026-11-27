@@ -103,76 +103,6 @@ class TestDeploymentCommands(unittest.TestCase):
             result = command(**kwargs)
         return result, messages
 
-    def test_set_file(self):
-        result, _ = self.call(
-            deployment.set_file, file_in="a.txt", destination="local:/a.txt",
-            overwrite=False)
-        self.assertEqual(
-            [("set_file", {"file_in": "a.txt", "file_out": "local:/a.txt",
-                           "domain": "default", "overwrite": False})],
-            result.env.actions)
-        self.assertEqual({"dp1": "Succeeded"}, result.results)
-        self.assertIn("dp1-set_file", result.html())
-        with self.assertRaises(ValueError):
-            self.call(deployment.set_file, file_in="a.txt")
-
-    def test_get_file(self):
-        result, messages = self.call(
-            deployment.get_file, location="local:///dir/a.txt", Domain="d",
-            out_dir=os.path.join(self.out_dir, "new"))
-        self.assertIsInstance(result, SeeDownload)
-        self.assertEqual(
-            [("getfile", {"domain": "d", "filename": "local:///dir/a.txt"})],
-            result.env.actions)
-        (filename,) = glob.glob(
-            os.path.join(self.out_dir, "new", "dp1-*-a.txt"))
-        with open(filename, "rb") as fin:
-            self.assertEqual(b"the file", fin.read())
-        self.assertIn(filename, messages[0])
-
-    def test_delete_file(self):
-        result, _ = self.call(
-            deployment.delete_file, Domain="d", filename="local:/a.txt")
-        self.assertEqual(
-            [("del_file", {"filename": "local:/a.txt", "domain": "d"})],
-            result.env.actions)
-        self.assertIn("dp1\n===\nSuccess", result.text())
-
-    def test_delete_file_with_a_backup(self):
-        result, _ = self.call(
-            deployment.delete_file, Domain="d", filename="local:/a.txt",
-            backup=True, out_dir=self.out_dir)
-        ((name, _, kwargs),) = result.env.appliances[0].calls
-        self.assertEqual("del_file", name)
-        self.assertTrue(kwargs["backup"])
-        self.assertEqual(
-            os.path.join(self.out_dir, "dp1"), kwargs["local_dir"])
-        self.assertTrue(os.path.isdir(kwargs["local_dir"]))
-
-    def test_clean_up(self):
-        result, messages = self.call(
-            deployment.clean_up, Domain="d", checkpoints=True, logtemp=True,
-            error_reports=True, out_dir=self.out_dir)
-        self.assertIsInstance(result, Report)
-        deleted = [
-            kwargs["File"]
-            for _, _, kwargs in result.env.appliances[0].calls]
-        # diag-log is a directory that DataPower does not let us remove
-        self.assertEqual(["chkpoints://a.txt", "logtemp://a.txt"], deleted)
-        self.assertEqual(2, len(glob.glob(
-            os.path.join(self.out_dir, "dp1", "*", "d", "*", "a.txt"))))
-        # The terminal gets the same table as the web GUI
-        self.assertRegex(messages[0], r"chkpoints:/ +Cleaned")
-        self.assertRegex(messages[0], r"ErrorReports +Cleaned")
-        self.assertIn("ErrorReports", result.html())
-
-    def test_clean_up_without_backups(self):
-        result, _ = self.call(
-            deployment.clean_up, export=True, backup_files=False,
-            out_dir=self.out_dir)
-        self.assertEqual([], os.listdir(self.out_dir))
-        self.assertEqual(1, len(result.env.appliances[0].calls))
-
     def test_password_map_alias(self):
         for command, kwargs, method in (
                 (deployment.add_password_map_alias,
@@ -255,14 +185,10 @@ class TestDeploymentCommands(unittest.TestCase):
                      "-d", "local:/a.txt", "-D", "d", "--no-overwrite"])
             cli.run(["del-file", "-a", "dp1", "-D", "d", "-f", "local:/a.txt",
                      "-b", "-o", self.out_dir])
-            cli.run(["clean-up", "-a", "dp1", "-D", "d", "-C", "-e", "-E",
-                     "-r", "-l", "-L", "--no-backup-files",
-                     "-o", self.out_dir])
             cli.run(["add-password-map-alias", "-a", "dp1", "-D", "d",
                      "-A", "alias", "-p", "secret", "--no-save-config"])
         text = out.getvalue()
         self.assertIn("Succeeded", text)
-        self.assertRegex(text, r"logstore:/ +Cleaned")
         self.assertIn("Attempting to add Password Map Alias", text)
 
     def patch_steps(self, *names):
@@ -436,7 +362,7 @@ class TestDeploymentCommands(unittest.TestCase):
         self.assertFalse(config["quiesce"])
 
     def test_no_command_takes_a_web_parameter(self):
-        self.assertEqual(10, len(cli.commands))
+        self.assertEqual(6, len(cli.commands))
         for command in cli.commands.values():
             self.assertIsNotNone(command.model, command.name)
             self.assertNotIn("web", command.model.model_fields)

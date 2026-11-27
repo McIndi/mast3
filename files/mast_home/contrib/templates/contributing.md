@@ -51,7 +51,7 @@ checkout, so a change to the code is live:
 
     :::bash
     ./mast-setup --development-mode
-    .dev/mast_home/mast-system list-domains -a <appliance> -c <credentials> -n
+    .dev/mast_home/mast datapower list-domains -a <appliance> -c <credentials> -n
 
 `./mast-setup` with no options builds the installer in `dist`. The
 "Development" section of the README explains both environments.
@@ -61,34 +61,54 @@ checkout, so a change to the code is live:
 | Part | Where | What it does |
 |---|---|---|
 | The home | `mast/home.py`, `files/mast_home` | Finds `MAST_HOME` and enters it. `files/mast_home` is the layout of a home: the default configuration, the web GUI, `contrib`. |
+| The `mast` command | `mast/main.py`, `mast/roots.py` | `mast ROOT ...`: the roots of core (`mast targets`, `mast jobs`, `mast web` ...) and the provider of each plugin (`mast datapower`). |
+| The command registry | `mast/jobs/registry.py`, `mast/plugins.py` | One registry of the commands of core and of the plugins, by id (`PROVIDER.NAME`). A plugin is found through its entry point `mast_plugin`; one that cannot be loaded is left out and `mast plugins list` says why. `mast/v3.py` maps the command ids of 3.x to those of 4.0. |
 | The command line | `mast/cli` | `Cli` turns functions into sub-commands. A `Params` model declares the options of a command; the command line, the web form and the help are made from it. A command returns a `Result`. |
-| The job queue | `mast/jobs` | Every invocation of a DataPower command is a job. `queue` stores the jobs (SQLite or PostgreSQL, with Alembic migrations), `runner` runs one, `worker` is `mast-worker`, `client` submits a job and follows it, `secrets` encrypts the credentials of a waiting job. |
+| The job queue | `mast/jobs` | Every invocation of a DataPower command is a job. `queue` stores the jobs (SQLite or PostgreSQL, with Alembic migrations), `runner` runs one, `worker` is `mast worker`, `client` submits a job and follows it, `secrets` encrypts the credentials of a waiting job. |
 | DataPower | `mast/datapower/datapower` | `DataPower` talks to one appliance through its XML management interface (SOMA and AMP) and SSH. `Environment` is a group of appliances. The SOMA spec files are in `files/mast_home/etc`. |
-| Who the appliance is | `mast/datapower/datapower/tls.py` | Every connection to an appliance that can carry a password: the TLS checks (`ca`, `pin`, `none`) of SOMA and AMP, and the SSH host key policy. The pin is checked after the handshake and before the request is sent. Inside `mast.cli.results.stored_credential` (a job with a stored credential) unchecked connections are refused. `mast-appliances pin` and the pin API use its `preview`. |
-| The commands | `mast/datapower/<plugin>` | `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `ssh`, `status`, `system`. Each has a module-level `cli`; `crypto`, `ssh` and `status` also have a page of the web UI. |
+| Who the appliance is | `mast/datapower/datapower/tls.py` | Every connection to an appliance that can carry a password: the TLS checks (`ca`, `pin`, `none`) of SOMA and AMP, and the SSH host key policy. The pin is checked after the handshake and before the request is sent. Inside `mast.cli.results.stored_credential` (a job with a stored credential) unchecked connections are refused. `mast targets pin` and the pin API use its `preview`. |
+| The DataPower plugin | `mast/datapower` | Its manifest (`plugin.py`), its one `Cli` (`provider.py`) and the list of its modules (`commands.py`). Each module registers its commands in a category of that `Cli`: `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `status`, `system`, `terminal`. `crypto`, `ssh` and `status` also have a page of the web UI. |
+| The crypto inventory | `mast/crypto`, `mast/datapower/crypto` | `mast crypto ...` belongs to core (`mast/crypto/cli.py`); the code is still in `mast/datapower/crypto` until the collector interface of design step 8. |
 | Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `choices` (the choice lists of the web forms). |
 | The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), the CSRF token, the session key and the security headers (`security`), the JSON API (`api`, `catalog`, `uploads`), the pages (`page`, `pages`) and their templates and scripts. |
-| The appliance registry | `mast/registry` | The appliances and the environments, in the job database. `resolve` turns the names that users type into appliances; `DataPower`, `Environment` and the job queue use it. `files` imports and exports the configuration files of MAST 3.15.2. `mast-appliances` is `mast/registry/cli.py`. |
-| Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast-credentials` is `mast/credentials/cli.py`. |
-| Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast-users` is `mast/auth/cli.py`. |
-| `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler of `etc/crontab` (the cron plugin). Each worker, in `mastd` or in `mast-worker`, runs `mast.jobs.schedules.QueueScheduler` for the schedules of the job queue and the daily retention. |
-| Schedules and retention | `mast/jobs/schedules.py`, `mast/jobs/retention.py` | Scheduled jobs of the queue (coalescing, pausing, one firing per due minute across processes), and the daily deletion of old jobs, uses, uploads and logs. `mast-jobs schedule-*` and `prune`; the routes are `mast/web/schedules.py`. Passive jobs (`submit(..., passive=True)`) are in `mast/jobs/queue.py`. |
+| The appliance registry | `mast/registry` | The appliances and the environments, in the job database. `resolve` turns the names that users type into appliances; `DataPower`, `Environment` and the job queue use it. `files` imports and exports the configuration files of MAST 3.15.2. `mast targets` is `mast/registry/cli.py`. |
+| Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast credentials` is `mast/credentials/cli.py`. |
+| Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast users` is `mast/auth/cli.py`. |
+| `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler of `etc/crontab` (the cron plugin). Each worker, in `mastd` or in `mast worker`, runs `mast.jobs.schedules.QueueScheduler` for the schedules of the job queue and the daily retention. |
+| Schedules and retention | `mast/jobs/schedules.py`, `mast/jobs/retention.py` | Scheduled jobs of the queue (coalescing, pausing, one firing per due minute across processes), and the daily deletion of old jobs, uses, uploads and logs. `mast schedules ...` and `mast jobs prune`; the routes are `mast/web/schedules.py`. Passive jobs (`submit(..., passive=True)`) are in `mast/jobs/queue.py`. |
 | The installer | `tools/mast_setup`, `files/invocation_scripts` | `./mast-setup`: builds the installer and the development home from `uv.lock`, with Python from python-build-standalone. The launchers of each platform. |
 
-A command goes through these steps: the launcher starts
-`python -m mast.datapower.<plugin>`. `Cli` parses the options with the
-`Params` model and submits a job with the id `<plugin>.<command>`. A
-worker, or the program itself when no worker is alive, claims the job
-and runs the function. What the function reports with `say` is stored
-as progress, and the `Result` that it returns is stored and shown.
+A command goes through these steps: `mast datapower list-domains ...`
+runs `mast.main`, which finds the `Cli` of the provider `datapower`.
+`Cli` parses the options with the `Params` model and submits a job with
+the id `datapower.list-domains`. A worker, or the program itself when
+no worker is alive, claims the job and runs the function. What the
+function reports with `say` is stored as progress, and the `Result`
+that it returns is stored and shown.
 
-The plugins are found through entry points in `pyproject.toml`:
+Each command has one identity:
+
+| Property | Example |
+|---|---|
+| Provider | `datapower` |
+| Command name | `list-domains` |
+| Id (jobs and schedules store it) | `datapower.list-domains` |
+| Permission path | `mast/datapower/list-domains` |
+| Command line | `mast datapower list-domains` |
+
+The commands of core are under several roots, so each one gives its id:
+`mast targets add` is `core.add-target`. Categories (`system`,
+`backups`, ...) are only for the help and the web UI.
+
+Entry points in `pyproject.toml` connect the parts: `mast_plugin` for
+the plugins (`datapower = "mast.datapower.plugin:manifest"`),
 `mast_web_page` for the pages of the web UI and `mastd_plugin` for
 the threads of `mastd`. A `mastd_plugin` that has running work should
 have `stop()` and `abort()`, so that `mastd` can wait for that work
-when it stops (see `mast._daemon.plugins`). A worker finds the code of a job by importing
-`mast.datapower.<plugin>` and taking its `cli`. A command that is
-queued must therefore be in one of those modules.
+when it stops (see `mast._daemon.plugins`). A worker finds the code of
+a job in the registry, by the provider of its id. A command that is
+queued must therefore be in the `Cli` of its plugin, which
+`mast/datapower/commands.py` imports.
 
 # Adding a command
 
@@ -96,14 +116,17 @@ A command is a function with one parameter, annotated with a `Params`
 model. This is `list-domains`, a little shortened:
 
     :::python
-    from mast.cli import Cli, say
+    from mast.cli import say
     from mast.plugin_utils.params import ApplianceParams
     from mast.plugin_utils.results import CommonItems
 
-    cli = Cli(namespace="system")
+    from mast.datapower.provider import cli as provider
+
+    # The commands of this module are in the category "system"
+    cli = provider.section("system")
 
 
-    @cli.command("list-domains", category="domains", exclusive=False)
+    @cli.command("list-domains", group="domains", exclusive=False)
     def list_domains(params: ApplianceParams):
         """Lists the domains on the specified appliances as well as all
         common domains."""
@@ -140,6 +163,12 @@ file and `configured("Domain")` for a choice of domains.
 
 **`@cli.command`.**
 
+* The name is the command line and the id: `mast datapower NAME`,
+`datapower.NAME`. It must be unique in the plugin, whatever its
+category: two commands with one name fail the registration. A new
+module of commands must be imported in `mast/datapower/commands.py`.
+* `group` is the heading of the command within its category, in the
+help and the web UI.
 * `exclusive=False` for a command that only reads from the appliances.
 The queue then runs it while other jobs use the same appliances. A
 command that changes something keeps the default, so that two such
@@ -148,6 +177,8 @@ jobs never change one appliance at the same time.
 job, for example a directory that it writes.
 * `queued=False` for a command that talks to no appliance and whose
 parameters or result must not be stored, such as `xor`.
+* `interactive=True` for a command that needs a terminal, such as `ssh`.
+The web UI does not offer it.
 
 **Progress and steps.** Call `say` between the steps of a command, so
 the user sees the progress. A job is cancelled at its next step: at a
@@ -174,7 +205,7 @@ the DataPower container.
 
 ## A job that runs other jobs
 
-A command can run a job for each of its parts, as `mast-crypto
+A command can run a job for each of its parts, as `mast crypto
 inventory` does for each appliance: `mast.jobs.runner.run_children(
 command, params_list)` submits them as children of the running job, as
 its principal (the queue checks them as any job), runs them in the same
@@ -285,7 +316,7 @@ README lists every variable.
 
 A test of a bug fails without the fix. Before you push, make sure that
 the new test fails on the old code. An installed MAST runs its own unit
-tests with `test-mast --unit`.
+tests with `mast selftest --unit`.
 
 # Documentation
 
@@ -297,7 +328,7 @@ into HTML, and adds the CLI Reference and the API Reference from the
 code:
 
         :::bash
-        .dev/mast_home/mast contrib/gendocs.py -o /tmp/mast-doc
+        .dev/mast_home/mast-python contrib/gendocs.py -o /tmp/mast-doc
 
     The templates are passed through `str.format()` to put in the version
     (`{{0}}`), so a literal brace in a template is written twice.

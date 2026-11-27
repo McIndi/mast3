@@ -179,8 +179,8 @@ def command(command_id):
 
     Exposed at: `/api/v1/commands/<id>` via GET
     """
-    namespace, found = catalog.find(command_id)
-    return flask.jsonify(catalog.command_json(namespace, found))
+    found = catalog.find(command_id)
+    return flask.jsonify(catalog.command_json(found))
 
 
 @blueprint.post("/choices/<path:widget>")
@@ -251,7 +251,7 @@ def _lookup(widget, appliances, body):
     params = dp_choices.lookup_params(
         widget, appliances, str(body["credential"]),
         no_check_hostname=body.get("no_check_hostname"), timeout=timeout)
-    _, found = catalog.find(dp_choices.LOOKUP_COMMAND)
+    found = catalog.find(dp_choices.LOOKUP_COMMAND)
     jobs_auth.authorize(who, "submit", command=dp_choices.LOOKUP_COMMAND)
     try:
         model = found.model(**params)
@@ -290,7 +290,7 @@ def _run_and_wait(command, model, who, seconds):
 
 
 # The command of the Test button of the target bar
-CONNECTIVITY_COMMAND = "system.test-connectivity"
+CONNECTIVITY_COMMAND = "datapower.test-connectivity"
 
 
 @blueprint.post("/connectivity")
@@ -323,7 +323,7 @@ def connectivity():
         if not params["credentials"]:
             return error(422, "Type a user name and a password, or choose a "
                               "stored credential.")
-    _, found = catalog.find(CONNECTIVITY_COMMAND)
+    found = catalog.find(CONNECTIVITY_COMMAND)
     try:
         model = found.model(**params)
     except ValidationError as exc:
@@ -378,8 +378,8 @@ def submit():
     Exposed at: `/api/v1/jobs` via POST
     """
     body = _body()
-    namespace, found = catalog.find(str(body.get("command") or ""))
-    command_id = "{}.{}".format(namespace, found.name)
+    found = catalog.find(str(body.get("command") or ""))
+    command_id = found.id
     who = principal()
     jobs_auth.authorize(who, "submit", command=command_id)
     job_id = jobs.new_job_id()

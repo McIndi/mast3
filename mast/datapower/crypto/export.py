@@ -16,7 +16,7 @@
 """
 _module_: `mast.datapower.crypto.export`
 
-`mast-crypto export`: write snapshots of the crypto inventory
+`mast crypto export`: write snapshots of the crypto inventory
 (`mast.datapower.crypto.inventory`) to a file.
 
 * `cbom`: a CycloneDX 1.6 JSON bill of materials of the cryptography
@@ -45,7 +45,7 @@ from sqlalchemy import func, select
 from mast.cli import Option, Params, Table, say
 from mast.plugin_utils.params import OUT_FILE
 
-from . import cli
+from mast.crypto.cli import section as cli
 from .models import (
     CryptoCert, CryptoEdge, CryptoFile, CryptoObject, CryptoSnapshot)
 
@@ -734,14 +734,14 @@ class Export(Params):
         return self
 
 
-@cli.command("export", category="inventory", exclusive=False)
+@cli.command("export", id="crypto-export", group="inventory", exclusive=False)
 def export(params: Export):
     """Write the crypto inventory to a file: a CycloneDX 1.6 CBOM (JSON),
 a spreadsheet, or the certificates as CSV. Without --snapshot, the
 newest snapshot of each appliance (or of the appliances given)."""
     snapshots = load(params.snapshot, params.appliances)
     if not snapshots:
-        raise ValueError("there is no snapshot yet: run mast-crypto "
+        raise ValueError("there is no snapshot yet: run mast crypto "
                          "inventory first")
     extension = FORMATS[params.format]
     path = params.out_file or os.path.join(

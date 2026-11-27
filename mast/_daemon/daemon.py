@@ -104,7 +104,7 @@ class Daemon(object):
 
         # Redirect standard file descriptors, on macOS too: a daemon that
         # keeps the output of its parent keeps a pipe open, so that
-        # `mastd start | cat` or `ssh host mastd start` never ends.
+        # `mast daemon start | cat` or `ssh host mast daemon start` never ends.
         sys.stdout.flush()
         sys.stderr.flush()
         si = open(self.stdin, 'r')

@@ -21,8 +21,8 @@ The posture of the appliances: the findings of the rules
 them.
 
 * `evaluate(snapshot_id)` runs the snapshot rules on a snapshot and
-stores the findings. `mast-crypto inventory` does it for each snapshot
-it keeps; `mast-crypto posture` does it again on demand.
+stores the findings. `mast crypto inventory` does it for each snapshot
+it keeps; `mast crypto posture` does it again on demand.
 * An exception (`add_exception`) accepts the findings of one rule on
 the objects whose name matches a pattern, on one appliance or domain
 or on all, until it expires. It needs a reason and an expiry date.
@@ -43,7 +43,7 @@ from sqlalchemy import delete, func, select, update
 from mast.cli import Option, Params, Table, say
 from mast.logging import make_logger
 
-from . import cli
+from mast.crypto.cli import section as cli
 from .models import (CryptoCert, CryptoException, CryptoFinding,
                      CryptoObject, CryptoSnapshot)
 from .rules import (RULES, SEVERITIES, Setup, View, self_checks, settings,
@@ -439,7 +439,7 @@ def add_exception(rule_id, object_pattern, reason, expires, principal,
     now = now or _now()
     rule_id = str(rule_id or "").strip()
     if rule_id not in RULES:
-        raise ExceptionError("there is no rule {!r}; mast-crypto rules lists "
+        raise ExceptionError("there is no rule {!r}; mast crypto rules lists "
                              "them".format(rule_id))
     object_pattern = str(object_pattern or "").strip()
     if not object_pattern or len(object_pattern) > 255:
@@ -547,7 +547,8 @@ class Posture(Params):
         help="Only the newest snapshots of these appliances.")
 
 
-@cli.command("posture", category="inventory", exclusive=False)
+@cli.command("posture", id="crypto-posture", group="posture",
+             exclusive=False)
 def posture(params: Posture):
     """Run the posture rules again on the crypto inventory, and show the
 findings and the MAST self-checks. Without --snapshot, the newest snapshot
@@ -571,7 +572,7 @@ etc/local/crypto.conf; adding or removing an exception needs no run."""
         with db.session(write=False) as session:
             ids = sorted(latest_snapshots(session, wanted).values())
     if not ids:
-        raise ValueError("there is no snapshot yet: run mast-crypto inventory "
+        raise ValueError("there is no snapshot yet: run mast crypto inventory "
                          "first")
     for snapshot_id in ids:
         say("Snapshot {}: {} findings".format(snapshot_id,
@@ -583,7 +584,8 @@ etc/local/crypto.conf; adding or removing an exception needs no run."""
                   "Exception"), _findings_table(findings))
 
 
-@cli.command("rules", category="inventory", exclusive=False)
+@cli.command("rules", id="crypto-rules", group="posture",
+             exclusive=False)
 def list_rules(params: Params):
     """List the posture rules: their id, pack, severity, and whether
 they are on. The cnsa pack is off unless etc/local/crypto.conf turns it
@@ -599,7 +601,7 @@ on ([packs] disabled)."""
 
 class AddException(Params):
     rule: str = Option(..., short="r", help="The id of the rule "
-                                            "(mast-crypto rules).")
+                                            "(mast crypto rules).")
     pattern: str = Option(
         ..., short="p", help="The name of the object (or file, appliance, "
                              "credential), or a shell pattern: lab-*")
@@ -615,7 +617,8 @@ class AddException(Params):
                               "domain.")
 
 
-@cli.command("exception-add", category="inventory", exclusive=False)
+@cli.command("exception-add", id="crypto-exception-add", group="exceptions",
+             exclusive=False)
 def exception_add(params: AddException):
     """Accept the findings of a posture rule on some objects until a date,
 for a reason. They stay on the Crypto page, marked with the exception,
@@ -631,7 +634,7 @@ and no longer lower the score. Admins only."""
 
 class RemoveException(Params):
     id: int = Option(..., short="i", help="The id of the exception "
-                                          "(mast-crypto exceptions).")
+                                          "(mast crypto exceptions).")
 
     @field_validator("id")
     @classmethod
@@ -641,7 +644,8 @@ class RemoveException(Params):
         return value
 
 
-@cli.command("exception-remove", category="inventory", exclusive=False)
+@cli.command("exception-remove", id="crypto-exception-remove", group="exceptions",
+             exclusive=False)
 def exception_remove(params: RemoveException):
     """Remove an exception of the posture rules: its findings count again.
 Admins only."""
@@ -662,7 +666,8 @@ def _exceptions_table(rows):
                    e["created_by"]] for e in rows])
 
 
-@cli.command("exceptions", category="inventory", exclusive=False)
+@cli.command("exceptions", id="crypto-exceptions", group="exceptions",
+             exclusive=False)
 def exceptions(params: Params):
     """List the exceptions of the posture rules, the newest first, with
 those that have expired."""

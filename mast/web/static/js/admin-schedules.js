@@ -176,7 +176,7 @@ async function refresh() {
         rows.replaceChildren(...schedules.map(scheduleRow));
         if (!schedules.length) {
             rows.append(el("tr", {}, el("td", {colSpan: 7, className: "text-body-secondary"},
-                "No schedules yet. Add one below, or with mast-jobs schedule-add.")));
+                "No schedules yet. Add one below, or with mast schedules add.")));
         }
     } catch (error) {
         showError(errorBox, error);
@@ -191,10 +191,11 @@ async function start() {
         return;
     }
     commandSelect.append(el("option", {value: ""}, "Choose a command"));
-    const namespaces = [...new Set(commands.map((c) => c.namespace))];
-    for (const namespace of namespaces) {
-        commandSelect.append(el("optgroup", {label: namespace},
-            ...commands.filter((c) => c.namespace === namespace)
+    const section = (c) => c.category ? c.provider + " · " + c.category : c.provider;
+    const sections = [...new Set(commands.map(section))];
+    for (const name of sections) {
+        commandSelect.append(el("optgroup", {label: name},
+            ...commands.filter((c) => section(c) === name)
                 .map((c) => el("option", {value: c.id}, c.id))));
     }
     edit(null);

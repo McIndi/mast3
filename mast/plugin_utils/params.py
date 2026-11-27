@@ -106,8 +106,8 @@ class ApplianceOptions(Params):
         help="The hostname(s), ip address(es), environment name(s) "
              "or appliance name(s) you would like to affect. "
              "Appliances and environments are kept in the "
-             "registry; see `mast-appliances list` and "
-             "`mast-appliances env-list`.")
+             "registry; see `mast targets list` and "
+             "`mast fleets list`.")
     credentials: list[str] = Option(
         default_factory=list, short="c", widget=CREDENTIALS, secret=True,
         help="The credentials to use for authenticating to the "
@@ -115,11 +115,11 @@ class ApplianceOptions(Params):
              "one set to use for all appliances or one set for each "
              "appliance, in the same order as the appliances. If you "
              "would prefer to not use plain-text passwords, you can use "
-             "the output of `mast-system xor <username:password>`.")
+             "the output of `mast datapower xor <username:password>`.")
     credential: str | None = Option(
         None, widget=STORED_CREDENTIAL,
         help="The name of a stored credential to use in place of "
-             "`--credentials` (see `mast-credentials list`). It can be "
+             "`--credentials` (see `mast credentials list`). It can be "
              "used only on the registered appliances that it is bound "
              "to, and a credential for collecting only with commands "
              "that only read. The password never leaves the MAST host's "
@@ -130,7 +130,7 @@ class ApplianceOptions(Params):
         help="Turn off all checks of the TLS certificates of the "
              "appliances, not only of the hostname, so that anyone "
              "between MAST and an appliance can read the password. A "
-             "pinned certificate (mast-appliances pin) is still "
+             "pinned certificate (mast targets pin) is still "
              "checked. Not with a stored credential (`--credential`).")
 
     @model_validator(mode="after")

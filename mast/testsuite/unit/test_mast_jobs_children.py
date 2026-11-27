@@ -42,7 +42,7 @@ class Kid(Work):
 
 
 def make_cli():
-    cli = Cli(namespace="kids")
+    cli = Cli(provider="kids")
 
     @cli.command("parent", exclusive=False)
     def parent(params: Kid):

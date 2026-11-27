@@ -16,7 +16,7 @@
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
 Unit tests for mast.auth (users, roles, passwords), for the roles in
-mast.jobs.auth, for mast-users, and for the way back from the
+mast.jobs.auth, for mast users, and for the way back from the
 migrations of the job database.
 
 The database tests use SQLite, and PostgreSQL as well when
@@ -379,7 +379,7 @@ class TestUsersPostgres(PostgresMixin, TestUsers):
 
 
 class TestMastUsers(SqliteCase):
-    """The command line, mast-users."""
+    """The command line, mast users."""
 
     def setUp(self):
         super().setUp()
@@ -507,13 +507,13 @@ class TestMigrations(SqliteCase):
 
 
 class TestDowngradeCommand(SqliteCase):
-    """mast-jobs downgrade-db, the way back to an older MAST."""
+    """mast jobs downgrade-db, the way back to an older MAST."""
 
     def run_jobs(self, *args):
-        from mast.jobs.cli import cli
+        from mast.jobs.cli import jobs_cli
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cli.run(list(args))
+            jobs_cli.run(list(args))
         return out.getvalue()
 
     def test_downgrade_db(self):

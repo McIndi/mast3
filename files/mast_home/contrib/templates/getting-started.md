@@ -19,7 +19,7 @@ that this will refer to the directory into which MAST was installed
 # First thing first
 
 While there are a few different ways in which MAST can be secured, the most
-obvious one and the most necessary one is to use https for the mast-web ui.
+obvious one and the most necessary one is to use https for the mast web ui.
 
 The web GUI uses TLS by default, and a fresh install has no certificate.
 Until it has one, the web GUI does not start, and it says what to do.
@@ -29,15 +29,15 @@ certificate, or make a self-signed certificate with the script that comes
 with MAST. Run it in `$MAST_HOME`:
 
     :::bash
-    ./mast contrib/gen-cert.py
+    ./mast-python contrib/gen-cert.py
 
-On Windows, run `mast.bat contrib\gen-cert.py`. The script puts the
+On Windows, run `mast-python.bat contrib\gen-cert.py`. The script puts the
 certificate in `etc/crypto/cert/mast.crt` and the private key in
 `etc/crypto/private/mast.key`, where the default `server.conf` expects
 them. Only the owner can read the key. The certificate names this
 computer, `localhost`, `127.0.0.1` and `::1`; add other names with
 `--altName`, once for each name. It does not replace a key that is there
-unless you give `--force`. `./mast contrib/gen-cert.py -h` lists the
+unless you give `--force`. `./mast-python contrib/gen-cert.py -h` lists the
 other options, such as the fields of the subject.
 
 Browsers warn about a self-signed certificate until you trust it. For a
@@ -46,13 +46,13 @@ authority is better.
 
 
 Every page of the web GUI needs a login. Add the first admin in
-`$MAST_HOME` (on Windows, `mast-users.bat`); it asks for a password:
+`$MAST_HOME` (on Windows, `mast.bat users`); it asks for a password:
 
     :::bash
-    ./mast-users add -u NAME -r admin
+    ./mast users add -u NAME -r admin
 
 Then open the web GUI and log in. The Operator's Guide explains the
-roles and the other `mast-users` commands, and has a short tour of the
+roles and the other `mast users` commands, and has a short tour of the
 web UI. The Installation Guide lists the steps of a first run, from the
 certificate to a stored credential.
 
@@ -63,10 +63,10 @@ database: the appliance registry. Give each appliance a name that is
 easy to type, and the address to connect to:
 
     :::bash
-    ./mast-appliances add -n dev_dp_1 -A 10.0.1.1
-    ./mast-appliances add -n dev_dp_2 -A 10.0.1.2
-    ./mast-appliances add -n prod_dp_1 -A 10.2.1.1
-    ./mast-appliances add -n prod_dp_2 -A 10.2.1.2 --soma-port 5551
+    ./mast targets add -n dev_dp_1 -A 10.0.1.1
+    ./mast targets add -n dev_dp_2 -A 10.0.1.2
+    ./mast targets add -n prod_dp_1 -A 10.2.1.1
+    ./mast targets add -n prod_dp_2 -A 10.2.1.2 --soma-port 5551
 
 A setting that an appliance does not have (the SOMA port, the SOMA spec
 file and so on) takes the default of `[global]` in
@@ -77,12 +77,12 @@ An environment is a named group of appliances. A command that is given
 the name of an environment acts on all of its appliances:
 
     :::bash
-    ./mast-appliances env-add -n dev -m dev_dp_1 -m dev_dp_2
-    ./mast-appliances env-add -n prod -p -m prod_dp_1 -m prod_dp_2
-    ./mast-appliances env-add -n all -m dev_dp_1 -m dev_dp_2 -m prod_dp_1 -m prod_dp_2
+    ./mast fleets add -n dev -m dev_dp_1 -m dev_dp_2
+    ./mast fleets add -n prod -p -m prod_dp_1 -m prod_dp_2
+    ./mast fleets add -n all -m dev_dp_1 -m dev_dp_2 -m prod_dp_1 -m prod_dp_2
 
-`-p` marks a production environment. `./mast-appliances list` and
-`./mast-appliances env-list` show what is there; `update`, `remove`,
+`-p` marks a production environment. `./mast targets list` and
+`./mast fleets list` show what is there; `update`, `remove`,
 `env-set-members` and `env-remove` change it. An admin can do the same
 in the web UI, under Admin → Appliances.
 
@@ -98,13 +98,13 @@ longer reads the first two, and warns while they are there. Import them
 once:
 
     :::bash
-    ./mast-appliances import --dry-run     # what would be done
-    ./mast-appliances import
+    ./mast targets import --dry-run     # what would be done
+    ./mast targets import
 
 Every alias, every name in an environment, and every section of
 `appliances.conf` for one appliance becomes an appliance. The files are
 renamed to `*.imported`; `appliances.conf` keeps its `[global]`
-section. To go back to an older MAST, `./mast-appliances export` writes
+section. To go back to an older MAST, `./mast targets export` writes
 the three files again.
 
 # Configuring the Server
@@ -152,7 +152,7 @@ In order to list the users we currently have on the appliances, we can
 issue the following command:
 
     :::bash
-    $ ./mast-accounts list-users -a dev -c username:password
+    $ ./mast datapower list-users -a dev -c username:password
     dev_dp_1
     ========
         user_1
@@ -179,14 +179,14 @@ this is irrelevant. We need to add the new user to the dev appliances. We can
 do that with the following command:
 
     :::bash
-    $ ./mast-accounts add-user -a dev -c username:password -u new_user -p pa55word -g developer -s
+    $ ./mast datapower add-user -a dev -c username:password -u new_user -p pa55word -g developer -s
 
 This will add a user to both dev appliances and associate them with the
 developer group. We can then verify that it was added by listing the users
 just as we did above:
 
     :::bash
-    $ ./mast-accounts list-users -a dev -c username:password
+    $ ./mast datapower list-users -a dev -c username:password
     dev_dp_1
     ========
         user_1
@@ -215,7 +215,7 @@ ensure that our new user needs to change their password on the next login. We
 can do that with the following command:
 
     :::bash
-    $ ./mast-accounts force-change-password -a dev -c username:password -U new_user
+    $ ./mast datapower force-change-password -a dev -c username:password -U new_user
 
 Now when the new user goes to log onto the appliance, they will be forced to
 change their password. That concludes our first use case, now we will look at
@@ -233,7 +233,7 @@ So probably the first thing we should do is look at which domains exist on
 our development appliances. We can do that with the following command:
 
     :::bash
-    $ ./mast-system list-domains -a dev -c username:password
+    $ ./mast datapower list-domains -a dev -c username:password
     dev_dp_1
     ========
         default
@@ -258,14 +258,14 @@ but that's not our concern right now. We need to add a domain named new_domain
 to both boxes. We can do that with the following command:
 
     :::bash
-    $ ./mast-system add-domain -a dev -c username:password -d new_domain -s
+    $ ./mast datapower add-domain -a dev -c username:password -d new_domain -s
 
 This will add our domain and the "-s" flag will cause MAST to save the
 configuration. Now all that is left to do is to list all the domains again,
 just to be sure that it was added.
 
     :::bash
-    $ ./mast-system list-domains -a dev -c username:password
+    $ ./mast datapower list-domains -a dev -c username:password
     dev_dp_1
     ========
         default
@@ -300,14 +300,14 @@ task to import the configuration into our dev environment. We can do that with
 this command:
 
     :::bash
-    $ ./mast-developer import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip
+    $ ./mast datapower import -a dev -c username:password -D new_domain -f ~/Downloads/export.zip
 
 Now, there is a reason that this command does not persist the changes and that
 is to give the interested parties a chance to "check-out" the results. Once
 that's done, you can save the configuration with the following command:
 
     :::bash
-    $ ./mast-system save -a dev -c username:password -D new_domain
+    $ ./mast datapower save -a dev -c username:password -D new_domain
 
 That's it, simple really, but this is all in dev. There are a lot more
 restrictions about making changes in our qa and prod environments.
@@ -316,23 +316,23 @@ restrictions about making changes in our qa and prod environments.
 
 Each command that we ran above was recorded as a job, with its progress,
 its result and its status. You can list the newest jobs, and look at one
-of them, with mast-jobs. The start of the id of a job is enough:
+of them, with mast jobs. The start of the id of a job is enough:
 
     :::bash
-    $ ./mast-jobs list
-    $ ./mast-jobs show -j 3f2a
+    $ ./mast jobs list
+    $ ./mast jobs show -j 3f2a
 
 A command exits with status 1 if it failed on any of the appliances, so a
 script can check `$?`. Ctrl-C cancels the job of
 a command at its next step.
 
-With a worker running (`./mast-worker`, or the one that mastd hosts), a
+With a worker running (`./mast worker`, or the one that mastd hosts), a
 long command can be left to the worker. `--detach` prints the id of the
 job and returns at once:
 
     :::bash
-    $ ./mast-backups normal-backup -a dev -c username:password -D all-domains --detach
-    $ ./mast-jobs follow -j 3f2a
+    $ ./mast datapower normal-backup -a dev -c username:password -D all-domains --detach
+    $ ./mast jobs follow -j 3f2a
 
 The [Installation Guide](./installation.html) explains how to set up the
 job queue, including how to use a PostgreSQL database.

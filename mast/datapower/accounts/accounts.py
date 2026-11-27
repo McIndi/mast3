@@ -28,11 +28,13 @@ from mast.plugin_utils.results import ActionResults, CommonItems, Report
 from mast.plugin_utils.steps import perform as _perform
 from mast.plugin_utils.steps import save_config as _save_config
 
-cli = Cli(namespace="accounts")
+from mast.datapower.provider import cli as _provider  # noqa: E402
+
+cli = _provider.section("accounts")
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-groups', category='users/groups', exclusive=False)
+@cli.command('list-groups', group='users/groups', exclusive=False)
 def list_groups(params: ApplianceParams):
     """Display a list of all configured user groups on the specified
 appliances, along with a list of the groups common to all
@@ -65,7 +67,7 @@ class AddGroup(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-group', category='users/groups')
+@cli.command('add-group', group='users/groups')
 def add_group(params: AddGroup):
     """Adds a user group to the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -90,7 +92,7 @@ class DelGroup(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-group', category='users/groups')
+@cli.command('del-group', group='users/groups')
 def del_group(params: DelGroup):
     """Removes a user group from the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -110,7 +112,7 @@ def del_group(params: DelGroup):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-users', category='users/groups', exclusive=False)
+@cli.command('list-users', group='users/groups', exclusive=False)
 def list_users(params: ApplianceParams):
     """Lists the users on the specified appliances as well as a list
 of users common to all appliances."""
@@ -149,7 +151,7 @@ class AddUser(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-user', category='users/groups')
+@cli.command('add-user', group='users/groups')
 def add_user(params: AddUser):
     """Adds a user to the specified appliances.
 
@@ -184,7 +186,7 @@ class UserParams(SaveConfigParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-user', category='users/groups')
+@cli.command('del-user', group='users/groups')
 def del_user(params: UserParams):
     """Removes a user from the specified appliances."""
     logger = make_logger("mast.accounts")
@@ -213,7 +215,7 @@ class ChangePassword(UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('change-password', category='users/groups')
+@cli.command('change-password', group='users/groups')
 def change_password(params: ChangePassword):
     """Changes the specified user's password to the specified password."""
     logger = make_logger("mast.accounts")
@@ -233,7 +235,7 @@ def change_password(params: ChangePassword):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('force-change-password', category='users/groups')
+@cli.command('force-change-password', group='users/groups')
 def force_change_password(params: UserParams):
     """Forces a user to change their password on their next login."""
     logger = make_logger("mast.accounts")
@@ -253,7 +255,7 @@ def force_change_password(params: UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('list-rbm-fallback', category='users/groups', exclusive=False)
+@cli.command('list-rbm-fallback', group='users/groups', exclusive=False)
 def list_rbm_fallback_users(params: ApplianceParams):
     """Lists the current RBM Fallback Users for the specified appliances,
 as well as the fallback users which are common to all appliances."""
@@ -277,7 +279,7 @@ as well as the fallback users which are common to all appliances."""
 
 
 @logged("mast.datapower.accounts")
-@cli.command('add-rbm-fallback', category='users/groups')
+@cli.command('add-rbm-fallback', group='users/groups')
 def add_rbm_fallback(params: UserParams):
     """Adds a user to the the RBM Fallback users."""
     logger = make_logger("mast.accounts")
@@ -297,7 +299,7 @@ def add_rbm_fallback(params: UserParams):
 
 
 @logged("mast.datapower.accounts")
-@cli.command('del-rbm-fallback', category='users/groups')
+@cli.command('del-rbm-fallback', group='users/groups')
 def del_rbm_fallback(params: UserParams):
     """Removes a user from the the RBM Fallback users."""
     logger = make_logger("mast.accounts")
@@ -318,98 +320,7 @@ def del_rbm_fallback(params: UserParams):
 #
 # ~#~#~#~#~#~#~#
 
-# ~#~#~#~#~#~#~#
-# Caches
-# ======
-#
-# These functions are meant to be used to flush the caches that DataPower
-# maintains.
-#
-# Current Commands:
-# ----------------
-#
-# FlushAAACache(PolicyName)
-# FlushLDAPPoolCache(XMLManager)
-# FlushRBMCache()
 
-
-class FlushAAACache(ApplianceParams):
-    Domain: str = Option(
-        "", short="D", widget=configured("Domain"),
-        help="The domain where the aaa_policy resides")
-    aaa_policy: str = Option(
-        "", short="A",
-        help="The AAAPolicy whose cache you would like to flush")
-
-
-@logged("mast.datapower.accounts")
-@cli.command('flush-aaa-cache', category='caches')
-def flush_aaa_cache(params: FlushAAACache):
-    """Flushes the AAA Cache of the specified aaa_policy in the
-specified Domain."""
-    logger = make_logger("mast.accounts")
-    env = params.environment()
-    msg = "Attempting to flush AAA cache on {}".format(str(env.appliances))
-    logger.info(msg)
-    say(msg)
-
-    kwargs = {"PolicyName": params.aaa_policy, 'domain': params.Domain}
-    responses = env.perform_action('FlushAAACache', **kwargs)
-    logger.debug("Responses received {}".format(str(responses)))
-    return ActionResults(responses, env, suffix="flush_aaa_cache")
-
-
-class FlushLDAPPoolCache(ApplianceParams):
-    Domain: str = Option(
-        "", short="D", widget=configured("Domain"),
-        help="The domain which has the xml_manager whose cache you "
-             "would like to flush.")
-    xml_manager: str = Option(
-        "", short="x",
-        help="The XMLManager whose cache you would like to flush")
-
-
-@logged("mast.datapower.accounts")
-@cli.command('flush-ldap-pool-cache', category='caches')
-def flush_ldap_pool_cache(params: FlushLDAPPoolCache):
-    """Flushes the LDAP Pool Cache for the specified xml_manager
-in the specified domain."""
-    logger = make_logger("mast.accounts")
-    env = params.environment()
-    msg = "Attempting to flush LDAP Pool cache on {}".format(
-        str(env.appliances))
-    logger.info(msg)
-    say(msg)
-
-    kwargs = {"XMLManager": params.xml_manager, 'domain': params.Domain}
-    responses = env.perform_action('FlushLDAPPoolCache', **kwargs)
-    logger.debug("Responses received {}".format(str(responses)))
-    return ActionResults(responses, env, suffix="flush_ldap_pool_cache")
-
-
-class FlushRBMCache(ApplianceParams):
-    Domain: str = Option(
-        "", short="D", widget=configured("Domain"),
-        help="The domain for which to flush the RBM Cache")
-
-
-@logged("mast.datapower.accounts")
-@cli.command('flush-rbm-cache', category='caches')
-def flush_rbm_cache(params: FlushRBMCache):
-    """Flush the RBM Cache in the specified Domain"""
-    logger = make_logger("mast.accounts")
-    env = params.environment()
-    msg = "Attempting to flush RBM cache on {}".format(str(env.appliances))
-    logger.info(msg)
-    say(msg)
-
-    responses = env.perform_action('FlushRBMCache', **{'domain': params.Domain})
-    logger.debug("Responses received {}".format(str(responses)))
-    return ActionResults(responses, env, suffix="flush_rbm_cache")
 
 #
 # ~#~#~#~#~#~#~#
-
-
-if __name__ == '__main__':
-    cli.run()

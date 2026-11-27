@@ -202,7 +202,7 @@ class TestSystemCommands(SystemTestCase):
             (system.flush_nd_cache, {}, "FlushNDCache", {}),
             (system.flush_nss_cache, {"Domain": "d", "zos_nss_client": "z"},
              "FlushNSSCache", {"ZosNSSClient": "z", "domain": "d"}),
-            (system.flush_pdp_cache, {"XACML_PDP": "x"},
+            (system.flush_pdp_cache, {"XACMLPDP": "x"},
              "FlushPDPCache", {"XACMLPDP": "x"}),
             (system.flush_rbm_cache, {"Domain": "d"},
              "FlushRBMCache", {"domain": "d"}),

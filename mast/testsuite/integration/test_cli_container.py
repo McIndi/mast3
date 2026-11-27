@@ -90,19 +90,19 @@ class CLITestCase(ContainerTestCase):
         """Move the three files into the appliance registry of the home,
         as a user of an older MAST does once."""
         if TEST_HOME:
-            command = [os.path.join(cls.mast_home, "mast-appliances"
+            command = [os.path.join(cls.mast_home, "mast"
                                     + (".bat" if sys.platform == "win32"
-                                       else ""))]
+                                       else "")), "targets"]
             env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
         else:
-            command = [sys.executable, "-m", "mast.registry"]
+            command = [sys.executable, "-m", "mast", "targets"]
             env = dict(os.environ, MAST_HOME=cls.mast_home)
         proc = subprocess.run(
             command + ["import"], cwd=cls.mast_home, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, timeout=120)
         if proc.returncode != 0 or "Added the environment" not in proc.stdout:
-            raise AssertionError("mast-appliances import failed:\n"
+            raise AssertionError("mast targets import failed:\n"
                                  + proc.stdout)
 
     def launcher(self, name):
@@ -116,18 +116,18 @@ class CLITestCase(ContainerTestCase):
         with open(os.path.join(directory, name), "w") as fout:
             fout.write(contents)
 
-    def mast(self, module, *args, credentials=CREDENTIALS, appliance=ENVIRONMENT):
-        """Run `mast-<module> <args>` and return its output. The test
+    def mast(self, *args, credentials=CREDENTIALS, appliance=ENVIRONMENT):
+        """Run `mast datapower <args>` and return its output. The test
         fails if the command does not exit with status 0."""
         if TEST_HOME:
             # The launcher sets MAST_HOME and changes to the home.
-            command = [self.launcher("mast-" + module)]
+            command = [self.launcher("mast"), "datapower"]
             env = dict(os.environ)
             env.pop("MAST_HOME", None)
         else:
-            command = [sys.executable, "-m", "mast.datapower." + module]
+            command = [sys.executable, "-m", "mast", "datapower"]
             env = dict(os.environ, MAST_HOME=self.mast_home)
-        name = "mast-{} {}".format(module, " ".join(args))
+        name = "mast datapower {}".format(" ".join(args))
         command += list(args)
         if appliance:
             command += ["-a", appliance, "-c", credentials, "-n"]
@@ -156,10 +156,10 @@ class TestSystemCLI(CLITestCase):
 
     @unittest.skipUnless(TEST_HOME, "MAST_TEST_HOME is not set")
     def test_commands_run_through_the_launchers(self):
-        # The launcher `mast` runs the interpreter of the home with its
-        # arguments, after it changed to the home.
+        # The launcher `mast-python` runs the interpreter of the home
+        # with its arguments, after it changed to the home.
         proc = subprocess.run(
-            [self.launcher("mast"), "-c",
+            [self.launcher("mast-python"), "-c",
              "import os, sys; print(sys.executable); print(os.getcwd())"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, timeout=60)
@@ -175,10 +175,10 @@ class TestSystemCLI(CLITestCase):
 
     def test_xor(self):
         encoded = self.mast(
-            "system", "xor", "-s", CREDENTIALS, appliance=None).strip()
+            "xor", "-s", CREDENTIALS, appliance=None).strip()
         self.assertNotIn(PASSWORD, encoded)
         # The encoded form is accepted in place of the credentials.
-        out = self.mast("system", "list-domains", credentials=encoded)
+        out = self.mast("list-domains", credentials=encoded)
         self.assertIn("default", out)
 
     def test_domain_commands(self):
@@ -186,16 +186,16 @@ class TestSystemCLI(CLITestCase):
         if "cli_domain" in self.domain_names():
             self.dp.del_domain("cli_domain")
 
-        self.mast("system", "add-domain", "-d", "cli_domain", "-s")
+        self.mast("add-domain", "-d", "cli_domain", "-s")
         self.assertIn("cli_domain", self.domain_names())
-        out = self.mast("system", "list-domains")
+        out = self.mast("list-domains")
         self.assertIn("cli_domain", out)
         self.assertIn("Common", out)
 
-        out = self.mast("system", "save", "-D", "cli_domain")
+        out = self.mast("save", "-D", "cli_domain")
         self.assertIn("OK", out)
 
-        self.mast("system", "del-domain", "-D", "cli_domain", "-s")
+        self.mast("del-domain", "-D", "cli_domain", "-s")
         self.assertNotIn("cli_domain", self.domain_names())
 
     def test_file_commands(self):
@@ -203,17 +203,17 @@ class TestSystemCLI(CLITestCase):
         local = self.local_file("readme.txt", b"read me\n")
 
         out = self.mast(
-            "system", "create-dir", "-D", "cli_files", "-d", "local:///dir/")
+            "create-dir", "-D", "cli_files", "-d", "local:///dir/")
         self.assertIn("OK", out)
         self.mast(
-            "system", "set-file", "-D", "cli_files",
+            "set-file", "-D", "cli_files",
             "-f", local, "-d", "local:///dir/")
         self.assertEqual(
             b"read me\n",
             self.dp.getfile("cli_files", "local:///dir/readme.txt"))
 
         self.mast(
-            "system", "get-filestore", "-D", "cli_files",
+            "get-filestore", "-D", "cli_files",
             "-l", "local:", "-o", "tmp")
         listings = glob.glob(self.path("tmp", "*", ALIAS + "-get-filestore.xml"))
         self.assertEqual(1, len(listings))
@@ -221,7 +221,7 @@ class TestSystemCLI(CLITestCase):
             self.assertIn("readme.txt", fin.read())
 
         self.mast(
-            "system", "get-file", "-D", "cli_files",
+            "get-file", "-D", "cli_files",
             "-l", "local:///dir/readme.txt", "-o", "tmp/got")
         found = glob.glob(self.path("tmp", "got", ALIAS + "-*-readme.txt"))
         self.assertEqual(1, len(found))
@@ -229,7 +229,7 @@ class TestSystemCLI(CLITestCase):
             self.assertEqual(b"read me\n", fin.read())
 
         self.mast(
-            "system", "del-file", "-D", "cli_files",
+            "del-file", "-D", "cli_files",
             "-f", "local:///dir/readme.txt", "-b", "-o", "tmp/deleted")
         self.assertFalse(
             self.dp.file_exists("local:///dir/readme.txt", "cli_files"))
@@ -244,28 +244,28 @@ class TestAccountsCLI(CLITestCase):
         self.remove_leftovers(
             users=["cli_user", "cli_priv"], groups=["cli_group"])
 
-        self.mast("accounts", "add-group", "-N", "cli_group", "-s")
+        self.mast("add-group", "-N", "cli_group", "-s")
         self.assertIn("cli_group", self.dp.groups)
 
         self.mast(
-            "accounts", "add-user", "-u", "cli_user",
+            "add-user", "-u", "cli_user",
             "-p", GOOD_PASSWORD, "-g", "cli_group", "-s")
         self.mast(
-            "accounts", "add-user", "-u", "cli_priv",
+            "add-user", "-u", "cli_priv",
             "-p", GOOD_PASSWORD, "-P", "-s")
-        out = self.mast("accounts", "list-users")
+        out = self.mast("list-users")
         self.assertIn("cli_user", out)
         self.assertIn("cli_priv", out)
 
-        out = self.mast("accounts", "force-change-password", "-U", "cli_user")
+        out = self.mast("force-change-password", "-U", "cli_user")
         self.assertIn("OK", out)
 
-        self.mast("accounts", "del-user", "-U", "cli_user", "-s")
-        self.mast("accounts", "del-user", "-U", "cli_priv", "-s")
+        self.mast("del-user", "-U", "cli_user", "-s")
+        self.mast("del-user", "-U", "cli_priv", "-s")
         self.assertNotIn("cli_user", self.dp.users)
         self.assertNotIn("cli_priv", self.dp.users)
 
-        self.mast("accounts", "del-group", "-U", "cli_group", "-s")
+        self.mast("del-group", "-U", "cli_group", "-s")
         self.assertNotIn("cli_group", self.dp.groups)
 
 
@@ -274,7 +274,7 @@ class TestBackupsCLI(CLITestCase):
     def test_normal_backup_and_restore(self):
         self.fresh_domain("cli_backup")
         out = self.mast(
-            "backups", "normal-backup", "-D", "cli_backup",
+            "normal-backup", "-D", "cli_backup",
             "-C", "Daily Backup", "-o", "tmp")
         self.assertIn("Verified", out)
         backups = glob.glob(self.path(
@@ -284,25 +284,25 @@ class TestBackupsCLI(CLITestCase):
             self.assertIsNone(archive.testzip())
 
         self.mast(
-            "backups", "restore-normal-backup",
+            "restore-normal-backup",
             "-f", backups[0], "-D", "cli_backup")
         self.assertIn("cli_backup", self.domain_names())
 
     def test_checkpoint_commands(self):
         self.fresh_domain("cli_chk")
         out = self.mast(
-            "backups", "set-checkpoint", "-D", "cli_chk", "-C", "cli")
+            "set-checkpoint", "-D", "cli_chk", "-C", "cli")
         self.assertIn("Successful", out)
         checkpoints = self.wait_for(
             lambda: self.dp.get_existing_checkpoints("cli_chk"))
         name = list(checkpoints)[0]
         self.assertTrue(name.startswith("cli-cli_chk-"))
 
-        out = self.mast("backups", "list-checkpoints", "-D", "cli_chk")
+        out = self.mast("list-checkpoints", "-D", "cli_chk")
         self.assertIn(name, out)
 
         self.mast(
-            "backups", "remove-checkpoint", "-D", "cli_chk", "-C", name)
+            "remove-checkpoint", "-D", "cli_chk", "-C", name)
         self.wait_for(
             lambda: not self.dp.get_existing_checkpoints("cli_chk"))
 
@@ -312,7 +312,7 @@ class TestDeveloperCLI(CLITestCase):
     def test_export_and_import(self):
         self.fresh_domain("cli_dev")
         self.mast(
-            "developer", "export", "-D", "cli_dev",
+            "export", "-D", "cli_dev",
             "-o", "all-objects", "-O", "all-classes",
             "-C", "cli export", "--out-dir", "tmp/export")
         exports = glob.glob(
@@ -322,7 +322,7 @@ class TestDeveloperCLI(CLITestCase):
             self.assertIn(b"cli export", archive.read("export.xml"))
 
         self.mast(
-            "developer", "import", "-D", "cli_dev",
+            "import", "-D", "cli_dev",
             "-f", exports[0], "-o", "tmp/import")
 
 
@@ -333,7 +333,7 @@ class TestDeploymentCLI(CLITestCase):
         local = self.local_file("deployed.txt", b"deployed\n")
         self.dp.set_file(local, "local:", "cli_deploy")
         self.mast(
-            "deployment", "get-file", "-D", "cli_deploy",
+            "get-file", "-D", "cli_deploy",
             "-l", "local:///deployed.txt", "-o", "tmp/deploy")
         found = glob.glob(
             self.path("tmp", "deploy", "**", "*deployed.txt"), recursive=True)
@@ -345,7 +345,7 @@ class TestDeploymentCLI(CLITestCase):
 class TestNetworkCLI(CLITestCase):
 
     def test_check_connectivity(self):
-        out = self.mast("network", "check-connectivity")
+        out = self.mast("check-connectivity")
         row = [line for line in out.splitlines() if line.startswith(ALIAS)]
         self.assertEqual(1, len(row))
         self.assertEqual([ALIAS, "True", "True", "True"], row[0].split())
@@ -353,14 +353,14 @@ class TestNetworkCLI(CLITestCase):
     def test_host_alias_commands(self):
         self.addCleanup(self.dp.del_host_alias, "cli_alias")
         self.mast(
-            "network", "add-host-alias", "-N", "cli_alias", "-i", "127.0.0.1")
-        out = self.mast("network", "list-host-aliases")
+            "add-host-alias", "-N", "cli_alias", "-i", "127.0.0.1")
+        out = self.mast("list-host-aliases")
         # One row for the appliance and one for what is common
         self.assertRegex(
             out, r"(?m)^{} +cli_alias +127\.0\.0\.1 +enabled$".format(ALIAS))
         self.assertRegex(out, r"(?m)^common +cli_alias +127\.0\.0\.1 +enabled$")
 
-        self.mast("network", "del-host-alias", "-H", "cli_alias")
+        self.mast("del-host-alias", "-H", "cli_alias")
         names = [alias[0] for alias in self.dp.get_host_aliases()]
         self.assertNotIn("cli_alias", names)
 
@@ -530,16 +530,15 @@ class StoredCredentialCase(CLITestCase):
             self.USER, GOOD_PASSWORD, user_group=self.USER,
             supress_force_password_change=True))
 
-    def program(self, launcher, module, *args, stdin=None, trust=True,
-                status=0):
+    def program(self, root, *args, stdin=None, trust=True, status=0):
         """Run a MAST program and return its output. With `trust`, it
         trusts the authority of the proxy."""
         if TEST_HOME:
-            command = [self.launcher(launcher)]
+            command = [self.launcher("mast"), root]
             env = dict(os.environ)
             env.pop("MAST_HOME", None)
         else:
-            command = [sys.executable, "-m", module]
+            command = [sys.executable, "-m", "mast", root]
             env = dict(os.environ, MAST_HOME=self.mast_home)
         env.pop("SSL_CERT_FILE", None)
         if trust:
@@ -548,13 +547,13 @@ class StoredCredentialCase(CLITestCase):
             command + list(args), cwd=self.mast_home, env=env, input=stdin,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             universal_newlines=True, timeout=300)
-        self.assertEqual(status, proc.returncode, "{} {} exited with {}:\n{}".format(
-            launcher, " ".join(args), proc.returncode, proc.stdout))
+        self.assertEqual(status, proc.returncode, "mast {} {} exited with {}:\n{}".format(
+            root, " ".join(args), proc.returncode, proc.stdout))
         self.assertNotIn(GOOD_PASSWORD, proc.stdout)
         return proc.stdout
 
     def credentials(self, *args, **kwargs):
-        return self.program("mast-credentials", "mast.credentials", *args,
+        return self.program("credentials", *args,
                             **kwargs)
 
     def leak_check(self):
@@ -586,11 +585,11 @@ class TestStoredCredentialCLI(StoredCredentialCase):
     APPLIANCE = "dp-verified"
 
     def test_a_job_uses_a_stored_credential(self):
-        self.program("mast-appliances", "mast.registry", "add", "-n",
+        self.program("targets", "add", "-n",
                      self.APPLIANCE, "-A", "127.0.0.1",
                      "--soma-port", str(self.proxy.port))
-        self.addCleanup(self.program, "mast-appliances", "mast.registry",
-                        "remove", "-n", self.APPLIANCE)
+        self.addCleanup(self.program, "targets", "remove", "-n",
+                        self.APPLIANCE)
         self.credentials("add", "-n", "collector", "-u", self.USER, "-p",
                          "collect", "-b", self.APPLIANCE, "--password-stdin",
                          stdin=GOOD_PASSWORD + "\n")
@@ -605,8 +604,7 @@ class TestStoredCredentialCLI(StoredCredentialCase):
         self.assertRegex(listed, r"(?m)^collector .* works +no$")
 
         # A command that only reads runs with it
-        out = self.program("mast-system", "mast.datapower.system",
-                           "list-domains", "-a", self.APPLIANCE,
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "collector")
         self.assertIn("default", out)
         uses = self.credentials("uses", "-n", "collector")
@@ -615,15 +613,14 @@ class TestStoredCredentialCLI(StoredCredentialCase):
 
         # A command that changes the appliance is refused before it is
         # queued
-        out = self.program("mast-system", "mast.datapower.system", "save",
+        out = self.program("datapower", "save",
                            "-a", self.APPLIANCE, "--credential", "collector",
                            status=1)
         self.assertIn("only by commands that only read", out)
 
         # Without a certificate that it can check, the password is not
         # sent: the job fails on the certificate
-        out = self.program("mast-system", "mast.datapower.system",
-                           "list-domains", "-a", self.APPLIANCE,
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "collector", trust=False,
                            status=1)
         self.assertIn("CERTIFICATE_VERIFY_FAILED", out)
@@ -639,7 +636,7 @@ class TestPinnedCLI(StoredCredentialCase):
     APPLIANCE = "dp-pinned"
 
     def appliances(self, *args, **kwargs):
-        return self.program("mast-appliances", "mast.registry", *args, **kwargs)
+        return self.program("targets", *args, **kwargs)
 
     def test_pinned_certificate_and_host_key(self):
         ports = self.container.ports
@@ -656,8 +653,7 @@ class TestPinnedCLI(StoredCredentialCase):
         self.addCleanup(self.credentials, "delete", "-n", "pinned", "-y")
 
         # Not pinned yet: the self-signed certificate is refused
-        out = self.program("mast-system", "mast.datapower.system",
-                           "list-domains", "-a", self.APPLIANCE,
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=False, status=1)
         self.assertIn("CERTIFICATE_VERIFY_FAILED", out)
 
@@ -670,13 +666,11 @@ class TestPinnedCLI(StoredCredentialCase):
                          r"(?m)^{} .* pin +pinned\b(?! CHANGED)".format(self.APPLIANCE))
 
         # SOMA with the pin, and nothing to trust but the pin
-        out = self.program("mast-system", "mast.datapower.system",
-                           "list-domains", "-a", self.APPLIANCE,
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=False)
         self.assertIn("default", out)
         # SSH with the pinned host key
-        out = self.program("mast-network", "mast.datapower.network",
-                           "check-connectivity", "-a", self.APPLIANCE,
+        out = self.program("datapower", "check-connectivity", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=False)
         self.assertRegex(out, r"(?m)^{} +True +True +True".format(self.APPLIANCE))
 
@@ -684,8 +678,7 @@ class TestPinnedCLI(StoredCredentialCase):
         # appliance): the job fails before the password is sent
         self.appliances("update", "-n", self.APPLIANCE,
                         "--soma-port", str(self.proxy.port))
-        out = self.program("mast-system", "mast.datapower.system",
-                           "list-domains", "-a", self.APPLIANCE,
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=True, status=1)
         self.assertIn("The certificate of {} changed".format(self.APPLIANCE), out)
         self.assertIn("pin again", out)
@@ -701,8 +694,7 @@ class TestPinnedCLI(StoredCredentialCase):
         # Another SSH host key: the login is not tried
         self.appliances("pin", "-n", self.APPLIANCE, "--ssh", "-f",
                         "SHA256:" + "A" * 43)
-        out = self.program("mast-network", "mast.datapower.network",
-                           "check-connectivity", "-a", self.APPLIANCE,
+        out = self.program("datapower", "check-connectivity", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=False)
         self.assertRegex(out, r"(?m)^{} +True +True +False".format(self.APPLIANCE))
         self.assertRegex(self.appliances("list"),
