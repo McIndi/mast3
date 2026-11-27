@@ -52,7 +52,7 @@ function renderBindings(selected) {
         .concat(appliances.map((a) => ({name: a.name, label: a.name})));
     if (!items.length) {
         bindingsBox.append(el("span", {className: "small text-body-secondary"},
-            "There are no appliances yet. Add them in Admin → Appliances."));
+            "There are no targets yet. Add them in Admin → Targets."));
     }
     items.forEach((item, index) => {
         const id = "b-" + index;
@@ -240,8 +240,8 @@ function credentialRow(credential) {
 async function refresh() {
     try {
         credentials = (await api.get("/credentials")).credentials;
-        appliances = (await api.get("/appliances")).appliances;
-        environments = (await api.get("/environments")).environments;
+        appliances = (await api.get("/targets")).targets;
+        environments = (await api.get("/fleets")).fleets;
         rows.replaceChildren(...credentials.map(credentialRow));
         if (!credentials.length) {
             rows.append(el("tr", {}, el("td", {colSpan: 8, className: "text-body-secondary"},

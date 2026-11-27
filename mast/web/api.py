@@ -98,6 +98,11 @@ def _forbidden(exc):
     return error(403, str(exc) or "Your role may not do this.")
 
 
+@blueprint.errorhandler(jobs.TargetRefused)
+def _target_refused(exc):
+    return error(422, str(exc))
+
+
 @blueprint.errorhandler(jobs.JobNotFound)
 def _not_found(exc):
     return error(404, "There is no job {}.".format(exc))
@@ -684,78 +689,126 @@ def _registry_error(exc):
     return error(422, str(exc))
 
 
-def _appliance_json(appliance):
-    return appliance.model_dump(mode="json")
+def _target_json(target):
+    from mast import registry
+    data = target.model_dump(mode="json")
+    data["kinds"] = registry.kinds_of(target)
+    return data
 
 
-@blueprint.get("/appliances")
-def appliances():
+def _kind_json(kind):
+    from mast import plugins
+    return {
+        "name": kind.name, "title": kind.title, "extends": kind.extends,
+        "base": plugins.base_of(kind.name),
+        "provider": plugins.provider_of(kind.name),
+        "capabilities": sorted(plugins.capabilities(kind.name)),
+        "attributes": [
+            {"name": a.name, "type": a.type, "default": a.default,
+             "help": a.help, "choices": list(a.choices),
+             "required": a.required}
+            for a in plugins.schema(kind.name).values()],
+        "endpoints": [
+            {"name": e.name, "protocol": e.protocol, "port": e.port,
+             "title": e.title}
+            for e in plugins.endpoints_of(kind.name).values()],
+    }
+
+
+@blueprint.get("/kinds")
+def kinds():
     """
-    _function_: `mast.web.api.appliances()`
+    _function_: `mast.web.api.kinds()`
 
-    The appliances of the registry.
+    The kinds of target that can be used, with their attributes and
+    endpoints (for a target of the kind, or an extension of it), what
+    they extend and their capabilities.
 
-    Exposed at: `/api/v1/appliances` via GET
+    Exposed at: `/api/v1/kinds` via GET
+    """
+    from mast import plugins
+    jobs_auth.authorize(principal(), "read")
+    return flask.jsonify({"kinds": [
+        _kind_json(kind) for _, kind in sorted(plugins.kinds().items())]})
+
+
+@blueprint.get("/targets")
+def targets():
+    """
+    _function_: `mast.web.api.targets()`
+
+    The targets of the registry; with `?kind=KIND`, those of that kind.
+
+    Exposed at: `/api/v1/targets` via GET
     """
     from mast import registry
     jobs_auth.authorize(principal(), "read")
-    return flask.jsonify({"appliances": [
-        _appliance_json(a) for a in registry.list_appliances()]})
+    return flask.jsonify({"targets": [
+        _target_json(t) for t in registry.list_targets(
+            flask.request.args.get("kind") or None)]})
 
 
-@blueprint.post("/appliances")
-def add_appliance():
+def _attributes(body):
+    found = body.get("attributes") or {}
+    if not isinstance(found, dict):
+        raise ValueError("attributes is an object of NAME: VALUE")
+    return found
+
+
+@blueprint.post("/targets")
+def add_target():
     """
-    _function_: `mast.web.api.add_appliance()`
+    _function_: `mast.web.api.add_target()`
 
-    Add an appliance: `{name, address, <settings>}`.
+    Add a target: `{name, kind, address, attributes, notes}`.
 
-    Exposed at: `/api/v1/appliances` via POST
+    Exposed at: `/api/v1/targets` via POST
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
-    fields = {key: body[key] for key in registry.FIELDS
-              if key in body and key != "address"}
     try:
-        found = registry.add(str(body.get("name") or ""),
-                             body.get("address") or None, **fields)
-    except registry.RegistryError as exc:
+        found = registry.add(
+            str(body.get("name") or ""), str(body.get("kind") or ""),
+            body.get("address") or None, _attributes(body),
+            str(body.get("notes") or ""))
+    except (registry.RegistryError, ValueError) as exc:
         return _registry_error(exc)
-    _changed("Added the appliance {}".format(found.name))
-    return flask.jsonify(_appliance_json(found)), 201
+    _changed("Added the target {}".format(found.name))
+    return flask.jsonify(_target_json(found)), 201
 
 
-@blueprint.patch("/appliances/<name>")
-def change_appliance(name):
+@blueprint.patch("/targets/<name>")
+def change_target(name):
     """
-    _function_: `mast.web.api.change_appliance(name)`
+    _function_: `mast.web.api.change_target(name)`
 
-    Change the settings of an appliance (null sets one back to its
-    default), or rename it with `rename`.
+    Change `address`, `attributes` (null sets one back to its default)
+    or `notes` of a target, or rename it with `rename`.
 
-    Exposed at: `/api/v1/appliances/<name>` via PATCH
+    Exposed at: `/api/v1/targets/<name>` via PATCH
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
-    fields = {key: body[key] for key in registry.FIELDS if key in body}
     try:
-        found = registry.update(name, **fields)
+        found = registry.update(
+            name, address=body.get("address") or None,
+            attributes=_attributes(body), notes=body.get("notes"))
         if body.get("rename"):
             found = registry.rename(name, str(body["rename"]))
-    except registry.RegistryError as exc:
+    except (registry.RegistryError, ValueError) as exc:
         return _registry_error(exc)
-    _changed("Changed the appliance {}".format(found.name))
-    return flask.jsonify(_appliance_json(found))
+    _changed("Changed the target {}".format(found.name))
+    return flask.jsonify(_target_json(found))
 
 
-@blueprint.delete("/appliances/<name>")
-def remove_appliance(name):
+@blueprint.delete("/targets/<name>")
+def remove_target(name):
     """
-    _function_: `mast.web.api.remove_appliance(name)`
+    _function_: `mast.web.api.remove_target(name)`
 
-    Exposed at: `/api/v1/appliances/<name>` via DELETE
+    Exposed at: `/api/v1/targets/<name>` via DELETE
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
@@ -763,178 +816,265 @@ def remove_appliance(name):
         registry.remove(name)
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    _changed("Removed the appliance {}".format(name))
+    _changed("Removed the target {}".format(name))
     return "", 204
 
 
-@blueprint.post("/appliances/<name>/pin/preview")
+@blueprint.post("/targets/<name>/extensions")
+def extend_target(name):
+    """
+    _function_: `mast.web.api.extend_target(name)`
+
+    Add an extension to a target: `{kind, entry, attributes}`, or change
+    the attributes of one with `{..., "update": true}`.
+
+    Exposed at: `/api/v1/targets/<name>/extensions` via POST
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    change = registry.update_extension if body.get("update") \
+        else registry.extend
+    try:
+        found = change(name, str(body.get("kind") or ""),
+                       str(body.get("entry") or ""), _attributes(body))
+    except (registry.RegistryError, ValueError) as exc:
+        return _registry_error(exc)
+    _changed("Extended the target {} with {}".format(name, body.get("kind")))
+    return flask.jsonify(_target_json(found))
+
+
+@blueprint.delete("/targets/<name>/extensions/<kind>")
+def unextend_target(name, kind):
+    """
+    _function_: `mast.web.api.unextend_target(name, kind)`
+
+    Remove the extension `kind` (and `?entry=ENTRY`) from a target.
+
+    Exposed at: `/api/v1/targets/<name>/extensions/<kind>` via DELETE
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    try:
+        found = registry.unextend(name, kind,
+                                  flask.request.args.get("entry") or "")
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Removed the extension {} of {}".format(kind, name))
+    return flask.jsonify(_target_json(found))
+
+
+def _endpoint_of(body):
+    return str(body.get("endpoint") or ""), str(body.get("scope") or "")
+
+
+@blueprint.patch("/targets/<name>/trust")
+def trust_target(name):
+    """
+    _function_: `mast.web.api.trust_target(name)`
+
+    Set how an endpoint is checked: `{endpoint, scope, mode, ca_bundle}`
+    (`ca_bundle` `""` for the trust store of the system).
+
+    Exposed at: `/api/v1/targets/<name>/trust` via PATCH
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    body = _body()
+    endpoint, scope = _endpoint_of(body)
+    try:
+        found = registry.set_trust(name, endpoint, body.get("mode"),
+                                   body.get("ca_bundle"), scope)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Set the trust of {} of {}".format(endpoint, name))
+    return flask.jsonify(_target_json(found))
+
+
+@blueprint.post("/targets/<name>/pin/preview")
 def preview_pin(name):
     """
     _function_: `mast.web.api.preview_pin(name)`
 
-    Connect to the appliance (without a credential) and show what an
-    admin pins: `{"tls": {subject, issuer, not_before, not_after,
-    sha256}, "ssh": {type, key, fingerprint}}`. The body says which:
-    `{"tls": true, "ssh": true}` (both by default). One that cannot be
+    Connect to the endpoints of the target (without a credential) and
+    show what an admin pins, by endpoint (see `mast.trust.preview`). The
+    body may name them: `{"endpoints": ["soma"]}`. One that cannot be
     read is `{"error": ...}`.
 
-    Exposed at: `/api/v1/appliances/<name>/pin/preview` via POST
+    Exposed at: `/api/v1/targets/<name>/pin/preview` via POST
     """
-    from mast import registry
-    from mast.datapower.datapower import tls
+    from mast import registry, trust
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
     try:
         record = registry.get(name)
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    return flask.jsonify(tls.preview(
-        record, tls=body.get("tls", True) is not False,
-        ssh=body.get("ssh", True) is not False))
+    return flask.jsonify(trust.preview(record, body.get("endpoints") or None))
 
 
-@blueprint.post("/appliances/<name>/pin")
-def pin_appliance(name):
+@blueprint.post("/targets/<name>/pin")
+def pin_target(name):
     """
-    _function_: `mast.web.api.pin_appliance(name)`
+    _function_: `mast.web.api.pin_target(name)`
 
-    Pin what the preview showed and the admin confirmed: `{"sha256":
-    "<hex>"}` for the certificate (the TLS check becomes `pin`) and/or
-    `{"ssh_host_key": "<type> <base64>"}` (or a `SHA256:...`
-    fingerprint) for the SSH host key.
+    Pin what the preview showed and the admin confirmed: `{"pins":
+    [{endpoint, scope, value}]}`, where `value` is the SHA-256 of the
+    certificate (TLS) or the host key `"<type> <base64>"` or its
+    `SHA256:...` fingerprint (SSH).
 
-    Exposed at: `/api/v1/appliances/<name>/pin` via POST
+    Exposed at: `/api/v1/targets/<name>/pin` via POST
     """
-    from mast import registry
-    from mast.datapower.datapower import tls
+    from mast import registry, trust
     jobs_auth.authorize(principal(), "manage-appliance")
-    body = _body()
-    if not body.get("sha256") and not body.get("ssh_host_key"):
-        return error(422, "Give sha256, ssh_host_key or both.")
-    try:
-        sha256 = tls.normalize_fingerprint(body["sha256"]) \
-            if body.get("sha256") else None
-        host_key = tls.normalize_ssh_pin(body["ssh_host_key"]) \
-            if body.get("ssh_host_key") else None
-    except ValueError as exc:
-        return error(422, str(exc))
+    pins = _body().get("pins") or []
+    if not pins:
+        return error(422, "Give pins: [{endpoint, scope, value}].")
     try:
         found = registry.get(name)
-        if sha256:
-            found = registry.pin_tls(name, sha256, principal().name)
-            _changed("Pinned the certificate {} of {}".format(sha256, name))
-        if host_key:
-            found = registry.pin_ssh(name, host_key, principal().name)
-            _changed("Pinned the SSH host key {} of {}".format(
-                tls.ssh_fingerprint(host_key)
-                if not host_key.startswith("SHA256:") else host_key, name))
-    except registry.RegistryError as exc:
-        return _registry_error(exc)
-    return flask.jsonify(_appliance_json(found))
+        for item in pins:
+            endpoint, scope = _endpoint_of(item)
+            current = found.trust_for(endpoint, scope)
+            if current is None:
+                return error(422, "{} has no endpoint {}.".format(
+                    name, endpoint))
+            value = str(item.get("value") or "")
+            value = trust.normalize_ssh_pin(value) \
+                if current.protocol == "ssh" \
+                else trust.normalize_fingerprint(value)
+            found = registry.pin(name, endpoint, value, principal().name,
+                                 scope)
+            _changed("Pinned {} of {}: {}".format(
+                endpoint, name, trust.ssh_fingerprint(value)
+                if current.protocol == "ssh"
+                and not value.startswith("SHA256:") else value))
+    except ValueError as exc:
+        if isinstance(exc, registry.RegistryError):
+            return _registry_error(exc)
+        return error(422, str(exc))
+    return flask.jsonify(_target_json(found))
 
 
-@blueprint.post("/appliances/<name>/unpin")
-def unpin_appliance(name):
+@blueprint.post("/targets/<name>/unpin")
+def unpin_target(name):
     """
-    _function_: `mast.web.api.unpin_appliance(name)`
+    _function_: `mast.web.api.unpin_target(name)`
 
-    Remove the pinned certificate (`{"tls": true}`; the TLS check
-    becomes `ca`) and/or the pinned SSH host key (`{"ssh": true}`).
+    Remove the pin of an endpoint: `{endpoint, scope}`.
 
-    Exposed at: `/api/v1/appliances/<name>/unpin` via POST
+    Exposed at: `/api/v1/targets/<name>/unpin` via POST
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
-    body = _body()
-    kinds = {"tls": body.get("tls") is True, "ssh": body.get("ssh") is True}
-    if not any(kinds.values()):
-        return error(422, "Give tls, ssh or both.")
+    endpoint, scope = _endpoint_of(_body())
     try:
-        found = registry.unpin(name, **kinds)
+        found = registry.unpin(name, endpoint, scope)
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    _changed("Removed the pins ({}) of {}".format(
-        ", ".join(k for k, v in kinds.items() if v), name))
-    return flask.jsonify(_appliance_json(found))
+    _changed("Removed the pin of {} of {}".format(endpoint, name))
+    return flask.jsonify(_target_json(found))
 
 
-@blueprint.get("/environments")
-def environments():
+@blueprint.post("/targets/<name>/review")
+def review_target(name):
     """
-    _function_: `mast.web.api.environments()`
+    _function_: `mast.web.api.review_target(name)`
 
-    The environments of the registry, with their members.
+    Keep the pin of an endpoint that was marked for review, after the
+    admin checked it (the preview shows what it has now): `{endpoint,
+    scope}`.
 
-    Exposed at: `/api/v1/environments` via GET
+    Exposed at: `/api/v1/targets/<name>/review` via POST
+    """
+    from mast import registry
+    jobs_auth.authorize(principal(), "manage-appliance")
+    endpoint, scope = _endpoint_of(_body())
+    try:
+        found = registry.review(name, endpoint, principal().name, scope)
+    except registry.RegistryError as exc:
+        return _registry_error(exc)
+    _changed("Reviewed the pin of {} of {}".format(endpoint, name))
+    return flask.jsonify(_target_json(found))
+
+
+@blueprint.get("/fleets")
+def fleets():
+    """
+    _function_: `mast.web.api.fleets()`
+
+    The fleets of the registry, with their kinds and members.
+
+    Exposed at: `/api/v1/fleets` via GET
     """
     from mast import registry
     jobs_auth.authorize(principal(), "read")
-    return flask.jsonify({"environments": [
-        e.model_dump(mode="json") for e in registry.env_list()]})
+    return flask.jsonify({"fleets": [
+        f.model_dump(mode="json") for f in registry.fleet_list()]})
 
 
-@blueprint.post("/environments")
-def add_environment():
+@blueprint.post("/fleets")
+def add_fleet():
     """
-    _function_: `mast.web.api.add_environment()`
+    _function_: `mast.web.api.add_fleet()`
 
-    Add an environment: `{name, description, production, members}`.
+    Add a fleet: `{name, kind, description, production, members}`.
 
-    Exposed at: `/api/v1/environments` via POST
+    Exposed at: `/api/v1/fleets` via POST
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
     try:
-        found = registry.env_add(
-            str(body.get("name") or ""), str(body.get("description") or ""),
+        found = registry.fleet_add(
+            str(body.get("name") or ""), str(body.get("kind") or ""),
+            str(body.get("description") or ""),
             bool(body.get("production")),
             [str(m) for m in body.get("members") or []])
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    _changed("Added the environment {}".format(found.name))
+    _changed("Added the fleet {}".format(found.name))
     return flask.jsonify(found.model_dump(mode="json")), 201
 
 
-@blueprint.patch("/environments/<name>")
-def change_environment(name):
+@blueprint.patch("/fleets/<name>")
+def change_fleet(name):
     """
-    _function_: `mast.web.api.change_environment(name)`
+    _function_: `mast.web.api.change_fleet(name)`
 
-    Change `description`, `production` or `members` of an environment.
+    Change `description`, `production` or `members` of a fleet.
 
-    Exposed at: `/api/v1/environments/<name>` via PATCH
+    Exposed at: `/api/v1/fleets/<name>` via PATCH
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
     body = _body()
     try:
-        found = registry.env_update(
+        found = registry.fleet_update(
             name, body.get("description"),
             None if "production" not in body else bool(body["production"]))
         if "members" in body:
-            found = registry.env_set_members(
+            found = registry.fleet_set_members(
                 name, [str(m) for m in body.get("members") or []])
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    _changed("Changed the environment {}".format(name))
+    _changed("Changed the fleet {}".format(name))
     return flask.jsonify(found.model_dump(mode="json"))
 
 
-@blueprint.delete("/environments/<name>")
-def remove_environment(name):
+@blueprint.delete("/fleets/<name>")
+def remove_fleet(name):
     """
-    _function_: `mast.web.api.remove_environment(name)`
+    _function_: `mast.web.api.remove_fleet(name)`
 
-    Exposed at: `/api/v1/environments/<name>` via DELETE
+    Exposed at: `/api/v1/fleets/<name>` via DELETE
     """
     from mast import registry
     jobs_auth.authorize(principal(), "manage-appliance")
     try:
-        registry.env_remove(name)
+        registry.fleet_remove(name)
     except registry.RegistryError as exc:
         return _registry_error(exc)
-    _changed("Removed the environment {}".format(name))
+    _changed("Removed the fleet {}".format(name))
     return "", 204
 
 

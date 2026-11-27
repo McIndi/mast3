@@ -170,6 +170,7 @@ class TestAuthorize(unittest.TestCase):
 
 class TestQueueRoles(SqliteCase):
     """The queue asks authorize for each action."""
+    known_targets = ("dp1", "dp2")
     viewer = auth.Principal("vera", "viewer")
     operator = auth.Principal("otto", "operator")
 
@@ -517,7 +518,9 @@ class TestDowngradeCommand(SqliteCase):
         return out.getvalue()
 
     def test_downgrade_db(self):
-        job_id = submit("dp1")
+        # A job without targets: a target of the kind endpoint cannot go
+        # back to 3.x (see the migration 4001)
+        job_id = submit()
         self.assertIn("With --yes",
                       self.run_jobs("downgrade-db", "-r", "0001"))
         self.assertEqual(db.revision(), db.HEAD)

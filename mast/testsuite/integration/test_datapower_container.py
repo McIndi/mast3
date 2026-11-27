@@ -564,21 +564,24 @@ class TestTerminal(ContainerTestCase):
         self.addCleanup(manager.close_all)
         owner = types.SimpleNamespace(id=1, name="integration",
                                       session_epoch=1)
+        # A session runs only on registered targets
+        from mast import registry
+        registry.add("dp-term", "datapower", "127.0.0.1")
         session = manager.open(owner, Principal("integration", "operator"),
-                               ["127.0.0.1"],
+                               ["dp-term"],
                                credentials=[USERNAME + ":" + PASSWORD])
-        pane = session.panes["127.0.0.1"]
+        pane = session.panes["dp-term"]
         self.assertTrue(pane.connected, pane.error)
-        # Not registered, so its host key is not checked, and it says so
+        # Its host key is not pinned, so it is not checked, and it says so
         self.assertTrue(any("not checked" in w for w in pane.warnings))
         version = manager.send(session.id, owner, "show version", wait=60)
         self.assertTrue(version.finished())
-        self.assertIn("Version", version.results["127.0.0.1"]["output"])
+        self.assertIn("Version", version.results["dp-term"]["output"])
         clock = manager.send(session.id, owner, "show clock", wait=60)
         self.assertTrue(clock.finished())
-        self.assertRegex(clock.results["127.0.0.1"]["output"], r"\d\d:\d\d")
+        self.assertRegex(clock.results["dp-term"]["output"], r"\d\d:\d\d")
         self.assertFalse(pane.busy)
-        transcript = session.transcript("127.0.0.1")
+        transcript = session.transcript("dp-term")
         self.assertIn("show version", transcript)
         self.assertIn("show clock", transcript)
         manager.close(session.id, owner)

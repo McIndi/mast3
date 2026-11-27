@@ -605,7 +605,7 @@ class TestProbe(SqliteCase):
         self.assertEqual(result["offers"], {})
 
     def test_the_targets_of_an_appliance(self):
-        registry.add("dp1", "10.0.0.1", soma_port=5550)
+        registry.add("dp1", "datapower", "10.0.0.1", attributes={"soma_port": 5550})
         handler = obj("HTTPSSourceProtocolHandler", "https")
         handler[1]["attrs"] = None
         plain = obj("HTTPSourceProtocolHandler", "plain")
@@ -638,7 +638,7 @@ class TestProbe(SqliteCase):
             ("10.9.9.9", 443, "own")])
         # Behind a port mapping, the WebGUI is probed on the port of the
         # registry, and is still the WebGUI object
-        registry.update("dp1", web_port=19090)
+        registry.update("dp1", attributes={"web_port": 19090})
         targets, _ = probe_module.targets_of(registry.by_name("dp1"))
         self.assertIn(("10.0.0.1", 19090, "WebGUI-Settings"),
                       [(h, p, t.get("name")) for h, p, t in targets])
@@ -646,7 +646,7 @@ class TestProbe(SqliteCase):
 
     def test_the_command_keeps_the_results(self):
         server = self.server()
-        registry.add("dp1", "127.0.0.1", soma_port=server.port, web_port=1)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={"soma_port": server.port, "web_port": 1})
         result = probe_module.probe(appliances=["dp1"],
                                     targets=["127.0.0.1:{}".format(server.port)],
                                     timeout=3)
@@ -668,7 +668,7 @@ class TestProbe(SqliteCase):
         self.assertEqual(len(probe_module.latest_results()), 3)
         # A port that the newest run of an appliance did not probe is
         # gone from what is shown
-        registry.update("dp1", web_port=server.port)
+        registry.update("dp1", attributes={"web_port": server.port})
         probe_module.probe(appliances=["dp1"], timeout=3)
         self.assertEqual([(r["appliance_id"], r["port"]) for r in
                           probe_module.latest_results()],
@@ -730,7 +730,7 @@ class TestMigrationAndSettings(PostureCase):
         self.assertFalse(columns & {"op_state", "status_error", "listen"})
         db.configure(self.url)
         # The first use upgrades the tables again
-        self.assertEqual([a.name for a in registry.list_appliances()],
+        self.assertEqual([a.name for a in registry.list_targets()],
                          ["dp1", "dp2"])
         self.assertEqual(db.revision(), db.HEAD)
         # The snapshot stayed, without the state it had: nothing says the

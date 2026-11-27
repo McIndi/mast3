@@ -21,6 +21,8 @@ commands against a real DataPower.
 import contextlib
 import io
 import unittest
+
+from mast.testsuite.unit.registry_helpers import register
 from xml.etree import ElementTree as etree
 
 from unittest import mock
@@ -186,6 +188,7 @@ class TestAccountsCommands(unittest.TestCase):
         return 0
 
     def test_command_line(self):
+        register("dp1", "dp2")
         out = io.StringIO()
         status = {}
         with contextlib.redirect_stdout(out), \

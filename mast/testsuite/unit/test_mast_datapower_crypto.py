@@ -22,6 +22,8 @@ import io
 import os
 import tempfile
 import unittest
+
+from mast.testsuite.unit.registry_helpers import register
 from xml.etree import ElementTree as etree
 
 from unittest import mock
@@ -176,6 +178,7 @@ class TestCryptoCommands(unittest.TestCase):
         self.assertIn("\t\t enabled-cert", messages)
 
     def test_command_line(self):
+        register("dp1", "dp2")
         out_file = os.path.join(self.out_dir, "files.xlsx")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

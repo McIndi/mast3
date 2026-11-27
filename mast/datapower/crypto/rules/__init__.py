@@ -346,7 +346,7 @@ class View(object):
                         "probed_at": _aware(row.probed_at),
                         "result": row.result or {}}
         name, production = "", False
-        for appliance in registry.list_appliances():
+        for appliance in registry.list_targets("datapower"):
             if appliance.id == appliance_id:
                 name = appliance.name
                 production = _in_production(appliance)
@@ -387,8 +387,8 @@ def _aware(value):
 
 def _in_production(appliance):
     from mast import registry
-    production = {e.name for e in registry.env_list() if e.production}
-    return any(name in production for name in appliance.environments)
+    production = {e.name for e in registry.fleet_list() if e.production}
+    return any(name in production for name in appliance.fleets)
 
 
 @dataclass
@@ -409,5 +409,6 @@ class Setup(object):
     def load(cls, now=None, settings_=None):
         from mast import registry
         from mast.credentials import store
-        return cls(registry.list_appliances(), store.list_credentials(),
+        return cls(registry.list_targets("datapower"),
+                   store.list_credentials(),
                    now or datetime.now(timezone.utc), settings_ or settings())

@@ -38,7 +38,7 @@ MAST ships a SOMA spec file for each of these DataPower versions. Each one was t
 | 10.6.6.0 | CD | `etc/v10.6.6.0-C.xml` |
 | 11.0.0.3 | LTS | `etc/v11.0.0.3-C.xml` |
 
-The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, give it with `mast targets update -n NAME --soma-spec-file etc/v10.6.0.11-C.xml`.
+The default is `etc/v11.0.0.3-C.xml`. It worked with all four versions in the lab. To use a different file for one appliance, give it with `mast targets update -n NAME -s soma_spec_file=etc/v10.6.0.11-C.xml`.
 
 ## Quick start
 
@@ -67,15 +67,16 @@ The console scripts in `MAST_HOME/python/<version>/bin` (`Scripts` on Windows) a
 
 ### 3. Describe your appliances
 
-MAST keeps the appliances and the environments in its database:
+MAST keeps its targets (here, DataPower appliances: the kind `datapower`) and fleets in its database:
 
 ```shell
-./mast targets add -n dp1 -A 192.168.0.10
-./mast targets add -n dp2 -A 192.168.0.20
-./mast fleets add -n lab -m dp1 -m dp2
+./mast targets add -n dp1 -k datapower -A 192.168.0.10
+./mast targets add -n dp2 -k datapower -A 192.168.0.20
+./mast fleets add -n lab -k datapower -m dp1 -m dp2
+./mast targets pin -n dp1    # for a self-signed certificate: shows it and asks
 ```
 
-A setting that an appliance does not have takes the default of `[global]` in `etc/default/appliances.conf`. Coming from MAST 3.15.2 or older, run `./mast targets import` once to move `hosts.conf`, `environments.conf` and the per-appliance sections of `appliances.conf` into the database; `./mast targets export` writes them back.
+Settings are given as `-s NAME=VALUE` (`./mast plugins kinds` lists them). A port that is not set is the standard DataPower port; another setting takes the default of `[global]` in `etc/default/appliances.conf`. Commands run only on registered targets and fleets. Coming from MAST 3.15.2 or older, run `./mast targets import` once to move `hosts.conf`, `environments.conf` and the per-appliance sections of `appliances.conf` into the database; `./mast targets export` writes them back.
 
 ### 4. Run a command against the whole environment
 

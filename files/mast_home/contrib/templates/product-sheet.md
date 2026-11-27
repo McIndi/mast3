@@ -72,7 +72,7 @@ support and security knowledge.
 * Development
     * The MAST development team is continually seeking improved speed, functionality, feature extensions, and welcomes input and requests from clients and the open-source community.
     * Fixes are available from the [GitHub repository](https://github.com/McIndi/mast3) as soon as they are merged, and each release has installers on its [GitHub release page](https://github.com/McIndi/mast3/releases).
-* Documentation can be regenerated from the installed version with `mast contrib/gendocs.py`, and resides in the local installation.
+* Documentation can be regenerated from the installed version with `mast-python contrib/gendocs.py`, and resides in the local installation.
 * Contract Services
     * Service level options
         * 24x7x4h

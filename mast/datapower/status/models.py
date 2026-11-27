@@ -42,7 +42,7 @@ HOUR = "hour"
 DAY = "day"
 
 def _appliance():
-    return ForeignKey("appliances.id", ondelete="CASCADE")
+    return ForeignKey("targets.id", ondelete="CASCADE")
 
 
 class StatusLatest(Base):

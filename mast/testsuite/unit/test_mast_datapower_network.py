@@ -20,6 +20,8 @@ appliances replaced by fakes.
 import contextlib
 import io
 import unittest
+
+from mast.testsuite.unit.registry_helpers import register
 import urllib.error
 from xml.etree import ElementTree as etree
 
@@ -299,6 +301,7 @@ class TestNetworkCommands(unittest.TestCase):
         return 0
 
     def test_command_line(self):
+        register("dp1", "dp2")
         out = io.StringIO()
         status = {}
         with contextlib.redirect_stdout(out), \

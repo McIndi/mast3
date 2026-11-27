@@ -14,36 +14,36 @@
 #
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
-_module_: `mast.datapower.datapower.tls`
+_module_: `mast.trust`
 
-How MAST checks that it talks to the right appliance before it sends a
-password: the TLS certificate of SOMA and the SSH host key.
+How MAST checks that it talks to the right target before it sends a
+credential: the TLS certificate or the SSH host key of each endpoint of
+a target (see `mast.registry.Trust`).
 
-Each appliance of the registry has a `tls_mode`:
+A TLS endpoint has a mode:
 
 * `ca`: The certificate must be signed by a trusted authority (the
-`ca_bundle` of the appliance, or the trust store of the system) and be
-for the address of the appliance.
-* `pin`: The SHA-256 of the certificate must be `pin_sha256`, which
-`mast targets pin` stored. This is for the self-signed certificates
-that DataPower appliances often have.
+`ca_bundle` of the endpoint, or the trust store of the system) and be
+for the address of the target.
+* `pin`: The SHA-256 of the certificate must be its pin, which
+`mast targets pin` stored. This is for self-signed certificates.
 * `none`: Nothing is checked. A stored credential is never sent this
 way.
 
+An SSH endpoint is checked by its pinned host key, see
+`host_key_policy`. An endpoint that is marked for review (its address
+or port changed since it was pinned) is not connected to at all.
+
 An address that is not registered is checked as `ca`, or not at all
 with `--no-check-hostname` (`tls="none"`).
-
-A pinned SSH host key (`ssh_host_key`) is checked the same way, see
-`host_key_policy`.
 
 The checks happen after the connection is made and before the request
 is sent, so no credential leaves MAST for a certificate or a host key
 that does not match.
 
 A job that uses a stored credential runs inside `stored_credential()`
-(of `mast.cli.results`).
-Then `none` and plain `http` are refused, and so is SSH to an appliance
-without a pinned host key.
+(of `mast.cli.results`). Then `none` and plain `http` are refused, and
+so is SSH to an endpoint without a pinned host key.
 """
 import base64
 import hashlib
@@ -65,7 +65,7 @@ __all__ = [
     "stored_credential", "using_stored_credential", "fingerprint",
     "normalize_fingerprint", "fetch_certificate", "describe_certificate",
     "ssh_fingerprint", "normalize_ssh_pin", "fetch_host_key",
-    "host_key_policy", "MODES",
+    "host_key_policy", "preview", "NeedsReview", "MODES",
 ]
 
 MODES = ("ca", "pin", "none")
@@ -109,31 +109,51 @@ class Refused(TLSError):
     """A connection that would send a stored credential unchecked."""
 
 
+class NeedsReview(TLSError):
+    """The pin of the endpoint must be reviewed before MAST connects to
+    it: the address or the port changed since it was pinned."""
+
+    def __init__(self, name, endpoint, reason):
+        self.name = name
+        self.endpoint = endpoint
+        super().__init__(
+            "The pin of {} ({}) must be reviewed before MAST connects: {}. "
+            "An admin must check it, then run mast targets pin -n {} -e {} "
+            "(or mast targets review to keep the pin).".format(
+                name, endpoint, reason, name, endpoint))
+
+
 @dataclass(frozen=True)
 class Policy:
     """
-    _class_: `mast.datapower.datapower.tls.Policy`
+    _class_: `mast.trust.Policy`
 
-    How to check one appliance: `mode` (one of `MODES`), the PEM
+    How to check one TLS endpoint: `mode` (one of `MODES`), the PEM
     `ca_bundle` for `ca` (None: the trust store of the system), the
-    `pin_sha256` for `pin`, and the `name` for the messages. `registered`
-    is True for an appliance of the registry.
+    `pin_sha256` for `pin`, the `name` of the target and its `endpoint`
+    for the messages, and `review`, why its pin must be reviewed first.
+    `registered` is True for a target of the registry.
     """
     mode: str = "ca"
     name: str = ""
     ca_bundle: str | None = None
     pin_sha256: str | None = None
     registered: bool = False
+    endpoint: str = ""
+    scope: str = ""
+    review: str | None = None
 
 
-def policy_for(name, record=None, tls=None):
+def policy_for(name, target=None, tls=None, endpoint=None, scope=""):
     """
-    _function_: `mast.datapower.datapower.tls.policy_for(name, record=None, tls=None)`
+    _function_: `mast.trust.policy_for(name, target=None, tls=None,
+    endpoint=None, scope="")`
 
-    Return the `Policy` for the appliance `name`. `record` is its
-    `mast.registry.Appliance`, or None if it is not registered. `tls`
-    is what the caller asks for: None (what the registry says, or `ca`
-    for an unregistered address), or one of `MODES`.
+    Return the `Policy` for the TLS endpoint `endpoint` of the target
+    `name`. `target` is its `mast.registry.Target`, or None if it is not
+    registered. `tls` is what the caller asks for: None (what the
+    registry says, or `ca` for an unregistered address), or one of
+    `MODES`.
 
     `tls="none"` (`--no-check-hostname`) does not turn off a pin: a
     pinned certificate is always checked, as checking it works for a
@@ -141,19 +161,25 @@ def policy_for(name, record=None, tls=None):
     """
     if tls is not None and tls not in MODES:
         raise ValueError("tls is one of {}".format(", ".join(MODES)))
-    if record is None:
+    trust = None if target is None or endpoint is None \
+        else target.trust_for(endpoint, scope)
+    if trust is None:
         mode = tls or "ca"
-        return Policy(mode=mode, name=name)
-    mode = record.tls_mode or "ca"
+        return Policy(mode=mode, name=name, endpoint=endpoint or "",
+                      scope=scope, registered=target is not None)
+    mode = trust.mode or "ca"
     if tls == "none" and mode != "pin":
         mode = "none"
     elif tls in ("ca", "pin"):
         mode = tls
-    return Policy(mode=mode, name=name, ca_bundle=record.ca_bundle,
-                  pin_sha256=record.pin_sha256, registered=True)
+    return Policy(mode=mode, name=name, ca_bundle=trust.ca_bundle,
+                  pin_sha256=trust.pin, registered=True, endpoint=endpoint,
+                  scope=scope, review=trust.review)
 
 
 def _check_allowed(policy, scheme="https"):
+    if policy.review:
+        raise NeedsReview(policy.name, policy.endpoint, policy.review)
     if not using_stored_credential():
         return
     if scheme != "https":
@@ -169,7 +195,7 @@ def _check_allowed(policy, scheme="https"):
 
 def context_for(policy):
     """
-    _function_: `mast.datapower.datapower.tls.context_for(policy)`
+    _function_: `mast.trust.context_for(policy)`
 
     Return the `ssl.SSLContext` for `policy`. For `pin` and `none` the
     context checks nothing; `check_peer` checks the pin.
@@ -210,7 +236,7 @@ def normalize_fingerprint(text):
 
 def check_peer(sock, policy):
     """
-    _function_: `mast.datapower.datapower.tls.check_peer(sock, policy)`
+    _function_: `mast.trust.check_peer(sock, policy)`
 
     For `pin`, raise `PinMismatch` unless the certificate of the TLS
     socket `sock` is the pinned one, and `NotPinned` if there is no pin.
@@ -226,18 +252,19 @@ def check_peer(sock, policy):
     got = fingerprint(der or b"")
     expected = normalize_fingerprint(policy.pin_sha256)
     if not hmac.compare_digest(got, expected):
-        _flag_mismatch(policy, "tls", got)
+        _flag_mismatch(policy, got)
         raise PinMismatch(policy.name, expected, got)
 
 
-def _flag_mismatch(policy, kind, got):
-    """Remember the mismatch in the registry, for the Appliances page."""
-    if not policy.registered:
+def _flag_mismatch(policy, got):
+    """Remember the mismatch in the registry, for the web UI."""
+    if not policy.registered or not policy.endpoint:
         return
     try:
         # Imported here: the registry uses the job database
         from mast import registry
-        registry.flag_mismatch(policy.name, kind, got)
+        registry.flag_mismatch(policy.name, policy.endpoint, got,
+                               policy.scope)
     except Exception:
         # The mismatch is reported to the caller anyway
         pass
@@ -290,7 +317,7 @@ def _request(policy, method, url, body=None, headers=None, timeout=None):
 
 def post(policy, url, body, headers=None, timeout=None):
     """
-    _function_: `mast.datapower.datapower.tls.post(policy, url, body, headers=None, timeout=None)`
+    _function_: `mast.trust.post(policy, url, body, headers=None, timeout=None)`
 
     POST `body` to `url`, checked as `policy` says, and return the
     body of the answer.
@@ -300,7 +327,7 @@ def post(policy, url, body, headers=None, timeout=None):
 
 def get(policy, url, headers=None, timeout=None):
     """
-    _function_: `mast.datapower.datapower.tls.get(policy, url, headers=None, timeout=None)`
+    _function_: `mast.trust.get(policy, url, headers=None, timeout=None)`
 
     GET `url`, checked as `policy` says. Return `(status, body)`.
     """
@@ -309,7 +336,7 @@ def get(policy, url, headers=None, timeout=None):
 
 def fetch_certificate(host, port, timeout=30):
     """
-    _function_: `mast.datapower.datapower.tls.fetch_certificate(host, port, timeout=30)`
+    _function_: `mast.trust.fetch_certificate(host, port, timeout=30)`
 
     Connect to `host:port` without checking anything and return the
     DER certificate that it shows. Nothing is sent but the TLS
@@ -323,7 +350,7 @@ def fetch_certificate(host, port, timeout=30):
 
 def describe_certificate(der):
     """
-    _function_: `mast.datapower.datapower.tls.describe_certificate(der)`
+    _function_: `mast.trust.describe_certificate(der)`
 
     Return the subject, issuer, validity and SHA-256 of a DER
     certificate as a dict of strings.
@@ -389,7 +416,7 @@ def _ssh_pin_fingerprint(pin):
 
 def fetch_host_key(host, port, timeout=30):
     """
-    _function_: `mast.datapower.datapower.tls.fetch_host_key(host, port, timeout=30)`
+    _function_: `mast.trust.fetch_host_key(host, port, timeout=30)`
 
     Connect to the SSH server `host:port` and return its host key as
     `"<type> <base64>"`. Only the key exchange happens: there is no
@@ -408,16 +435,21 @@ def fetch_host_key(host, port, timeout=30):
 
 
 def host_key_policy(name, pinned=None, registered=False, auto_add=True,
-                    warn=None):
+                    warn=None, endpoint="ssh", review=None, scope=""):
     """
-    _function_: `mast.datapower.datapower.tls.host_key_policy(name, pinned=None, registered=False, auto_add=True, warn=None)`
+    _function_: `mast.trust.host_key_policy(name, pinned=None,
+    registered=False, auto_add=True, warn=None, endpoint="ssh",
+    review=None, scope="")`
 
-    Return the paramiko `MissingHostKeyPolicy` for the appliance
-    `name`. paramiko asks it after the key exchange and before the
-    login, so a key that is refused never gets a password.
+    Return the paramiko `MissingHostKeyPolicy` for the SSH endpoint
+    `endpoint` of the target `name`. paramiko asks it after the key
+    exchange and before the login, so a key that is refused never gets
+    a password.
 
-    * With `pinned` (the `ssh_host_key` of the registry), only that key
-    is accepted; another one raises `HostKeyMismatch`.
+    * With `review` (the endpoint is marked for review), every key is
+    refused (`NeedsReview`).
+    * With `pinned` (the pin of the endpoint), only that key is
+    accepted; another one raises `HostKeyMismatch`.
     * Without a pin and inside `stored_credential()`, the connection is
     refused (`NotPinned`).
     * Otherwise any key is accepted if `auto_add` (`auto_add_keys` of
@@ -429,25 +461,29 @@ def host_key_policy(name, pinned=None, registered=False, auto_add=True,
     class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
         def missing_host_key(self, client, hostname, key):
             got = ssh_fingerprint("{} {}".format(key.get_name(), key.get_base64()))
+            if review:
+                raise NeedsReview(name, endpoint, review)
             if pinned:
                 expected = _ssh_pin_fingerprint(pinned)
                 if not hmac.compare_digest(got, expected):
-                    _flag_mismatch(Policy(name=name, registered=registered),
-                                   "ssh", got)
+                    _flag_mismatch(Policy(name=name, registered=registered,
+                                          endpoint=endpoint, scope=scope),
+                                   got)
                     raise HostKeyMismatch(name, expected, got)
                 return
             if using_stored_credential():
                 raise NotPinned(
                     "A stored credential is never sent over SSH to {} before "
                     "its host key is pinned. Pin it with mast targets pin "
-                    "-n {} --ssh.".format(name, name))
+                    "-n {} -e {}.".format(name, name, endpoint))
             if not auto_add:
                 raise paramiko.SSHException(
                     "The SSH host key of {} is not pinned ({}), and "
                     "auto_add_keys of ssh.conf is false.".format(name, got))
             if warn is not None:
                 warn("The SSH host key of {} is not checked ({}). Pin it with "
-                     "mast targets pin --ssh.".format(name, got))
+                     "mast targets pin -n {} -e {}.".format(
+                         name, got, name, endpoint))
 
     return PinnedHostKeyPolicy()
 
@@ -456,50 +492,69 @@ def host_key_policy(name, pinned=None, registered=False, auto_add=True,
 # =======
 
 
-def _endpoint(record, field):
-    port = getattr(record, field)
-    if port is None:
-        # Imported here: the defaults are in MAST_HOME
-        from mast.config import get_config
-        port = get_config("appliances.conf").getint("global", field)
-    return record.address.strip("[]"), int(port)
-
-
-def preview(record, tls=True, ssh=False, timeout=15):
+def preview(target, endpoints=None, timeout=15):
     """
-    _function_: `mast.datapower.datapower.tls.preview(record, tls=True, ssh=False, timeout=15)`
+    _function_: `mast.trust.preview(target, endpoints=None, timeout=15)`
 
-    Connect to the appliance `record` (a `mast.registry.Appliance`) and
-    return what an admin must see before pinning it:
+    Connect to the endpoints of the target `target` (a
+    `mast.registry.Target`; all of them, or the names in `endpoints`)
+    and return, by name, what an admin must see before pinning each:
 
-    * `"tls"`: the subject, issuer, validity and `sha256` of the
-    certificate of the SOMA port (see `describe_certificate`);
-    * `"ssh"`: the `type`, the `key` (`"<type> <base64>"`) and the
-    OpenSSH `fingerprint` of the SSH host key.
+    * TLS: the subject, issuer, validity and `sha256` of its
+    certificate (see `describe_certificate`);
+    * SSH: the `type`, the `key` (`"<type> <base64>"`) and the OpenSSH
+    `fingerprint` of its host key.
 
-    Each one that cannot be read is `{"error": "..."}` instead. No
-    credential is sent.
+    Each also has its `protocol`, `scope` and `port`. One that cannot be
+    read is `{"error": "..."}` instead. No credential is sent.
     """
     found = {}
-    if tls:
-        host, port = _endpoint(record, "soma_port")
+    host = target.address.strip("[]")
+    for trust in target.trust:
+        label = trust.endpoint if not trust.scope else "{}/{}".format(
+            trust.scope, trust.endpoint)
+        if endpoints is not None and trust.endpoint not in endpoints \
+                and label not in endpoints:
+            continue
+        port = _port(target, trust)
+        if port is None:
+            found[label] = {"error": "The port of {} is not set ({}).".format(
+                label, trust.port_attribute)}
+            continue
         try:
-            found["tls"] = describe_certificate(
-                fetch_certificate(host, port, timeout))
-            found["tls"]["port"] = port
+            if trust.protocol == "ssh":
+                key = fetch_host_key(host, port, timeout)
+                found[label] = {"type": key.split()[0], "key": key,
+                                "fingerprint": ssh_fingerprint(key)}
+            else:
+                found[label] = describe_certificate(
+                    fetch_certificate(host, port, timeout))
         except Exception as exc:
-            found["tls"] = {"error": "Could not read the certificate of "
-                                     "{}:{}: {}: {}".format(
-                                         host, port, type(exc).__name__, exc)}
-    if ssh:
-        host, port = _endpoint(record, "ssh_port")
-        try:
-            key = fetch_host_key(host, port, timeout)
-            found["ssh"] = {"type": key.split()[0], "key": key,
-                            "fingerprint": ssh_fingerprint(key),
-                            "port": port}
-        except Exception as exc:
-            found["ssh"] = {"error": "Could not read the SSH host key of "
-                                     "{}:{}: {}: {}".format(
-                                         host, port, type(exc).__name__, exc)}
+            found[label] = {"error": "Could not read the {} of {}:{}: {}: "
+                                     "{}".format(
+                                         "SSH host key" if trust.protocol ==
+                                         "ssh" else "certificate", host, port,
+                                         type(exc).__name__, exc)}
+            continue
+        found[label].update(protocol=trust.protocol, scope=trust.scope,
+                            endpoint=trust.endpoint, port=port)
     return found
+
+
+def _port(target, trust):
+    """The port of an endpoint of a target."""
+    if not trust.port_attribute:
+        return None
+    if not trust.scope:
+        value = target.attr(trust.port_attribute)
+    else:
+        kind, _, entry = trust.scope.partition(":")
+        extension = target.extension(kind, entry)
+        value = None if extension is None else \
+            extension.attributes.get(trust.port_attribute)
+        if value is None:
+            # Imported here: mast.plugins needs nothing of a home
+            from mast import plugins
+            found = plugins.schema(kind).get(trust.port_attribute)
+            value = None if found is None else found.default
+    return None if value is None else int(value)

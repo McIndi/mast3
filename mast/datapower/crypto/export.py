@@ -117,7 +117,7 @@ def load(snapshot=None, appliances=()):
     from mast.jobs import db
 
     from .posture import findings_of
-    names = {a.id: a.name for a in registry.list_appliances()}
+    names = {a.id: a.name for a in registry.list_targets("datapower")}
     found = []
     with db.session(write=False) as session:
         for snapshot_id in _snapshot_ids(session, snapshot, appliances):

@@ -102,8 +102,8 @@ class PostureCase(SqliteCase):
         super().setUp()
         if not self.pqc:
             baseline_only(self)
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp2", "datapower", "10.0.0.2")
 
     def keep(self, collected, appliance="dp1", when=T0):
         return inventory.save(registry.by_name(appliance).id, collected, when)
@@ -200,7 +200,7 @@ class TestCertificates(PostureCase):
         collected = snapshot(objects, dict([own_cert, ca_cert]), edges=edges)
         self.assertEqual(self.findings(collected,
                                        rule="self-signed-production"), [])
-        registry.env_add("prod", production=True, members=["dp2"])
+        registry.fleet_add("prod", "datapower", production=True, members=["dp2"])
         self.assertEqual(
             self.findings(collected, appliance="dp2",
                           rule="self-signed-production"),
@@ -370,7 +370,7 @@ class TestSelfChecks(PostureCase):
                       for f in posture.self_check_findings(now=now))
 
     def test_the_setup_of_mast(self):
-        registry.update("dp2", tls_mode="none")
+        registry.set_trust("dp2", "soma", "none")
         credentials.create("collector", "reader", "Read-0nly-pass", "collect",
                            ["dp1"], principal=ADMIN)
         credentials.create("changer", "admin", "Ch4nge-the-pass", "change",
@@ -403,7 +403,7 @@ class TestSelfChecks(PostureCase):
         posture.evaluate(self.latest("dp2"))
         self.assertEqual(posture.summary()[registry.by_name("dp2").id]["score"],
                          100)
-        registry.update("dp2", tls_mode="none")
+        registry.set_trust("dp2", "soma", "none")
         found = posture.summary()[registry.by_name("dp2").id]
         self.assertEqual((found["score"], found["counts"]["high"]), (85, 1))
 
@@ -676,7 +676,7 @@ class TestMigration(PostureCase):
         db.downgrade("0009")
         self.assertEqual(db.revision(), "0009")
         db.configure(self.url)
-        self.assertEqual([a.name for a in registry.list_appliances()],
+        self.assertEqual([a.name for a in registry.list_targets()],
                          ["dp1", "dp2"])
         self.assertEqual(db.revision(), db.HEAD)
         # The snapshots stayed; the findings come back with a new run
@@ -710,8 +710,8 @@ class TestCryptoPage(WebCase):
                              return_value=self.key_file)
         patcher.start()
         self.addCleanup(patcher.stop)
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp2", "datapower", "10.0.0.2")
         credentials.create("collector", "reader", "Read-0nly-pass", "collect",
                            ["dp1", "dp2"], principal=ADMIN)
         # Tested, and it can only read: no self-check finding

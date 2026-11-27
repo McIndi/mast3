@@ -83,6 +83,46 @@ database and the logs, and runs the tests there in a new process. Give
 CycloneDX schema are skipped where `jsonschema` (a development
 dependency) is not installed. For pytest, `conftest.py` now always uses
 a private home, also when `MAST_HOME` is set.
+* **Appliances are targets, and environments are fleets.** A DataPower
+appliance is a target of the kind `datapower`, with the same id, and an
+environment a fleet of that kind; the database is converted when MAST
+opens it (migration 4001). On the command line:
+    * `mast targets add -n NAME -k datapower -A ADDRESS -s soma_port=5551`:
+    the kind is required, and the settings are the attributes of the kind
+    (`mast plugins kinds`), as `-s NAME=VALUE`. `--soma-port`,
+    `--poll yes` and the other options of each setting are gone
+    (`-s poll=yes`), and `update --clear NAME` sets one back.
+    * `mast fleets add -n NAME -k datapower ...`: a fleet holds targets of
+    one kind.
+    * How a certificate or host key is checked belongs to an endpoint of
+    the target (`soma`, `ssh`): `mast targets trust -n NAME -e soma -m
+    none|ca` and `--ca-bundle-file` (were `--tls-mode` and
+    `--ca-bundle-file` of `update`); `mast targets pin -n NAME` pins every
+    endpoint, `-e ENDPOINT` one (were `--both` and `--ssh`); `mast
+    targets unpin -n NAME -e ENDPOINT`.
+    * New: `mast targets show`, `extend`, `set-extension`, `unextend`,
+    `trust` and `review`.
+* **Commands run only on registered targets.** A hostname or an IP
+address that is not registered is refused before the job is queued
+(it was the address itself, with the defaults of `[global]`), and so is
+a target of a kind that the command does not accept.
+* **The ports of an appliance** that are not set are the standard ports
+of DataPower (SOMA 5550, WebGUI 9090, SSH 22), not those of `[global]`
+in `appliances.conf`. The other settings that are not set still take
+the defaults of `[global]`. Set a port on the target if yours differs.
+* **A new address or port needs a review of the pin.** When the address
+of a target or the port of a pinned endpoint changes, the endpoint is
+marked REVIEW and MAST does not connect to it until an admin runs
+`mast targets review` (which keeps the pin if the endpoint still shows
+it) or pins it again.
+* **The web API** has `/api/v1/targets`, `/api/v1/fleets` and
+`/api/v1/kinds` in place of `/api/v1/appliances` and
+`/api/v1/environments`. Admin → Appliances is Admin → Targets.
+* **`mast.datapower.datapower.tls` is `mast.trust`**, for scripts that
+import it.
+* **A downgrade below 4.0** (`mast jobs downgrade-db`) is refused while
+there is a target or a fleet of another kind than `datapower`, or an
+extension.
 * **The pages of a plugin are in its manifest.** The entry point group
 `mast_web_page` is gone: the pages of core are listed in
 `mast/web/page.py`, and a plugin names its pages in its manifest.
@@ -98,6 +138,12 @@ its target and secret parameters. Core checks all of it before it
 registers any command of the plugin. A plugin with one fault is left
 out whole, with none of its commands or pages, and the rest of MAST
 works.
+* **Kinds of target have attributes and endpoints.** A plugin declares
+the settings of its kinds (`Attribute`) and the ports that MAST
+connects to (`Endpoint`); core checks the values and the identity of
+each endpoint. A target can have extensions with their own attributes
+and endpoints, and a kind that a host has more than once has one
+entry for each (two Django sites on one Linux host).
 * **Kinds of target can be extended.** A target has one base kind and
 any number of extensions, and a plugin can extend the kind of another
 plugin (an API Connect gateway is a DataPower appliance; a Django site

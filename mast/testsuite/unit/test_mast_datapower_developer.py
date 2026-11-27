@@ -24,6 +24,8 @@ import io
 import os
 import tempfile
 import unittest
+
+from mast.testsuite.unit.registry_helpers import register
 from xml.etree import ElementTree as etree
 
 from unittest import mock
@@ -153,6 +155,7 @@ class TestDeveloperCommands(unittest.TestCase):
         self.assertIn("MultiProtocolGateway - probed", result.html())
 
     def test_command_line(self):
+        register("dp1", "dp2")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             cli.run([

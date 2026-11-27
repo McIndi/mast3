@@ -66,7 +66,7 @@ NO_USERS = "\nCommon\n======"
 
 class Work(Params):
     appliances: list[str] = Option(
-        default_factory=list, short="a", widget="appliances")
+        default_factory=list, short="a", widget="appliances", target=True)
     credentials: list[str] = Option(
         default_factory=list, short="c", secret=True, widget="credentials")
     seconds: float = Option(0.0, help="How long to work")
@@ -96,7 +96,7 @@ seen = []
 
 
 def make_cli():
-    cli = Cli(provider="test")
+    cli = Cli(provider="test", targets=("endpoint", "datapower"))
 
     @cli.command("work", effect="change")
     def work(params: Work):
@@ -214,8 +214,19 @@ def make_cli():
     return cli
 
 
+def known(*names, kind="endpoint"):
+    """Register each name as a target of `kind` (the endpoint of core by
+    default): jobs run only on registered targets."""
+    from mast import registry as targets
+    for name in names:
+        if targets.by_name(name) is None and not targets.is_fleet(name):
+            targets.add(name, kind, "127.0.0.1",
+                        attributes={"port": 1} if kind == "endpoint" else {})
+
+
 def submit(*appliances, **params):
     exclusive = params.pop("exclusive", None)
+    known(*appliances)
     return jobs.submit(
         "test.work", dict(appliances=list(appliances), **params),
         exclusive=exclusive)
@@ -244,7 +255,11 @@ def _erase(url):
 
 
 class SqliteCase(unittest.TestCase):
-    """The base of the tests. Each test gets an empty database."""
+    """The base of the tests. Each test gets an empty database, with the
+    targets `known_targets` (of the kind endpoint)."""
+
+    known_targets = ()
+    known_kind = "endpoint"
 
     def make_url(self):
         return "sqlite:///" + os.path.join(
@@ -258,6 +273,8 @@ class SqliteCase(unittest.TestCase):
         self.addCleanup(db.configure, None)
         registry.register("test", make_cli())
         self.addCleanup(registry.unregister, "test")
+        # Jobs run only on registered targets
+        known(*self.known_targets, kind=self.known_kind)
 
     def use_clock(self):
         clock = Clock()
@@ -271,6 +288,12 @@ class SqliteCase(unittest.TestCase):
             return session.get(Job, job_id).params
 
 
+class JobsCase(SqliteCase):
+    """The tests of the queue: the names that they give are targets."""
+
+    known_targets = ("dp1", "dp2", "dp3", "dp4", "bad", "bad1", "bad2")
+
+
 class PostgresMixin(object):
     def make_url(self):
         if not POSTGRES_URL:
@@ -279,7 +302,7 @@ class PostgresMixin(object):
         return POSTGRES_URL
 
 
-class TestSchema(SqliteCase):
+class TestSchema(JobsCase):
     def test_the_migrations_make_the_tables_of_the_models(self):
         with db.engine().connect() as connection:
             context = MigrationContext.configure(connection)
@@ -347,7 +370,7 @@ class TestSchema(SqliteCase):
             db.engine()
 
 
-class TestSubmit(SqliteCase):
+class TestSubmit(JobsCase):
     def test_a_submitted_job_is_queued(self):
         job_id = submit("dp1", seconds=1.5)
         info = jobs.get(job_id)
@@ -403,17 +426,33 @@ class TestSubmit(SqliteCase):
 
     def test_targets_are_resolved(self):
         from mast import registry
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
-        registry.env_add("lab", members=["dp1", "dp2"])
-        # An environment becomes its appliances, an address of a
-        # registered appliance becomes that appliance, and any other
-        # address stays an address
-        job_id = submit("lab", "10.0.0.1", "DP3.example.com", "dp2",
-                        "not a host!")
-        self.assertEqual(
-            jobs.get(job_id).targets,
-            ["dp1", "dp2", "dp3.example.com", "not a host!"])
+        registry.fleet_add("lab", "endpoint", members=["dp1", "dp2"])
+        # A fleet becomes its targets, in order and without repeats
+        job_id = jobs.submit("test.work",
+                             {"appliances": ["lab", "dp3", "dp2"]})
+        self.assertEqual(jobs.get(job_id).targets, ["dp1", "dp2", "dp3"])
+
+    def test_a_name_that_is_not_registered_is_refused(self):
+        from mast import registry
+        registry.add("box", "endpoint", "10.0.0.5", attributes={"port": 1})
+        for name, message in (
+                ("10.0.0.9", "Register it first: mast targets add"),
+                ("10.0.0.5", "The target box has this address"),
+                ("not a host!", "is not a registered target or fleet")):
+            with self.subTest(name=name):
+                with self.assertRaises(jobs.TargetRefused) as caught:
+                    jobs.submit("test.work", {"appliances": [name]})
+                self.assertIn(message, str(caught.exception))
+        self.assertEqual(jobs.list_jobs(), [])
+
+    def test_a_target_of_another_kind_is_refused(self):
+        with self.assertRaises(jobs.TargetRefused) as caught:
+            jobs.submit("datapower.list-domains", {
+                "appliances": ["dp1"], "credentials": ["u:p"]})
+        self.assertIn("dp1 is of the kind endpoint, and "
+                      "datapower.list-domains accepts datapower",
+                      str(caught.exception))
+        self.assertEqual(jobs.list_jobs(), [])
 
     def test_the_caller_can_choose_the_id(self):
         job_id = jobs.new_job_id()
@@ -449,7 +488,7 @@ class TestSubmit(SqliteCase):
                 call("0" * 32)
 
 
-class TestClaim(SqliteCase):
+class TestClaim(JobsCase):
     def test_jobs_are_claimed_oldest_first_and_only_once(self):
         first, second = submit("dp1"), submit("dp2")
         self.assertEqual(jobs.claim("w1"), first)
@@ -596,7 +635,7 @@ class TestClaim(SqliteCase):
                 jobs.finish(job_id, "w1", status)
 
 
-class TestCancel(SqliteCase):
+class TestCancel(JobsCase):
     def test_a_queued_job_is_cancelled_now(self):
         job_id = submit("dp1", credentials=["admin:hunter2"])
         behind = submit("dp1")
@@ -632,7 +671,7 @@ class TestCancel(SqliteCase):
         self.assertFalse(info.cancel_requested)
 
 
-class TestLease(SqliteCase):
+class TestLease(JobsCase):
     def test_a_silent_worker_loses_its_job(self):
         clock = self.use_clock()
         job_id = submit("dp1", credentials=["admin:hunter2"])
@@ -699,7 +738,7 @@ class TestLease(SqliteCase):
         self.assertEqual(jobs.reap(), [job_id])
 
 
-class TestRunner(SqliteCase):
+class TestRunner(JobsCase):
     def test_a_job_runs(self):
         job_id = submit("dp1", credentials=["admin:hunter2"])
         worker = jobs.new_worker_id()
@@ -1201,7 +1240,7 @@ def wait_for(condition, seconds=10):
     return False
 
 
-class TestWorker(SqliteCase):
+class TestWorker(JobsCase):
     def start(self, **kwargs):
         kwargs.setdefault("poll_seconds", 0.02)
         worker = Worker(**kwargs)
@@ -1331,7 +1370,7 @@ class TestWorker(SqliteCase):
 
 
 @unittest.skipIf(sys.platform == "win32", "sends POSIX signals")
-class TestWorkerProcess(SqliteCase):
+class TestWorkerProcess(JobsCase):
     def spawn(self, *args):
         env = dict(os.environ, MAST_JOBS_DB_URL=self.url)
         process = subprocess.Popen(
@@ -1368,7 +1407,7 @@ class TestWorkerProcess(SqliteCase):
         self.assertIn("--concurrency", process.stdout.read())
 
 
-class CliCase(SqliteCase):
+class CliCase(JobsCase):
     """Runs command lines in this process and collects what they print."""
 
     def setUp(self):
@@ -1840,7 +1879,7 @@ class TestMastJobs(CliCase):
         self.assertIn(str(os.getpid()), out)
 
 
-class TestCommandLineProcess(SqliteCase):
+class TestCommandLineProcess(JobsCase):
     def mast(self, *argv):
         """Run `mast ARGV` (python -m mast)."""
         return subprocess.run(
@@ -1913,7 +1952,7 @@ def _compete(url, worker_id, start, claimed, overlaps, ready=None,
         jobs.finish(job_id, worker_id, jobs.SUCCEEDED)
 
 
-class TestWorkersTogether(SqliteCase):
+class TestWorkersTogether(JobsCase):
     def test_processes_do_not_get_in_each_others_way(self):
         appliances = ["dp1", "dp2", "dp3"]
         submitted = [submit(appliances[n % 3]) for n in range(45)]
@@ -1966,7 +2005,7 @@ class TestWorkersTogether(SqliteCase):
             self.assertEqual(worker.exitcode, 0)
 
 
-class TestStart(SqliteCase):
+class TestStart(JobsCase):
     """
     client.start, which the web GUI uses: a thread of the web server
     watches each job until it leaves the queue, and does the job when

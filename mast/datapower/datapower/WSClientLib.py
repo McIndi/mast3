@@ -367,12 +367,12 @@ class Request(object):
             for authentication and authorization. Currently only basic auth is
             supported.
 
-            `policy` (a `mast.datapower.datapower.tls.Policy`) says how
+            `policy` (a `mast.trust.Policy`) says how
             the certificate is checked, before the request is sent.
             Without it, `secure` False is the policy "none" and True
             is "ca".
         """
-        from mast.datapower.datapower import tls
+        from mast import trust as tls
         if policy is None:
             policy = tls.Policy(mode="ca" if secure else "none")
         xml = etree.tostring(self.request_xml.getroot(), encoding="UTF-8")

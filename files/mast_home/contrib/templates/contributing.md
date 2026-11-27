@@ -66,12 +66,12 @@ checkout, so a change to the code is live:
 | The command line | `mast/cli` | `Cli` turns functions into sub-commands. A `Params` model declares the options of a command; the command line, the web form and the help are made from it. A command returns a `Result`. |
 | The job queue | `mast/jobs` | Every invocation of a DataPower command is a job. `queue` stores the jobs (SQLite or PostgreSQL, with Alembic migrations), `runner` runs one, `worker` is `mast worker`, `client` submits a job and follows it, `secrets` encrypts the credentials of a waiting job. |
 | DataPower | `mast/datapower/datapower` | `DataPower` talks to one appliance through its XML management interface (SOMA and AMP) and SSH. `Environment` is a group of appliances. The SOMA spec files are in `files/mast_home/etc`. |
-| Who the appliance is | `mast/datapower/datapower/tls.py` | Every connection to an appliance that can carry a password: the TLS checks (`ca`, `pin`, `none`) of SOMA and AMP, and the SSH host key policy. The pin is checked after the handshake and before the request is sent. Inside `mast.cli.results.stored_credential` (a job with a stored credential) unchecked connections are refused. `mast targets pin` and the pin API use its `preview`. |
+| Who the target is | `mast/trust.py` | Every connection that can carry a password checks the identity of the endpoint first: its TLS certificate (by a certificate authority or a pin) or its SSH host key (a pin), as the trust of the endpoint in the registry says, and refuses an endpoint whose pin must be reviewed. `preview` reads a certificate or host key for `mast targets pin`. |
 | The DataPower plugin | `mast/datapower` | Its manifest (`plugin.py`), its one `Cli` (`provider.py`) and the list of its modules (`commands.py`). Each module registers its commands in a category of that `Cli`: `accounts`, `backups`, `crypto`, `deployment`, `developer`, `network`, `status`, `system`, `terminal`. `crypto`, `ssh` and `status` also have a page of the web UI. |
 | The crypto inventory | `mast/crypto`, `mast/datapower/crypto` | `mast crypto ...` belongs to core (`mast/crypto/cli.py`); the code is still in `mast/datapower/crypto` until the collector interface of design step 8. |
 | Shared pieces of commands | `mast/plugin_utils` | `params` (the appliance options and the widgets of the web form), `results` (the results that DataPower commands return), `steps` (perform an action on each appliance), `choices` (the choice lists of the web forms). |
 | The web UI | `mast/web` | The Flask application (`create_app`), served by CherryPy (`server`). The login and the check of the session (`auth`), the CSRF token, the session key and the security headers (`security`), the JSON API (`api`, `catalog`, `uploads`), the pages (`page`, `pages`) and their templates and scripts. |
-| The appliance registry | `mast/registry` | The appliances and the environments, in the job database. `resolve` turns the names that users type into appliances; `DataPower`, `Environment` and the job queue use it. `files` imports and exports the configuration files of MAST 3.15.2. `mast targets` is `mast/registry/cli.py`. |
+| The registry | `mast/registry` | The targets (a base kind, attributes, extensions, a revision) and the fleets (of one kind), and the trust of each endpoint, in the job database. `resolve` turns the names that users type into registered targets; `accepts` says whether a command takes a target. `files` imports and exports the configuration files of MAST 3.15.2. `mast targets` and `mast fleets` are `mast/registry/cli.py`. |
 | Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast credentials` is `mast/credentials/cli.py`. |
 | Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast users` is `mast/auth/cli.py`. |
 | `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler of `etc/crontab` (the cron plugin). Each worker, in `mastd` or in `mast worker`, runs `mast.jobs.schedules.QueueScheduler` for the schedules of the job queue and the daily retention. |
@@ -127,7 +127,13 @@ imports nothing else of the plugin) says what the plugin is:
 not a root of core (`mast.roots.RESERVED`).
 * `api` is the plugin API that it is made for, and `core` the versions
 of MAST that it works with (a version specifier).
-* `kinds` are the kinds of target that it gives (`mast.plugins.Kind`).
+* `kinds` are the kinds of target that it gives (`mast.plugins.Kind`),
+each with its `attributes` (`Attribute`: a name, a type, a default,
+choices) and its `endpoints` (`Endpoint`: a port that MAST connects
+to, `tls` or `ssh`, whose port is one of the attributes). Core keeps
+the values, checks them, and checks the identity of each endpoint;
+the plugin uses the values (`mast.registry.Target.attr`). A secret is
+never an attribute: it is in a stored credential.
 A target has one base kind and any number of extensions. A kind with
 `extends` is an extension of another kind, of this plugin or another
 one: an API Connect plugin could give

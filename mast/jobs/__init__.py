@@ -47,7 +47,7 @@ from mast.jobs.models import (
     CANCELLED, FAILED, FINISHED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 from mast.jobs.queue import (
     EventInfo, Heartbeat, JobInfo, JobNotFound, NotOwner, NotQueued,
-    ResultInfo,
+    ResultInfo, TargetRefused,
     WorkerInfo, abandon, add_event, attach, cancel, claim, events, find, finish, get,
     heartbeat, list_jobs, load, new_job_id, reap, reap_if_expired, result, submit, worker_gone,
     worker_seen, workers)
@@ -63,6 +63,7 @@ __all__ = [
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
     "Principal", "LOCAL", "Forbidden",
     "JobNotFound", "NotOwner", "NotQueued", "UnknownCommand",
+    "TargetRefused",
     "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",
     "LOST",
     "FINISHED",

@@ -51,7 +51,7 @@ from mast import jobs, registry
 from mast import logging as mast_logging
 from mast.config import MAST_HOME
 from mast.credentials import store
-from mast.datapower.datapower import tls
+from mast import trust as tls
 from mast.jobs import db
 from mast.jobs import registry as commands
 from mast.jobs.auth import Principal
@@ -148,11 +148,11 @@ class TestNoSecretLeaks(WebCase):
         """Use the credential in every way, as an admin and an
         operator. Return the ids of the jobs."""
         self.answers = []
-        registry.add("dp-fake", "127.0.0.1", soma_port=self.soma.port)
-        registry.pin_tls("dp-fake", self.fake_certificate_sha256(), "admin")
+        registry.add("dp-fake", "datapower", "127.0.0.1", attributes={"soma_port": self.soma.port})
+        registry.pin("dp-fake", "soma", self.fake_certificate_sha256(), "admin")
         # The same appliance with a wrong pin: its job fails
-        registry.add("dp-changed", "127.0.0.1", soma_port=self.soma.port)
-        registry.pin_tls("dp-changed", "0" * 64, "admin")
+        registry.add("dp-changed", "datapower", "127.0.0.1", attributes={"soma_port": self.soma.port})
+        registry.pin("dp-changed", "soma", "0" * 64, "admin")
 
         admin = self.client
         self.login("admin", client=admin)
@@ -434,7 +434,7 @@ class TestNoSecretLeaks(WebCase):
         checked = self.check_routes(job_ids)
         # The routes with data were searched
         for path in ("/api/v1/jobs", "/api/v1/credentials",
-                     "/api/v1/schedules", "/api/v1/appliances",
+                     "/api/v1/schedules", "/api/v1/targets",
                      "/api/v1/jobs/{}/result".format(job_ids[0]),
                      "/api/v1/jobs/{}/events".format(job_ids[7]),
                      "/api/v1/jobs/{}/history".format(job_ids[7]),

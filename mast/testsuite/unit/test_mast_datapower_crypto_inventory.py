@@ -287,8 +287,8 @@ class InventoryCase(SqliteCase):
 
     def setUp(self):
         super().setUp()
-        registry.add("dp1", "10.0.0.1")
-        registry.add("dp2", "10.0.0.2")
+        registry.add("dp1", "datapower", "10.0.0.1")
+        registry.add("dp2", "datapower", "10.0.0.2")
 
     def collect(self, appliance, **kwargs):
         etc = Path(os.environ["MAST_HOME"]) / "etc"
@@ -443,7 +443,7 @@ class TestCommands(InventoryCase):
         self.assertEqual({s.job_id for s in snapshots}, {c.id for c in children})
 
     def test_an_environment_has_a_child_for_each_member(self):
-        registry.env_add("lab", members=["dp1", "dp2"])
+        registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
         parent = jobs.submit("core.crypto-inventory", {
             "appliances": ["lab"], "credentials": ["u:p"],
             "request_delay": 0})
@@ -460,8 +460,8 @@ class TestCommands(InventoryCase):
         self.assertEqual(len(snapshots), 2)
 
     def test_targets_keep_the_credentials_of_each_name(self):
-        registry.add("dp3", "10.0.0.3")
-        registry.env_add("lab", members=["dp1", "dp2"])
+        registry.add("dp3", "datapower", "10.0.0.3")
+        registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
 
         def targets(appliances, credentials):
             return inventory._targets(mock.Mock(
@@ -508,7 +508,7 @@ class TestMigration(InventoryCase):
         self.assertEqual(db.revision(), "0008")
         self.assertFalse({t for t in self.tables() if t.startswith("crypto_")})
         db.configure(self.url)
-        self.assertEqual([a.name for a in registry.list_appliances()],
+        self.assertEqual([a.name for a in registry.list_targets()],
                          ["dp1", "dp2"])
         self.assertEqual(db.revision(), db.HEAD)
         inventory.save(registry.by_name("dp1").id, found, T0)

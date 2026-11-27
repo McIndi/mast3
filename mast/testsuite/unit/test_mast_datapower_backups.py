@@ -24,6 +24,8 @@ import io
 import os
 import tempfile
 import unittest
+
+from mast.testsuite.unit.registry_helpers import register
 import zipfile
 from xml.etree import ElementTree as etree
 
@@ -281,6 +283,7 @@ class TestBackupsCommands(unittest.TestCase):
                          [call[2]["domain"] for call in calls])
 
     def test_command_line(self):
+        register("dp1", "dp2")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             cli.run(["normal-backup", "-a", "dp1", "-c", "user:pass", "-n",

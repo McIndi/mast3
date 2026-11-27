@@ -177,7 +177,7 @@ def reapply(now=None):
     from mast import registry
     from mast.jobs import db
     now = now or _now()
-    names = {a.id: a.name for a in registry.list_appliances()}
+    names = {a.id: a.name for a in registry.list_targets("datapower")}
     covered = 0
     with db.session() as session:
         exceptions = _active_exceptions(session, now)
@@ -237,7 +237,7 @@ def findings_of(snapshot_ids, now=None):
     from .rules import _load
     _load()
     now = now or _now()
-    names = {a.id: a.name for a in registry.list_appliances()}
+    names = {a.id: a.name for a in registry.list_targets("datapower")}
     found = []
     with db.session(write=False) as session:
         rows = session.execute(
@@ -337,7 +337,7 @@ def summary(now=None):
     from mast.jobs import db
     now = now or _now()
     settings_ = settings()
-    by_name = {a.name: a.id for a in registry.list_appliances()}
+    by_name = {a.name: a.id for a in registry.list_targets("datapower")}
     with db.session(write=False) as session:
         latest = latest_snapshots(session)
         when = {snapshot_id: collected for snapshot_id, collected in

@@ -82,6 +82,11 @@ def start_in_queue(command, params, principal, job_id):
 
 class ApiCase(WebCase):
 
+    # Jobs run only on registered targets; the commands of these tests
+    # (test.*, datapower.*) accept DataPower appliances
+    known_targets = ("dp1", "dp2", "dp3")
+    known_kind = "datapower"
+
     def setUp(self):
         super().setUp()
         registry.register("webtest", make_cli())

@@ -14,7 +14,7 @@
 #
 # Copyright 2015-2026, McIndi Solutions, All rights reserved.
 """
-Unit tests for mast.datapower.datapower.tls: the TLS checks (ca, pin,
+Unit tests for mast.trust: the TLS checks (ca, pin,
 none) against a local TLS server, the SSH host key checks against a
 local paramiko server, and that no credential is sent before a check
 passes. Also `mast targets pin` and the pin API.
@@ -41,7 +41,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from mast import registry
 from mast.cli.results import stored_credential
-from mast.datapower.datapower import DataPower, tls
+from mast import trust as tls
+from mast.datapower.datapower import DataPower
 from mast.registry import cli as registry_cli
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import WebCase
@@ -314,10 +315,11 @@ class TestTLS(TLSCase):
 class TestPolicy(SqliteCase):
 
     def test_the_mode_comes_from_the_registry(self):
-        registry.add("dp1")
-        registry.add("dp2", tls_mode="none")
-        registry.add("dp3")
-        registry.pin_tls("dp3", "ab" * 32, "os:me")
+        registry.add("dp1", "datapower")
+        registry.add("dp2", "datapower")
+        registry.set_trust("dp2", "soma", "none")
+        registry.add("dp3", "datapower")
+        registry.pin("dp3", "soma", "ab" * 32, "os:me")
         cases = [
             # name, tls asked, mode
             ("dp1", None, "ca"), ("dp1", "none", "none"),
@@ -329,17 +331,18 @@ class TestPolicy(SqliteCase):
         for name, asked, mode in cases:
             with self.subTest(name=name, asked=asked):
                 record = registry.by_name(name)
-                policy = tls.policy_for(name, record, asked)
+                policy = tls.policy_for(name, record, asked, "soma")
                 self.assertEqual(policy.mode, mode)
                 self.assertEqual(policy.registered, record is not None)
-        self.assertEqual(tls.policy_for("dp3", registry.get("dp3")).pin_sha256,
+        self.assertEqual(tls.policy_for("dp3", registry.get("dp3"),
+                                        endpoint="soma").pin_sha256,
                          "ab" * 32)
         with self.assertRaises(ValueError):
             tls.policy_for("dp1", None, "maybe")
 
     def test_dataPower_and_environment_take_tls(self):
         from mast.datapower.datapower import Environment
-        registry.add("dp1")
+        registry.add("dp1", "datapower")
         self.assertEqual(DataPower("dp1", "u:p").tls_policy.mode, "ca")
         self.assertEqual(DataPower("dp1", "u:p", check_hostname=False)
                          .tls_policy.mode, "none")
@@ -356,10 +359,10 @@ class TestDataPowerSends(TLSCase):
     checks, and flags a pin that does not match."""
 
     def appliance(self, label, **pin):
-        registry.add("dp1", "127.0.0.1", soma_port=self.servers[label].port,
-                     retry_interval=0)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={
+            "soma_port": self.servers[label].port, "retry_interval": 0})
         if pin:
-            registry.pin_tls("dp1", pin["sha256"], "os:me")
+            registry.pin("dp1", "soma", pin["sha256"], "os:me")
         return DataPower("dp1", "admin:" + SECRET)
 
     def test_soma_with_a_good_pin(self):
@@ -374,12 +377,13 @@ class TestDataPowerSends(TLSCase):
         self.assertFalse(self.servers["self"].got_secret())
         # Not tried again: nothing can change
         self.assertEqual(len(self.servers["self"].wait(1)), 1)
-        found = registry.get("dp1")
-        self.assertEqual(found.tls_mismatch, self.certs.sha256("self"))
-        self.assertIsNotNone(found.tls_mismatch_at)
+        found = registry.get("dp1").trust_for("soma")
+        self.assertEqual(found.mismatch, self.certs.sha256("self"))
+        self.assertIsNotNone(found.mismatch_at)
         # Pinning again clears the flag
-        self.assertIsNone(registry.pin_tls(
-            "dp1", self.certs.sha256("self"), "os:me").tls_mismatch)
+        self.assertIsNone(registry.pin(
+            "dp1", "soma", self.certs.sha256("self"), "os:me")
+            .trust_for("soma").mismatch)
 
     def test_firmware_with_a_bad_pin_sends_nothing(self):
         dp = self.appliance("self", sha256=self.certs.sha256("good"))
@@ -391,13 +395,42 @@ class TestDataPowerSends(TLSCase):
         self.assertFalse(self.servers["self"].got_secret())
 
     def test_a_stored_credential_is_refused_without_a_check(self):
-        registry.add("dp1", "127.0.0.1", soma_port=self.servers["self"].port,
-                     tls_mode="none", retry_interval=0)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={
+            "soma_port": self.servers["self"].port, "retry_interval": 0})
+        registry.set_trust("dp1", "soma", "none")
         dp = DataPower("dp1", "admin:" + SECRET)
         with stored_credential():
             with self.assertRaises(tls.Refused):
                 dp.get_status("FirmwareVersion")
         self.assertEqual(self.servers["self"].received, [])
+
+    def test_nothing_is_sent_to_a_pin_that_must_be_reviewed(self):
+        port = self.servers["self"].port
+        self.appliance("self", sha256=self.certs.sha256("self"))
+        # Another port: the pin is no longer known to be right
+        registry.update("dp1", attributes={"soma_port": port + 1})
+        registry.update("dp1", attributes={"soma_port": port})
+        found = registry.get("dp1").trust_for("soma")
+        self.assertEqual(found.review, "the port changed")
+        dp = DataPower("dp1", "admin:" + SECRET)
+        with self.assertRaises(tls.NeedsReview) as caught:
+            dp.get_status("FirmwareVersion")
+        self.assertIn("mast targets pin -n dp1 -e soma", str(caught.exception))
+        self.assertEqual(self.servers["self"].received, [])
+        # An admin reviews it: the pin is kept, and MAST connects again
+        registry.review("dp1", "soma", "os:me")
+        dp = DataPower("dp1", "admin:" + SECRET)
+        self.assertEqual(dp.request.send(policy=dp.tls_policy), ANSWER)
+
+    def test_a_new_address_marks_every_pin(self):
+        self.appliance("self", sha256=self.certs.sha256("self"))
+        registry.pin("dp1", "ssh", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKq0nO"
+                     "+UdqqhTHmTsH+Xyrjz6iuN33t5b4bbGRMtahmh", "os:me")
+        registry.update("dp1", address="127.0.0.2")
+        target = registry.get("dp1")
+        for endpoint in ("soma", "ssh"):
+            self.assertIn("the address changed from 127.0.0.1 to 127.0.0.2",
+                          target.trust_for(endpoint).review)
 
 
 class TestDataPowerSendsPostgres(PostgresMixin, TestDataPowerSends):
@@ -537,23 +570,23 @@ class TestSSH(SSHCase):
 
     def test_ssh_connect_checks_the_pin_and_flags_a_change(self):
         other = paramiko.ECDSAKey.generate()
-        registry.add("dp1", "127.0.0.1", ssh_port=self.server.port)
-        registry.pin_ssh("dp1", "{} {}".format(other.get_name(),
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={"ssh_port": self.server.port})
+        registry.pin("dp1", "ssh", "{} {}".format(other.get_name(),
                                                other.get_base64()), "os:me")
         dp = DataPower("dp1", "admin:" + SECRET)
         with self.assertRaises(tls.HostKeyMismatch):
             dp.ssh_connect(timeout=10)
         self.assertEqual(self.server.passwords, [])
-        self.assertEqual(registry.get("dp1").ssh_mismatch,
+        self.assertEqual(registry.get("dp1").trust_for("ssh").mismatch,
                          tls.ssh_fingerprint(self.server.host_key()))
 
     def test_ssh_connect_without_a_pin_with_a_stored_credential(self):
-        registry.add("dp1", "127.0.0.1", ssh_port=self.server.port)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={"ssh_port": self.server.port})
         dp = DataPower("dp1", "admin:" + SECRET)
         with stored_credential():
             with self.assertRaises(tls.NotPinned) as caught:
                 dp.ssh_connect(timeout=10)
-        self.assertIn("mast targets pin -n dp1 --ssh", str(caught.exception))
+        self.assertIn("mast targets pin -n dp1 -e ssh", str(caught.exception))
         self.assertEqual(self.server.passwords, [])
 
 
@@ -588,69 +621,103 @@ class TestPinCommand(TLSCase):
 
     def setUp(self):
         super().setUp()
-        registry.add("dp1", "127.0.0.1", soma_port=self.servers["self"].port,
-                     ssh_port=self.ssh.port)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={"soma_port": self.servers["self"].port, "ssh_port": self.ssh.port})
 
     def test_pin_shows_the_certificate_and_asks(self):
-        code, out = self.run_cli("pin", "-n", "dp1", answer="n")
+        code, out = self.run_cli("pin", "-n", "dp1", "-e", "soma", answer="n")
         self.assertEqual(code, 0)
         self.assertIn("Subject:     CN=webgui", out)
         self.assertIn(self.certs.sha256("self"), out)
-        self.assertIn("was not pinned", out)
-        self.assertEqual(registry.get("dp1").tls_mode, "ca")
-        code, out = self.run_cli("pin", "-n", "dp1")
-        found = registry.get("dp1")
-        self.assertEqual((found.tls_mode, found.pin_sha256),
+        self.assertIn("soma of dp1 was not pinned", out)
+        self.assertEqual(registry.get("dp1").trust_for("soma").mode, "ca")
+        code, out = self.run_cli("pin", "-n", "dp1", "-e", "soma")
+        found = registry.get("dp1").trust_for("soma")
+        self.assertEqual((found.mode, found.pin),
                          ("pin", self.certs.sha256("self")))
         self.assertTrue(found.pinned_by.startswith("os:"))
         self.assertFalse(self.servers["self"].got_secret())
 
-    def test_pin_both_and_unpin(self):
-        code, out = self.run_cli("pin", "-n", "dp1", "--both", "-y")
+    def test_pin_every_endpoint_and_unpin(self):
+        code, out = self.run_cli("pin", "-n", "dp1", "-y")
         self.assertEqual(code, 0, out)
         self.assertIn(tls.ssh_fingerprint(self.ssh.host_key()), out)
         found = registry.get("dp1")
-        self.assertEqual(found.ssh_host_key, self.ssh.host_key())
-        self.assertEqual(found.tls_mode, "pin")
+        self.assertEqual(found.trust_for("ssh").pin, self.ssh.host_key())
+        self.assertEqual(found.trust_for("soma").mode, "pin")
         code, out = self.run_cli("list")
-        self.assertRegex(out, r"dp1 .* pin +pinned")
-        self.run_cli("unpin", "-n", "dp1", "--ssh")
-        self.assertIsNone(registry.get("dp1").ssh_host_key)
-        self.assertEqual(registry.get("dp1").tls_mode, "pin")
-        self.run_cli("unpin", "-n", "dp1")
-        self.assertEqual(registry.get("dp1").tls_mode, "ca")
+        self.assertRegex(out, r"dp1 +datapower .*soma:pin ssh:pin")
+        self.run_cli("unpin", "-n", "dp1", "-e", "ssh")
+        found = registry.get("dp1")
+        self.assertIsNone(found.trust_for("ssh").pin)
+        self.assertEqual(found.trust_for("ssh").mode, "none")
+        self.assertEqual(found.trust_for("soma").mode, "pin")
+        self.run_cli("unpin", "-n", "dp1", "-e", "soma")
+        self.assertEqual(registry.get("dp1").trust_for("soma").mode, "ca")
         self.assertEqual(self.ssh.passwords, [])
 
     def test_pin_a_fingerprint_without_connecting(self):
-        registry.add("far", "192.0.2.1")
+        registry.add("far", "datapower", "192.0.2.1")
         pin = self.certs.sha256("good").upper()
-        code, out = self.run_cli("pin", "-n", "far", "-f", pin)
+        code, out = self.run_cli("pin", "-n", "far", "-e", "soma", "-f", pin)
         self.assertEqual(code, 0, out)
-        self.assertEqual(registry.get("far").pin_sha256, pin.lower())
+        self.assertEqual(registry.get("far").trust_for("soma").pin,
+                         pin.lower())
         fingerprint = tls.ssh_fingerprint(self.ssh.host_key())
-        code, out = self.run_cli("pin", "-n", "far", "--ssh", "-f", fingerprint)
-        self.assertEqual(registry.get("far").ssh_host_key, fingerprint)
-        for args in (("-f", "nope"), ("--ssh", "-f", "ab" * 32),
-                     ("--both", "-f", pin)):
+        code, out = self.run_cli("pin", "-n", "far", "-e", "ssh",
+                                 "-f", fingerprint)
+        self.assertEqual(registry.get("far").trust_for("ssh").pin,
+                         fingerprint)
+        for args in (("-e", "soma", "-f", "nope"),
+                     ("-e", "ssh", "-f", "ab" * 32), ("-f", pin),
+                     ("-e", "nothing", "-f", pin)):
             with self.subTest(args=args):
                 code, _ = self.run_cli("pin", "-n", "far", *args)
                 self.assertEqual(code, 1)
 
     def test_pin_an_appliance_that_does_not_answer(self):
-        registry.update("dp1", soma_port=self._free_port())
-        code, out = self.run_cli("pin", "-n", "dp1", "-y")
+        registry.update("dp1", attributes={"soma_port": self._free_port()})
+        code, out = self.run_cli("pin", "-n", "dp1", "-e", "soma", "-y")
         self.assertEqual(code, 1)
         self.assertIn("Could not read the certificate", out)
-        self.assertEqual(registry.get("dp1").tls_mode, "ca")
+        self.assertEqual(registry.get("dp1").trust_for("soma").mode, "ca")
 
     def test_ca_bundle_file(self):
         path = os.path.join(self.tmp, "ca.pem")
         with open(path, "w") as fout:
             fout.write(self.certs.ca_pem)
-        code, out = self.run_cli("update", "-n", "dp1", "--ca-bundle-file", path)
+        code, out = self.run_cli("trust", "-n", "dp1", "-e", "soma",
+                                 "--ca-bundle-file", path)
         self.assertEqual(code, 0, out)
-        self.assertIn("ca_bundle: 1 certificate(s)", out)
-        self.assertEqual(registry.get("dp1").ca_bundle, self.certs.ca_pem)
+        self.assertIn("soma (tls): ca, 1 CA certificate(s)", out)
+        self.assertEqual(registry.get("dp1").trust_for("soma").ca_bundle,
+                         self.certs.ca_pem)
+        code, out = self.run_cli("trust", "-n", "dp1", "-e", "soma",
+                                 "--system-ca", "-m", "none")
+        self.assertEqual(code, 0, out)
+        found = registry.get("dp1").trust_for("soma")
+        self.assertEqual((found.mode, found.ca_bundle), ("none", None))
+        code, _ = self.run_cli("trust", "-n", "dp1", "-e", "soma", "-m", "pin")
+        self.assertEqual(code, 1)
+
+    def test_review_keeps_a_pin_that_is_still_right(self):
+        self.run_cli("pin", "-n", "dp1", "-e", "soma", "-y")
+        # The port is changed and back: the pin must be reviewed
+        port = registry.get("dp1").attributes["soma_port"]
+        registry.update("dp1", attributes={"soma_port": port + 1})
+        code, out = self.run_cli("update", "-n", "dp1", "-s",
+                                 "soma_port={}".format(port))
+        self.assertIn("REVIEW: the port changed", out)
+        code, out = self.run_cli("review", "-n", "dp1", "-e", "soma", "-y")
+        self.assertEqual(code, 0, out)
+        self.assertIn("Kept the pin of soma of dp1", out)
+        self.assertIsNone(registry.get("dp1").trust_for("soma").review)
+
+    def test_review_refuses_another_certificate(self):
+        registry.pin("dp1", "soma", self.certs.sha256("good"), "os:me")
+        registry.update("dp1", address="localhost")
+        code, out = self.run_cli("review", "-n", "dp1", "-e", "soma", "-y")
+        self.assertEqual(code, 1)
+        self.assertIsNotNone(registry.get("dp1").trust_for("soma").review)
 
     @staticmethod
     def _free_port():
@@ -679,8 +746,7 @@ class TestPinApi(WebCase):
 
     def setUp(self):
         super().setUp()
-        registry.add("dp1", "127.0.0.1", soma_port=self.tls_server.port,
-                     ssh_port=self.ssh.port)
+        registry.add("dp1", "datapower", "127.0.0.1", attributes={"soma_port": self.tls_server.port, "ssh_port": self.ssh.port})
 
     def call(self, method, path, body=None):
         return self.client.open("/api/v1" + path, method=method, json=body,
@@ -688,40 +754,55 @@ class TestPinApi(WebCase):
 
     def test_an_admin_previews_and_pins(self):
         self.login("admin")
-        answer = self.call("POST", "/appliances/dp1/pin/preview", {})
+        answer = self.call("POST", "/targets/dp1/pin/preview", {})
         self.assertEqual(answer.status_code, 200)
         found = answer.get_json()
-        self.assertEqual(found["tls"]["sha256"], self.certs.sha256("self"))
+        self.assertEqual(found["soma"]["sha256"], self.certs.sha256("self"))
         self.assertEqual(found["ssh"]["key"], self.ssh.host_key())
-        answer = self.call("POST", "/appliances/dp1/pin", {
-            "sha256": found["tls"]["sha256"], "ssh_host_key": found["ssh"]["key"]})
-        self.assertEqual(answer.status_code, 200)
-        self.assertEqual(answer.get_json()["tls_mode"], "pin")
-        self.assertEqual(answer.get_json()["pinned_by"], "admin")
-        self.assertEqual(registry.get("dp1").ssh_host_key, self.ssh.host_key())
-        self.assertEqual(self.call("POST", "/appliances/dp1/pin", {
-            "sha256": "nope"}).status_code, 422)
-        self.assertEqual(self.call("POST", "/appliances/dp1/pin", {}).status_code, 422)
-        self.assertEqual(self.call("POST", "/appliances/nothing/pin", {
-            "sha256": "ab" * 32}).status_code, 404)
-        answer = self.call("POST", "/appliances/dp1/unpin", {"tls": True, "ssh": True})
-        self.assertEqual(answer.get_json()["tls_mode"], "ca")
-        self.assertIsNone(answer.get_json()["ssh_host_key"])
-        self.assertEqual(self.call("POST", "/appliances/dp1/unpin", {}).status_code, 422)
+        answer = self.call("POST", "/targets/dp1/pin", {"pins": [
+            {"endpoint": "soma", "value": found["soma"]["sha256"]},
+            {"endpoint": "ssh", "value": found["ssh"]["key"]}]})
+        self.assertEqual(answer.status_code, 200, answer.get_json())
+        trust = {t["endpoint"]: t for t in answer.get_json()["trust"]}
+        self.assertEqual(trust["soma"]["mode"], "pin")
+        self.assertEqual(trust["soma"]["pinned_by"], "admin")
+        self.assertEqual(registry.get("dp1").trust_for("ssh").pin,
+                         self.ssh.host_key())
+        for body, status in (
+                ({"pins": [{"endpoint": "soma", "value": "nope"}]}, 422),
+                ({}, 422),
+                ({"pins": [{"endpoint": "nothing", "value": "ab" * 32}]}, 422)):
+            with self.subTest(body=body):
+                self.assertEqual(self.call("POST", "/targets/dp1/pin",
+                                           body).status_code, status)
+        self.assertEqual(self.call("POST", "/targets/nothing/pin", {
+            "pins": [{"endpoint": "soma", "value": "ab" * 32}]}).status_code,
+            404)
+        answer = self.call("POST", "/targets/dp1/unpin", {"endpoint": "soma"})
+        trust = {t["endpoint"]: t for t in answer.get_json()["trust"]}
+        self.assertEqual(trust["soma"]["mode"], "ca")
+        self.assertEqual(trust["ssh"]["mode"], "pin")
+        self.assertEqual(self.call("POST", "/targets/dp1/unpin",
+                                   {"endpoint": "nothing"}).status_code, 422)
 
     def test_only_an_admin_pins(self):
         for role in ("operator", "viewer"):
             with self.subTest(role=role):
                 self.login(role)
-                for path, body in (("/appliances/dp1/pin/preview", {}),
-                                   ("/appliances/dp1/pin", {"sha256": "ab" * 32}),
-                                   ("/appliances/dp1/unpin", {"tls": True})):
-                    self.assertEqual(self.call("POST", path, body).status_code, 403)
-        self.assertEqual(registry.get("dp1").tls_mode, "ca")
+                for path, body in (
+                        ("/targets/dp1/pin/preview", {}),
+                        ("/targets/dp1/pin", {"pins": [
+                            {"endpoint": "soma", "value": "ab" * 32}]}),
+                        ("/targets/dp1/unpin", {"endpoint": "soma"}),
+                        ("/targets/dp1/review", {"endpoint": "soma"})):
+                    self.assertEqual(self.call("POST", path, body).status_code,
+                                     403)
+        self.assertEqual(registry.get("dp1").trust_for("soma").mode, "ca")
 
 
 class TestMigration(SqliteCase):
-    """0006 goes down with pins and flags in the database, and up again."""
+    """The pins and flags go down to the appliances of 3.x (0005), and up
+    again to the trust of the endpoints (4001)."""
 
     def columns(self):
         # An engine that does not upgrade the tables, as db.engine() does
@@ -730,30 +811,38 @@ class TestMigration(SqliteCase):
         engine = db._create_engine(self.url)
         self.addCleanup(engine.dispose)
         with engine.connect() as connection:
-            names = {c["name"] for c in inspect(connection).get_columns("appliances")}
+            names = {c["name"] for c in inspect(connection).get_columns(
+                "appliances")}
             rows = connection.execute(text(
-                "SELECT name, pin_sha256, tls_mode FROM appliances")).all()
+                "SELECT name, pin_sha256, tls_mode, ssh_host_key, soma_port "
+                "FROM appliances")).all()
         return names, [tuple(row) for row in rows]
 
     def test_down_and_up(self):
         from mast.jobs import db
-        registry.add("dp1")
-        registry.pin_tls("dp1", "ab" * 32, "os:me")
-        registry.flag_mismatch("dp1", "tls", "cd" * 32)
+        registry.add("dp1", "datapower", "10.0.0.1",
+                     attributes={"soma_port": 5551})
+        registry.pin("dp1", "soma", "ab" * 32, "os:me")
+        registry.pin("dp1", "ssh", "SHA256:" + "A" * 43, "os:me")
+        registry.flag_mismatch("dp1", "soma", "cd" * 32)
         registry.flag_mismatch("dp1", "ssh", "SHA256:x")
-        new = {"tls_mismatch", "tls_mismatch_at", "ssh_mismatch", "ssh_mismatch_at"}
-        self.assertLessEqual(new, self.columns()[0])
         db.downgrade("0005")
         self.assertEqual(db.revision(), "0005")
         names, rows = self.columns()
-        self.assertFalse(new & names)
-        # The pin stays
-        self.assertEqual(rows, [("dp1", "ab" * 32, "pin")])
+        self.assertFalse({"tls_mismatch", "ssh_mismatch"} & names)
+        # The pins and the settings stay
+        self.assertEqual(rows, [("dp1", "ab" * 32, "pin", "SHA256:" + "A" * 43,
+                                 5551)])
         # A newer MAST upgrades the tables again when it opens them
         db.configure(self.url)
         found = registry.get("dp1")
         self.assertEqual(db.revision(), db.HEAD)
-        self.assertEqual((found.pin_sha256, found.tls_mismatch), ("ab" * 32, None))
+        self.assertEqual((found.kind, found.attributes),
+                         ("datapower", {"soma_port": 5551, "poll": False}))
+        soma, ssh = found.trust_for("soma"), found.trust_for("ssh")
+        self.assertEqual((soma.mode, soma.pin, soma.mismatch),
+                         ("pin", "ab" * 32, None))
+        self.assertEqual((ssh.mode, ssh.pin), ("pin", "SHA256:" + "A" * 43))
 
 
 class TestMigrationPostgres(PostgresMixin, TestMigration):

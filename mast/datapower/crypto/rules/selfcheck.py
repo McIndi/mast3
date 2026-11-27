@@ -32,16 +32,18 @@ def _aware(value):
 
 @check("mast-tls-none", "high", "Appliance certificate not checked")
 def tls_none(setup):
-    """A registered appliance with `tls_mode none`: MAST does not check
-    the certificate of its management interface, so anyone in between
-    could read the credentials that MAST sends."""
+    """A registered appliance whose XML management interface (the
+    endpoint soma) has the trust `none`: MAST does not check its
+    certificate, so anyone in between could read the credentials that
+    MAST sends."""
     for appliance in setup.appliances:
-        if appliance.tls_mode == "none":
+        trust = appliance.trust_for("soma")
+        if trust is not None and trust.mode == "none":
             yield Finding(
                 subject=appliance.name, appliance=appliance.name,
                 message="MAST does not check the TLS certificate of {} "
-                        "(tls_mode none).".format(appliance.name),
-                remediation="Pin its certificate (Admin → Appliances → Pin) "
+                        "(trust none).".format(appliance.name),
+                remediation="Pin its certificate (Admin → Targets → Trust) "
                             "or give a CA bundle that validates it.")
 
 

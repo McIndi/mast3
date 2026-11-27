@@ -75,7 +75,8 @@ __all__ = ["Manifest", "Kind", "Failure", "GROUP", "API", "APIS",
            "BROKEN", "INCOMPATIBLE", "CONFLICT", "INVALID", "MISSING",
            "manifests", "failures", "failure", "distribution", "fail",
            "kinds", "provider_of", "lineage", "capabilities", "accepting",
-           "is_name", "reset"]
+           "base_of", "schema", "endpoints_of", "schema_version", "is_name",
+           "Attribute", "Endpoint", "ATTRIBUTE_TYPES", "PROTOCOLS", "reset"]
 
 # The group of the entry points of the plugins
 GROUP = "mast_plugin"
@@ -103,11 +104,68 @@ INVALID = "invalid"
 MISSING = "missing"
 
 
+# The types of an attribute of a kind (Attribute.type)
+ATTRIBUTE_TYPES = ("str", "text", "int", "port", "bool")
+# The protocols of an endpoint (Endpoint.protocol): TLS, whose
+# certificate is checked, and SSH, whose host key is checked
+PROTOCOLS = ("tls", "ssh")
+
+
+@dataclass(frozen=True)
+class Attribute(object):
+    """
+    _class_: `mast.plugins.Attribute(name, type="str", default=None,
+    help="", choices=(), required=False)`
+
+    One setting of a target of a kind, such as the port of its XML
+    management interface. Core keeps and checks the values
+    (`mast.registry`); the plugin uses them. A secret is never an
+    attribute: it is in a stored credential.
+
+    * `name`: A lower-case name with underscores (`soma_port`).
+    * `type`: One of `ATTRIBUTE_TYPES`: `str` (one line), `text`,
+    `int`, `port` (1 to 65535) or `bool`.
+    * `default`: The value when none is set. None means that the plugin
+    decides (DataPower: the `[global]` of `appliances.conf`).
+    * `help`: What it is, for the help and the web UI.
+    * `choices`: The values that it may have, or `()` for any.
+    * `required`: True if a target cannot be added without it.
+    """
+    name: str
+    type: str = "str"
+    default: object = None
+    help: str = ""
+    choices: tuple = field(default=())
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class Endpoint(object):
+    """
+    _class_: `mast.plugins.Endpoint(name, protocol, port, title="")`
+
+    A port of a target that MAST connects to, at the address of the
+    target. Core keeps how its identity is checked (its trust: a
+    certificate authority, a pinned certificate or host key), shows a
+    new pin before it is saved, and asks for a review of a pin when the
+    address of the target or the port changes.
+
+    * `name`: A lower-case name (`soma`, `ssh`), unique in the kind.
+    * `protocol`: `tls` or `ssh` (see `PROTOCOLS`).
+    * `port`: The attribute of the kind that holds the port.
+    * `title`: Its name for people (`XML management interface`).
+    """
+    name: str
+    protocol: str
+    port: str
+    title: str = ""
+
+
 @dataclass(frozen=True)
 class Kind(object):
     """
     _class_: `mast.plugins.Kind(name, title, extends=None,
-    capabilities=())`
+    capabilities=(), attributes=(), endpoints=(), version=1)`
 
     A kind of target that a plugin gives.
 
@@ -119,16 +177,30 @@ class Kind(object):
     * `capabilities`: What MAST can do with a target of this kind,
     besides what the kind that it extends can. See `COLLECT_CRYPTO` and
     `TEST_CREDENTIALS`.
+    * `attributes`: Its `Attribute`s. An extension has its own and those
+    of the extensions between it and its base kind, never one with the
+    name of an inherited attribute; the base kind's attributes stay
+    with the base kind.
+    * `endpoints`: Its `Endpoint`s, whose ports are its attributes.
+    * `version`: The version of its attributes. A target records the
+    version that its values were checked against.
     """
     name: str
     title: str
     extends: str = None
     capabilities: tuple = field(default=())
+    attributes: tuple = field(default=())
+    endpoints: tuple = field(default=())
+    version: int = 1
 
 
 # The kinds of target of core itself, which no plugin may give: a TCP or
 # TLS port that belongs to no plugin
-CORE_KINDS = (Kind("endpoint", "A TCP or TLS port"),)
+CORE_KINDS = (Kind(
+    "endpoint", "A TCP or TLS port",
+    attributes=(Attribute("port", "port", required=True,
+                          help="The port to connect to."),),
+    endpoints=(Endpoint("tls", "tls", "port", "The TLS port"),)),)
 
 
 @dataclass(frozen=True)
@@ -257,8 +329,57 @@ def _kinds_problem(manifest):
                 is_name(c) for c in kind.capabilities):
             return "the capabilities {!r} of the kind {} are not a tuple " \
                    "of names".format(kind.capabilities, kind.name)
+        problem = _schema_problem(kind)
+        if problem:
+            return problem
     if len(names) != len(set(names)):
         return "it gives one kind twice"
+    return None
+
+
+_ATTRIBUTE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _schema_problem(kind):
+    """What is wrong with the attributes and endpoints of one kind by
+    themselves, or None."""
+    if isinstance(kind.attributes, (str, Attribute)) or not all(
+            isinstance(a, Attribute) for a in kind.attributes):
+        return "the attributes of the kind {} are not a tuple of " \
+               "mast.plugins.Attribute".format(kind.name)
+    if isinstance(kind.endpoints, (str, Endpoint)) or not all(
+            isinstance(e, Endpoint) for e in kind.endpoints):
+        return "the endpoints of the kind {} are not a tuple of " \
+               "mast.plugins.Endpoint".format(kind.name)
+    if not isinstance(kind.version, int) or kind.version < 1:
+        return "the version of the kind {} is not a number from 1".format(
+            kind.name)
+    seen = set()
+    for attribute in kind.attributes:
+        if not isinstance(attribute.name, str) or \
+                not _ATTRIBUTE_NAME.match(attribute.name):
+            return "the attribute {!r} of the kind {} is not a lower-case " \
+                   "name".format(attribute.name, kind.name)
+        if attribute.name in seen:
+            return "the kind {} has the attribute {} twice".format(
+                kind.name, attribute.name)
+        seen.add(attribute.name)
+        if attribute.type not in ATTRIBUTE_TYPES:
+            return "the attribute {} of the kind {} has the type {!r}, " \
+                   "not one of {}".format(attribute.name, kind.name,
+                                          attribute.type,
+                                          ", ".join(ATTRIBUTE_TYPES))
+    names = set()
+    for endpoint in kind.endpoints:
+        if not is_name(endpoint.name) or endpoint.name in names:
+            return "the endpoint {!r} of the kind {} is not a name, or it " \
+                   "has it twice".format(endpoint.name, kind.name)
+        names.add(endpoint.name)
+        if endpoint.protocol not in PROTOCOLS:
+            return "the endpoint {} of the kind {} has the protocol {!r}, " \
+                   "not one of {}".format(endpoint.name, kind.name,
+                                          endpoint.protocol,
+                                          ", ".join(PROTOCOLS))
     return None
 
 
@@ -369,6 +490,58 @@ def _resolve_kinds(found, failed):
                             missing, _named(distribution, name))))
                 changed = True
                 break
+        if changed:
+            continue
+        # The attributes and endpoints across the kinds that an
+        # extension extends
+        known = {kind.name: kind for kind in CORE_KINDS}
+        for manifest, _ in found.values():
+            for kind in manifest.kinds:
+                known[kind.name] = kind
+        for name in sorted(found):
+            manifest, distribution = found[name]
+            for kind in manifest.kinds:
+                problem = _inherited_problem(kind, known)
+                if problem is None:
+                    continue
+                found.pop(name)
+                failed.append(Failure(name, distribution, INVALID, problem,
+                                      _fix(INVALID, distribution, name)))
+                changed = True
+                break
+
+
+def _chain(name, known):
+    """[name, the kind that it extends, ...] up to the base kind."""
+    chain = []
+    while name is not None and name in known and name not in chain:
+        chain.append(name)
+        name = known[name].extends
+    return chain
+
+
+def _inherited_problem(kind, known):
+    """What is wrong with `kind` against the kinds that it extends."""
+    chain = _chain(kind.name, known)
+    inherited = set()
+    for ancestor in chain[1:]:
+        inherited.update(a.name for a in known[ancestor].attributes)
+    for attribute in kind.attributes:
+        if attribute.name in inherited:
+            return "the kind {} redefines the attribute {} of a kind that " \
+                   "it extends".format(kind.name, attribute.name)
+    entry = chain[:-1] if len(chain) > 1 else chain
+    ports = {a.name for k in entry for a in known[k].attributes}
+    endpoints = [e.name for k in entry for e in known[k].endpoints]
+    if len(endpoints) != len(set(endpoints)):
+        return "the kind {} has an endpoint with the name of an endpoint " \
+               "of a kind that it extends".format(kind.name)
+    for endpoint in kind.endpoints:
+        if endpoint.port not in ports:
+            return "the port of the endpoint {} of the kind {} is {!r}, " \
+                   "which is not one of its attributes".format(
+                       endpoint.name, kind.name, endpoint.port)
+    return None
 
 
 _CIRCLE = object()
@@ -551,6 +724,60 @@ def capabilities(kind):
     for name in lineage(kind):
         found.update(known[name].capabilities)
     return frozenset(found)
+
+
+def base_of(kind):
+    """
+    _function_: `mast.plugins.base_of(kind)`
+
+    Return the base kind of the kind `kind` (itself for a base kind), or
+    None for a kind that cannot be used.
+    """
+    chain = lineage(kind)
+    return chain[-1] if chain else None
+
+
+def entry_kinds(kind):
+    """The kinds whose attributes and endpoints an entry of `kind` has:
+    itself for a base kind; for an extension, itself and the extensions
+    between it and its base kind."""
+    chain = lineage(kind)
+    return chain[:-1] if len(chain) > 1 else chain
+
+
+def schema(kind):
+    """
+    _function_: `mast.plugins.schema(kind)`
+
+    Return the `Attribute`s, by name, that a base kind has, or that an
+    extension of a target holds: its own and those of the extensions
+    between it and its base kind.
+    """
+    known = kinds()
+    return {attribute.name: attribute for name in entry_kinds(kind)
+            for attribute in known[name].attributes}
+
+
+def endpoints_of(kind):
+    """
+    _function_: `mast.plugins.endpoints_of(kind)`
+
+    Return the `Endpoint`s, by name, of a base kind or of an extension
+    of a target, as `schema` returns its attributes.
+    """
+    known = kinds()
+    return {endpoint.name: endpoint for name in entry_kinds(kind)
+            for endpoint in known[name].endpoints}
+
+
+def schema_version(kind):
+    """
+    _function_: `mast.plugins.schema_version(kind)`
+
+    Return the version of the attributes of `kind`, or None.
+    """
+    found = kinds().get(kind)
+    return None if found is None else found.version
 
 
 def accepting(targets=(), needs=()):

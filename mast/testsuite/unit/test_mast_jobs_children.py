@@ -42,7 +42,7 @@ class Kid(Work):
 
 
 def make_cli():
-    cli = Cli(provider="kids")
+    cli = Cli(provider="kids", targets=("endpoint",))
 
     @cli.command("parent", exclusive=False, effect="read")
     def parent(params: Kid):
@@ -68,6 +68,8 @@ def make_cli():
 
 
 class ChildrenCase(SqliteCase):
+
+    known_targets = ("dp1", "dp2", "dp3", "dp4")
 
     def setUp(self):
         super().setUp()

@@ -164,7 +164,10 @@ def _check(command, params, principal, name):
         raise ScheduleError(
             "{} talks to appliances: a schedule of it needs a stored "
             "credential (credential).".format(command))
-    targets = queue._targets(cmd.model, model)
+    try:
+        targets = queue._targets(cmd, model)
+    except queue.TargetRefused as exc:
+        raise ScheduleError(str(exc))
     role = principal.role
     as_schedule = Principal(PRINCIPAL_PREFIX + name, role)
     # What the jobs of the schedule would be refused is a problem of the

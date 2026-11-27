@@ -478,7 +478,7 @@ class SessionManager(object):
         username, password = login
         try:
             # With a stored credential, a connection that does not check
-            # the host key is refused (mast.datapower.datapower.tls)
+            # the host key is refused (mast.trust)
             with stored_credential(True) if stored else nullcontext():
                 pane.shell = self.shell_factory(pane.name, username, password)
                 banner = pane.shell.connect(domain,

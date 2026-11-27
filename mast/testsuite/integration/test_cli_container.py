@@ -586,8 +586,8 @@ class TestStoredCredentialCLI(StoredCredentialCase):
 
     def test_a_job_uses_a_stored_credential(self):
         self.program("targets", "add", "-n",
-                     self.APPLIANCE, "-A", "127.0.0.1",
-                     "--soma-port", str(self.proxy.port))
+                     self.APPLIANCE, "-k", "datapower", "-A", "127.0.0.1",
+                     "-s", "soma_port={}".format(self.proxy.port))
         self.addCleanup(self.program, "targets", "remove", "-n",
                         self.APPLIANCE)
         self.credentials("add", "-n", "collector", "-u", self.USER, "-p",
@@ -640,10 +640,11 @@ class TestPinnedCLI(StoredCredentialCase):
 
     def test_pinned_certificate_and_host_key(self):
         ports = self.container.ports
-        self.appliances("add", "-n", self.APPLIANCE, "-A", "127.0.0.1",
-                        "--soma-port", str(ports[SOMA_PORT]),
-                        "--ssh-port", str(ports[SSH_PORT]),
-                        "--web-port", str(ports[WEB_PORT]))
+        self.appliances("add", "-n", self.APPLIANCE, "-k", "datapower",
+                        "-A", "127.0.0.1",
+                        "-s", "soma_port={}".format(ports[SOMA_PORT]),
+                        "-s", "ssh_port={}".format(ports[SSH_PORT]),
+                        "-s", "web_port={}".format(ports[WEB_PORT]))
         self.addCleanup(self.appliances, "remove", "-n", self.APPLIANCE)
         # A credential for changing, of a user that may only read: the
         # SSH check of check-connectivity is a command that changes
@@ -657,48 +658,72 @@ class TestPinnedCLI(StoredCredentialCase):
                            "--credential", "pinned", trust=False, status=1)
         self.assertIn("CERTIFICATE_VERIFY_FAILED", out)
 
-        out = self.appliances("pin", "-n", self.APPLIANCE, "--both", "-y",
-                              trust=False)
+        # Every endpoint: the SOMA certificate and the SSH host key
+        out = self.appliances("pin", "-n", self.APPLIANCE, "-y", trust=False)
         self.assertIn("Subject:", out)
         self.assertIn("Fingerprint: SHA256:", out)
-        self.assertIn("Its TLS check is pin.", out)
-        self.assertRegex(self.appliances("list"),
-                         r"(?m)^{} .* pin +pinned\b(?! CHANGED)".format(self.APPLIANCE))
+        self.assertIn("Pinned soma of {}.".format(self.APPLIANCE), out)
+        self.assertIn("Pinned ssh of {}.".format(self.APPLIANCE), out)
+        self.assertRegex(self.appliances("list"), r"(?m)^{} .* soma:pin "
+                         r"ssh:pin(?! CHANGED)".format(self.APPLIANCE))
 
         # SOMA with the pin, and nothing to trust but the pin
         out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
                            "--credential", "pinned", trust=False)
         self.assertIn("default", out)
         # SSH with the pinned host key
-        out = self.program("datapower", "check-connectivity", "-a", self.APPLIANCE,
-                           "--credential", "pinned", trust=False)
-        self.assertRegex(out, r"(?m)^{} +True +True +True".format(self.APPLIANCE))
+        out = self.program("datapower", "check-connectivity", "-a",
+                           self.APPLIANCE, "--credential", "pinned",
+                           trust=False)
+        self.assertRegex(out, r"(?m)^{} +True +True +True".format(
+            self.APPLIANCE))
 
-        # Another certificate (the proxy's, in front of the same
-        # appliance): the job fails before the password is sent
-        self.appliances("update", "-n", self.APPLIANCE,
-                        "--soma-port", str(self.proxy.port))
+        # Another port: the pin must be reviewed, and nothing is sent
+        out = self.appliances("update", "-n", self.APPLIANCE, "-s",
+                              "soma_port={}".format(self.proxy.port))
+        self.assertIn("REVIEW: the port changed", out)
         out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
-                           "--credential", "pinned", trust=True, status=1)
-        self.assertIn("The certificate of {} changed".format(self.APPLIANCE), out)
+                           "--credential", "pinned", trust=False, status=1)
+        self.assertIn("must be reviewed", out)
+        # Behind it is another certificate (the proxy's): the review
+        # refuses to keep the pin
+        out = self.appliances("review", "-n", self.APPLIANCE, "-e", "soma",
+                              "-y", trust=False, status=1)
+        self.assertIn("This is not the pinned certificate", out)
+        # Back on the port of the appliance, the review keeps it
+        self.appliances("update", "-n", self.APPLIANCE, "-s",
+                        "soma_port={}".format(ports[SOMA_PORT]))
+        out = self.appliances("review", "-n", self.APPLIANCE, "-e", "soma",
+                              "-y", trust=False)
+        self.assertIn("Kept the pin of soma", out)
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
+                           "--credential", "pinned", trust=False)
+        self.assertIn("default", out)
+
+        # A pin that the appliance does not match: the job fails before
+        # the password is sent, and the endpoint is flagged
+        self.appliances("pin", "-n", self.APPLIANCE, "-e", "soma", "-f",
+                        "00" * 32)
+        out = self.program("datapower", "list-domains", "-a", self.APPLIANCE,
+                           "--credential", "pinned", trust=False, status=1)
+        self.assertIn("The certificate of {} changed".format(self.APPLIANCE),
+                      out)
         self.assertIn("pin again", out)
         self.assertRegex(self.appliances("list"),
-                         r"(?m)^{} .* pin CHANGED +pinned\b".format(self.APPLIANCE))
-
-        # The flag stays until an admin pins again
-        self.appliances("update", "-n", self.APPLIANCE,
-                        "--soma-port", str(ports[SOMA_PORT]))
-        self.assertIn("CHANGED", self.appliances("list"))
-        self.appliances("pin", "-n", self.APPLIANCE, "-y", trust=False)
+                         r"(?m)^{} .* soma:pin CHANGED".format(self.APPLIANCE))
+        self.appliances("pin", "-n", self.APPLIANCE, "-e", "soma", "-y",
+                        trust=False)
 
         # Another SSH host key: the login is not tried
-        self.appliances("pin", "-n", self.APPLIANCE, "--ssh", "-f",
+        self.appliances("pin", "-n", self.APPLIANCE, "-e", "ssh", "-f",
                         "SHA256:" + "A" * 43)
-        out = self.program("datapower", "check-connectivity", "-a", self.APPLIANCE,
-                           "--credential", "pinned", trust=False)
-        self.assertRegex(out, r"(?m)^{} +True +True +False".format(self.APPLIANCE))
+        out = self.program("datapower", "check-connectivity", "-a",
+                           self.APPLIANCE, "--credential", "pinned",
+                           trust=False)
+        self.assertRegex(out, r"(?m)^{} +True +True +False".format(
+            self.APPLIANCE))
         self.assertRegex(self.appliances("list"),
-                         r"(?m)^{} .* pin +pinned CHANGED".format(self.APPLIANCE))
+                         r"(?m)^{} .* ssh:pin CHANGED".format(self.APPLIANCE))
         self.leak_check()
 
 

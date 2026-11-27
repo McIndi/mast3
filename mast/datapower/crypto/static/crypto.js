@@ -179,7 +179,7 @@ async function showRunForm(answer) {
     const enabled = answer.schedules.filter((s) => s.enabled);
     const parts = [];
     if (!answer.appliances.length) {
-        parts.push("There are no appliances yet. An admin adds them in Admin → Appliances.");
+        parts.push("There are no appliances yet. An admin adds them in Admin → Targets.");
     } else if (enabled.length) {
         parts.push("The schedule " + enabled.map((s) => s.name + " (" + s.cron + ")").join(", ") +
                    " runs the inventory.");

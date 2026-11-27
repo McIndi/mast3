@@ -21,8 +21,8 @@ The tables of the credential store, in the job database.
 
 * `CredentialRecord`: One stored credential. The user name is in the
 clear; the password is only in `token`, encrypted.
-* `CredentialBinding`: An appliance or an environment that a
-credential may be used for. Exactly one of the two is set.
+* `CredentialBinding`: A target or a fleet that a credential may be
+used for. Exactly one of the two is set.
 * `CredentialUse`: One use of a credential by a job, on one appliance.
 * `AuditEvent`: One change that an admin made. It never has a secret
 in it.
@@ -72,11 +72,11 @@ class CredentialBinding(Base):
     credential_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("credentials.id", ondelete="CASCADE"),
         index=True)
-    appliance_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("appliances.id", ondelete="CASCADE"),
+    target_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("targets.id", ondelete="CASCADE"),
         index=True)
-    environment_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("environments.id", ondelete="CASCADE"),
+    fleet_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("fleets.id", ondelete="CASCADE"),
         index=True)
 
 

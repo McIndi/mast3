@@ -168,6 +168,8 @@ Transport settings such as `soma_port`, `ssh_port` and `web_port` are plugin att
 
 **Done when:** a wrong-kind selection, a mixed-kind fleet, an unregistered plugin target and a changed endpoint are all handled before credentials are sent.
 
+**Status (4a).** Targets and fleets replace appliances and environments (`mast.registry`, migration `4001`): a target has an immutable id, a name, a base kind, extensions with entries, an address, attributes checked against its kind (`mast.plugins.Attribute`), the schema version of its kind and a revision that every change raises. Each endpoint of its kinds (`mast.plugins.Endpoint`) has a trust record; the certificate and host-key checks, the pin preview and the review moved from the DataPower plugin into core (`mast.trust`). A change of the address, or of the port of a pinned endpoint, marks the pin for review, and nothing is sent to it until an admin reviews or replaces it (pins only: a CA check is itself a check of the new address). A fleet has a kind, and its members must be of it. Commands run only on registered targets of a kind that they accept; the queue refuses anything else before a job exists. The DataPower ports default to the standard ports, so that core can preview a pin without DataPower code. Still to do in this step: credential types and their bindings to targets and fleets (4b), and the target ids and revisions recorded with each job and checked again before a credential is decrypted (4c). `mast targets import` and `export` of the 3.x files stay until the 3.x import (step 13).
+
 ### 5. Path-based permission sets and groups
 
 | Capability | Meaning |

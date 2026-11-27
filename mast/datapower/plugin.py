@@ -24,9 +24,39 @@ Until the plugin is its own distribution (mcindi-mast-datapower), it
 has the version of MAST and works only with that version.
 """
 from mast import __version__
-from mast.plugins import COLLECT_CRYPTO, TEST_CREDENTIALS, Kind, Manifest
+from mast.plugins import (
+    COLLECT_CRYPTO, TEST_CREDENTIALS, Attribute, Endpoint, Kind, Manifest)
 
-__all__ = ["manifest"]
+__all__ = ["manifest", "DATAPOWER"]
+
+# A port that is not set is the standard port of DataPower. Another
+# setting that is not set takes the default of [global] in
+# appliances.conf
+DATAPOWER = Kind(
+    "datapower", "IBM DataPower appliance",
+    capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS),
+    attributes=(
+        Attribute("soma_port", "port", default=5550,
+                  help="The port of the XML management interface (SOMA)."),
+        Attribute("web_port", "port", default=9090,
+                  help="The port of the WebGUI."),
+        Attribute("ssh_port", "port", default=22, help="The port of SSH."),
+        Attribute("soma_scheme", choices=("https", "http"),
+                  help="The scheme of SOMA. A stored credential is sent "
+                       "only over https."),
+        Attribute("soma_uri", help="The URI of SOMA."),
+        Attribute("soma_spec_file",
+                  help="The SOMA spec file, relative to MAST_HOME."),
+        Attribute("retry_interval", "int",
+                  help="The seconds between retries of a request."),
+        Attribute("poll", "bool", default=False,
+                  help="Collect the status of the appliance for the "
+                       "Appliances page."),
+    ),
+    endpoints=(
+        Endpoint("soma", "tls", "soma_port", "XML management interface"),
+        Endpoint("ssh", "ssh", "ssh_port", "SSH"),
+    ))
 
 manifest = Manifest(
     provider="datapower",
@@ -35,8 +65,7 @@ manifest = Manifest(
     api=1,
     core="=={}".format(__version__),
     commands="mast.datapower.commands:cli",
-    kinds=(Kind("datapower", "IBM DataPower appliance",
-                capabilities=(COLLECT_CRYPTO, TEST_CREDENTIALS)),),
+    kinds=(DATAPOWER,),
     pages=("mast.datapower.status.page:page",
            "mast.datapower.crypto.page:page",
            "mast.datapower.ssh.page:page"))

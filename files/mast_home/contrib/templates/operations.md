@@ -320,7 +320,7 @@ for the Appliances page: whether they answer, the firmware, the CPU,
 the memory, the load, the free space, the domains and the objects that
 are down. It keeps no configuration. With no `-a`, it polls every
 appliance whose status is collected (`mast targets update -n NAME
---poll yes`, or "Collect status" in Admin → Appliances).
+-s poll=yes`, or the attribute poll in Admin → Targets).
 
     :::bash
     ./mast datapower collect-status --credential collector     # now, once
@@ -446,7 +446,7 @@ posture rules at once, and their findings are kept with it. The
 | `unused-file` | low | A file of `cert:` or `sharedcert:` that no object of the running configuration names. |
 | `not-saved` | low | A domain whose crypto objects differ between the running and the saved configuration. |
 | `disabled-in-use` | medium | A disabled object that an enabled object still refers to. |
-| `mast-tls-none` | high | A registered appliance with `tls_mode none`. |
+| `mast-tls-none` | high | A registered appliance whose endpoint `soma` has the trust `none`. |
 | `mast-collect-can-write` | high | A stored credential for collecting whose user could change the appliances at its last test. |
 | `mast-collect-untested` | low | A stored credential for collecting that was never tested (or whose last test failed): until a test, MAST cannot tell whether its user can change the appliances. |
 | `mast-credential-unused` | low | A stored credential that no job used for 180 days. |
@@ -560,78 +560,107 @@ peers get it?).
 * Old probe results go with the snapshots (`crypto_snapshots_days` in
 `jobs.conf`); the newest result of each port stays.
 
-# Appliances and environments
+# Targets and fleets
 
-The appliances and the environments are in the job database, the
-*appliance registry*. Manage them with `mast targets` on the MAST
-server (it needs no login), or as an admin in the web UI under
-Admin → Appliances. Everybody who can log in can see them; the target
-bar of the Commands page suggests their names.
+The targets (the appliances, hosts and ports that MAST works with) and
+the fleets (named groups of targets) are in the job database, the
+*registry*. Manage them with `mast targets` and `mast fleets` on the
+MAST server (it needs no login), or as an admin in the web UI under
+Admin → Targets. Everybody who can log in can see them; the target bar
+of the Commands page suggests their names.
+
+A target has a **kind**, which a plugin gives (`mast plugins kinds`):
+a DataPower appliance is a `datapower`. The kind says which settings
+(attributes) the target has, and which of its ports MAST connects to
+(endpoints). Its kind never changes. Give the attributes as
+`-s NAME=VALUE`; one that is not given takes its default:
 
     :::bash
-    ./mast targets add -n dp1 -A 10.0.0.1 --soma-port 5551
+    ./mast plugins kinds
+    ./mast targets add -n dp1 -k datapower -A 10.0.0.1 -s soma_port=5551
     ./mast targets update -n dp1 --clear soma_port --rename dp-one
-    ./mast fleets add -n prod -p -m dp-one
+    ./mast targets show -n dp-one
+    ./mast fleets add -n prod -k datapower -p -m dp-one
     ./mast targets list
     ./mast fleets list
 
-A job records the name of each registered appliance that it talks to.
-An address that a registered appliance has counts as that appliance, so
-that two jobs for one appliance wait for each other whatever name they
-used. Every registered appliance also has a flag to collect its
-status (`--poll`), which a later release uses, and a TLS check (see
-below).
+The attributes of a `datapower` target are `soma_port`, `web_port`,
+`ssh_port` (5550, 9090 and 22 when they are not set), `soma_scheme`,
+`soma_uri`, `soma_spec_file`, `retry_interval` (`[global]` of
+`appliances.conf` when they are not set) and `poll`, whether its status
+is collected for the Appliances page.
 
-## Checking who the appliance is
+A target can have **extensions**: kinds that extend its kind, such as
+one that a plugin for an API Connect gateway would add to a DataPower
+appliance. It is then of that kind too, with the extra attributes and
+endpoints of the extension (`mast targets extend`, `set-extension`,
+`unextend`). A fleet holds the targets of one kind: each member is of
+that kind, or has an extension of it.
 
-Before MAST sends a password to an appliance, it checks that it talks
-to that appliance and not to someone in between. Each registered
-appliance has a TLS check for SOMA (`--tls-mode`):
+Commands run only on registered targets and fleets, of a kind that the
+command accepts; anything else is refused before the job is queued. A
+job records the name of each target that it acts on, so that two jobs
+for one target wait for each other.
+
+## Checking who the target is
+
+Before MAST sends a password, it checks that it talks to the target
+and not to someone in between. Each endpoint of a target has a trust
+(`mast targets show`). For a TLS endpoint (`soma`, the XML management
+interface of a DataPower appliance):
 
 * `ca` (the default): the certificate must be signed by an authority
-that MAST trusts and be for the address of the appliance. That is the
-trust store of the system, or the authorities of
-`--ca-bundle-file FILE` (a PEM file).
+that MAST trusts and be for the address of the target. That is the
+trust store of the system, or the authorities of a PEM file
+(`mast targets trust -n NAME -e soma --ca-bundle-file FILE`).
 * `pin`: the certificate must be the one that was pinned. This is for
 the self-signed certificates that DataPower appliances often have.
 * `none`: nothing is checked. Stored credentials are never sent this
-way.
+way (`mast targets trust -n NAME -e soma -m none`).
 
-Pin an appliance with one command. MAST connects without a credential,
-shows the certificate (subject, issuer, validity, SHA-256) and the SSH
-host key (type, fingerprint), and asks before it pins them:
+Pin the endpoints of a target with one command. MAST connects without
+a credential, shows each certificate (subject, issuer, validity,
+SHA-256) and SSH host key (type, fingerprint), and asks before it pins
+it:
 
     :::bash
-    ./mast targets pin -n dp1 --both
-    ./mast targets pin -n dp1 -f 3E:6E:D2:...   # a SHA-256 you checked
-    ./mast targets pin -n dp1 --ssh -f SHA256:IhWD...
-    ./mast targets unpin -n dp1 --both
+    ./mast targets pin -n dp1                    # every endpoint
+    ./mast targets pin -n dp1 -e soma -f 3E:6E:D2:...  # a SHA-256 you checked
+    ./mast targets pin -n dp1 -e ssh -f SHA256:IhWD...
+    ./mast targets unpin -n dp1 -e ssh
 
-Compare what it shows with the appliance itself (its console, or a
+Compare what it shows with the target itself (its console, or a
 colleague who can see it) before you confirm. With `-f` it pins the
 fingerprint that you give and does not connect. In the web UI, the
-**Pin** button of Admin → Appliances does the same.
+**Trust** button of Admin → Targets does the same.
 
-An appliance that shows another certificate or host key than the
+An endpoint that shows another certificate or host key than the
 pinned one gets nothing: the job fails with "The certificate of NAME
 changed (expected ..., got ...). An admin must check it and pin
 again.", before any request is sent. `mast targets list` and
-Admin → Appliances mark it CHANGED until an admin pins it again.
+Admin → Targets mark it CHANGED until an admin pins it again.
+
+When the address of a target or the port of a pinned endpoint changes,
+the pin is no longer known to be right: the endpoint is marked REVIEW,
+and MAST does not connect to it at all until an admin reviews it.
+`mast targets review -n NAME -e ENDPOINT` connects, shows what the
+endpoint has now and keeps the pin if it is the pinned one; otherwise
+check the new one and pin it.
 
 `--no-check-hostname` (`-n`) turns off every check of the certificate,
-not only of its name, for an appliance that is not pinned. A pinned
+not only of its name, for an endpoint that is not pinned. A pinned
 certificate is checked anyway.
 
-The SSH host key: a registered appliance with a pinned host key
-accepts only that key, before the login. Without a pin, MAST accepts
-any host key with a warning (or none, with `auto_add_keys = false` in
-`ssh.conf`), and never with a stored credential.
+The SSH host key: an SSH endpoint with a pinned host key accepts only
+that key, before the login. Without a pin, MAST accepts any host key
+with a warning (or none, with `auto_add_keys = false` in `ssh.conf`),
+and never with a stored credential.
 
 `mast targets import` moves `hosts.conf`, `environments.conf` and
 the sections of `appliances.conf` for single appliances of MAST 3.15.2
-into the registry once; `mast targets export` writes them back for a
-return to an older MAST. Back up the database (see "Backups") to keep
-the registry.
+into the registry once, as targets and fleets of the kind `datapower`;
+`mast targets export` writes them back for a return to an older MAST.
+Back up the database (see "Backups") to keep the registry.
 
 # Stored credentials
 
@@ -791,8 +820,8 @@ target bar, side by side (see "The Terminal page").
 change a role, disable, enable, set a new temporary password, and
 delete. An admin cannot change their own role, disable or delete
 themselves there; `mast users` can.
-* **Admin → Appliances** (admin): the appliances and the environments
-(see "Appliances and environments"), and the **Pin** button, which
+* **Admin → Targets** (admin): the targets and the fleets (see
+"Targets and fleets"), and the **Trust** button, which
 shows the certificate and the SSH host key of an appliance before it
 pins them.
 * **Admin → Credentials** (admin): the stored credentials, their test,
@@ -807,7 +836,7 @@ the same login and the CSRF token, so it is not yet meant for scripts.
 
 1. Log in. Until there is a user, the page says how to add the first
 admin on the MAST server.
-2. As an admin, add or import the appliances (Admin → Appliances), pin
+2. As an admin, add or import the appliances (Admin → Targets), pin
 each one, turn on "Collect status", and store a credential for
 collecting (Admin → Credentials). Test it there. Then start the polling
 on the **Appliances** page, which shows the status of each appliance
@@ -842,7 +871,7 @@ pane has **Download transcript** and, when it lost its connection,
 admins only; a viewer does not see the page. An operator types a user
 name and a password in the target bar. An admin may also choose a
 stored credential of purpose `change`, bound to every appliance and
-only on appliances whose SSH host key is pinned (Admin → Appliances).
+only on appliances whose SSH host key is pinned (Admin → Targets).
 * **Each session is a job** (`ssh.terminal`) that the web server runs
 itself: the Jobs page shows each line (`> line`) and each answer, and
 the whole transcript when the session ends. **Cancel** there closes the
