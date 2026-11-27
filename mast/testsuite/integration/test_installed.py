@@ -53,7 +53,7 @@ from mast.testsuite.integration.homes import TEST_HOME, copy_home
 # The roots of the mast command that have their own help
 ROOTS = ("datapower", "crypto", "targets", "fleets", "credentials", "jobs",
          "schedules", "users", "permissions", "groups", "plugins", "worker",
-         "selftest")
+         "selftest", "login", "logout", "whoami")
 
 CREDENTIALS = "admin:admin"
 # Long enough that a cancel is noticed (within cancel_poll_seconds, one

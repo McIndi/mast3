@@ -19,19 +19,21 @@ _module_: `mast.auth.models`
 
 The table of the local users, in the job database.
 
-* `User`: One person who can log in to the web UI.
+* `User`: One person who can log in, or a service account (`kind`
+`service`) that uses only tokens.
+* `ApiToken`: A token of a user for the command line or the API.
 
 A change to this table needs a migration in
 `mast/jobs/migrations/versions`, as for the tables of the job queue.
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, Integer, String
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mast.jobs.models import Base, UTCDateTime
 
-__all__ = ["User"]
+__all__ = ["User", "ApiToken"]
 
 
 class User(Base):
@@ -44,6 +46,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     # "viewer", "operator" or "admin", see mast.auth.roles
     role: Mapped[str] = mapped_column(String(16))
+    # "person", or "service": an account for scripts and services, which
+    # has no password and uses only tokens (mast.auth.tokens)
+    kind: Mapped[str] = mapped_column(String(16))
     disabled: Mapped[bool] = mapped_column(Boolean)
     # The user must choose a new password before anything else
     must_change: Mapped[bool] = mapped_column(Boolean)
@@ -54,3 +59,21 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class ApiToken(Base):
+    __tablename__ = "api_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # What it is for: "mast login on host", "nightly backups"
+    name: Mapped[str] = mapped_column(String(200))
+    # The SHA-256 of the secret part of the token (hex); the token
+    # itself is never stored
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    created_by: Mapped[str] = mapped_column(String(200))
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)

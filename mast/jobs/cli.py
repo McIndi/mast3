@@ -43,7 +43,7 @@ from typing import Literal
 from mast.cli import Cli, Option, Params, Table, Text
 from mast.roots import CORE
 from mast.jobs import client, db, queue, retention, schedules
-from mast.jobs.auth import Forbidden
+from mast.jobs.auth import Forbidden, cli_principal
 from mast.jobs.models import (
     CANCELLED, FAILED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 
@@ -63,7 +63,7 @@ def _when(time):
 
 def _job(prefix):
     try:
-        return queue.find(prefix)
+        return queue.find(prefix, principal=cli_principal())
     except queue.JobNotFound as exc:
         print("There is no job {}".format(exc), file=sys.stderr)
         sys.exit(1)
@@ -86,7 +86,8 @@ class List(Params):
 @jobs_cli.command("list", effect="read", id="list-jobs")
 def list_jobs(params: List):
     """List the newest jobs, newest first."""
-    jobs = queue.list_jobs(status=params.status or None, limit=params.limit)
+    jobs = queue.list_jobs(status=params.status or None, limit=params.limit,
+                           principal=cli_principal())
     return Table(
         ("Job", "Status", "Command", "Submitted", "By", "Appliances"),
         [(job.id, job.status, job.command, _when(job.created_at),
@@ -104,7 +105,7 @@ class Show(JobParams):
 def show(params: Show):
     """Show one job: what it is, its progress and its result."""
     job_id = _job(params.job)
-    info = queue.get(job_id)
+    info = queue.get(job_id, principal=cli_principal())
     lines = [
         "Job:        {}".format(info.id),
         "Command:    {}".format(info.command),
@@ -126,12 +127,12 @@ def show(params: Show):
             value = "(secret)"
         lines.append("  {}: {}".format(name, value))
     lines += ["", "Events:"]
-    for event in queue.events(job_id):
+    for event in queue.events(job_id, principal=cli_principal()):
         lines.append("  {}  {}".format(
             _when(event.created_at),
             event.message if event.kind == "say"
             else "[{}]".format(event.message)))
-    result = queue.result(job_id)
+    result = queue.result(job_id, principal=cli_principal())
     if result is not None and result.text:
         lines += ["", "Result:", result.text]
     if params.history and result is not None and result.history:
@@ -144,7 +145,7 @@ def follow(params: JobParams):
     """Show a job until it ends: its progress, then its result.
 
     Press Ctrl-C to cancel the job. Press it again to stop waiting."""
-    status = client.follow(_job(params.job))
+    status = client.follow(_job(params.job), principal=cli_principal())
     if status:
         sys.exit(status)
 
@@ -155,7 +156,7 @@ def cancel(params: JobParams):
 
     A job that waits is cancelled now. A job that runs stops at its
     next step, and what it did before that is not undone."""
-    info = queue.cancel(_job(params.job))
+    info = queue.cancel(_job(params.job), principal=cli_principal())
     if info.finished:
         return Text("The job {} is {}.".format(info.id, info.status))
     return Text("Asked to cancel the job {}. It stops at its next "
@@ -165,7 +166,7 @@ def cancel(params: JobParams):
 @jobs_cli.command("workers", effect="read", id="list-workers")
 def workers(params: Params):
     """List the workers that are alive."""
-    found = queue.workers()
+    found = queue.workers(principal=cli_principal())
     if not found:
         return Text("No worker is running. Start one with mast worker. "
                     "Without a worker, each command does its own job.")
@@ -216,6 +217,7 @@ def downgrade_db(params: DowngradeDb):
 
 
 def _schedule_do(change, *args, **kwargs):
+    kwargs.setdefault("principal", cli_principal())
     try:
         return change(*args, **kwargs)
     except (schedules.ScheduleError, Forbidden) as exc:
@@ -326,7 +328,8 @@ def schedule_update(params: ScheduleUpdate):
     a schedule."""
     new = None
     if params.params is not None or params.set:
-        base = schedules.get(params.name).params if params.params is None else {}
+        base = schedules.get(params.name,
+                             principal=cli_principal()).params if params.params is None else {}
         new = dict(base, **_parse_params(params.params, params.set))
     info = _schedule_do(schedules.update, params.name, cron_text=params.cron,
                         params=new, description=params.description)
@@ -365,7 +368,7 @@ def schedule_remove(params: ScheduleRemove):
 @schedules_cli.command("list", effect="read", id="list-schedules")
 def schedule_list(params: Params):
     """List the schedules."""
-    found = schedules.list_schedules()
+    found = schedules.list_schedules(principal=cli_principal())
     if not found:
         return Text("There are no schedules. Add one with mast schedules "
                     "add, or in the web UI under Admin -> Schedules.")

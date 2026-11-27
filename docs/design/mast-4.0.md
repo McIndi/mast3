@@ -250,6 +250,8 @@ For a credential, `r` shows its metadata, `w` manages the record, and `x` permit
 
 **Done when:** neither direct calls nor generic dispatch can get around authorization, and the revocation tests pass for queued and running jobs.
 
+**Status (6a).** Service accounts (`users.kind`) and tokens (`mast.auth.tokens`, migration `4005`): a token is `mast_<id>_<secret>`, only the SHA-256 of the secret is stored, and it works until it expires or is revoked, while its user exists and is enabled. The command line acts for the user of `MAST_TOKEN`, else `MAST_TOKEN_FILE`, else the token of `mast login` (kept in the account of the person, for each home, expiring after `[auth] max_hours`). `mast --as NAME` sets `MAST_TOKEN_FILE` to the token file of a service account (`etc/local/tokens/NAME.token`, mode 0600), which `mast users add-service` writes: the answer to Q5 for cron, `contrib` scripts and the Windows service, which run as the owner of the home. A token that does not work is an error, never a fallback. The API takes `Authorization: Bearer`, without a CSRF token. Without a token, the command line is still the OS account as an admin; 6b removes that, with the roles, and adds the setup of the first admin.
+
 ### 7. Schema lifecycles
 
 4.0 starts with fresh migration baselines. Core owns its tables, and each plugin owns its tables. Each has its own Alembic migration context and version table:
@@ -407,7 +409,7 @@ The `flush-*` pairs are separate implementations of the same SOMA action (for ex
 
 **Q4 (decided: `datapower.collect-crypto`).** The DataPower collection command. Linux has `linux.collect-crypto`. The plan does not name the DataPower command that replaces `crypto.inventory-appliance`. `datapower.collect-crypto`, for symmetry?
 
-**Q5. Unattended local use.** Today every CLI call is an admin: `os_principal()` in `mast/jobs/auth.py`, and `principal_of` treats `os:` and `local` as admin. With `mast login`, cron entries, `contrib` scripts and the Windows service each need a token or a service account. Steps 6 and 12 should say how unattended local use works.
+**Q5 (decided: service accounts, step 6a).** Unattended local use. Decision: cron, `contrib` scripts and the Windows service run as the owner of the home, and use a service account whose token file only that owner can read: `mast --as NAME`, with nothing else to set up. A script elsewhere gets the token once and passes it in `MAST_TOKEN` or on the API. Before: today every CLI call is an admin: `os_principal()` in `mast/jobs/auth.py`, and `principal_of` treats `os:` and `local` as admin. With `mast login`, cron entries, `contrib` scripts and the Windows service each need a token or a service account. Steps 6 and 12 should say how unattended local use works.
 
 **Q6. The import source revision.** The current 3.x head is `0011`. 3.x work in progress on `version_3` (the next crypto step) plans a migration `0012`. If that ships in 3.x, step 13 must support it.
 

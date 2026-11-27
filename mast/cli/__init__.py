@@ -629,7 +629,7 @@ class Cli(object):
         `mast.jobs.client`."""
         # Imported here, because mast.jobs imports this module
         from mast.jobs import client, registry
-        from mast.jobs.auth import Forbidden
+        from mast.jobs.auth import Forbidden, cli_principal
         from mast.jobs.queue import TargetRefused
         # A Cli that MAST does not know (in a test, or a script) is
         # made known, so that a worker in this process finds it
@@ -638,7 +638,8 @@ class Cli(object):
         log.info(f"Attempting to queue the command: {command_id}")
         try:
             status = client.run(
-                command_id, values, detach=args._detach, local=args._local)
+                command_id, values, detach=args._detach, local=args._local,
+                principal=cli_principal())
         except (Forbidden, TargetRefused) as exc:
             # For example a stored credential that may not be used here,
             # or a target that is not registered. Nothing was queued.

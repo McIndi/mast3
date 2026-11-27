@@ -47,7 +47,7 @@ __all__ = [
     "LoginFailed", "add", "set_password", "change_password", "set_role",
     "disable", "enable", "delete", "get", "get_by_id", "list_users",
     "any_users", "authenticate", "new_epoch", "MAX_FAILURES",
-    "LOCK_MINUTES",
+    "LOCK_MINUTES", "add_service", "PERSON", "SERVICE",
 ]
 
 MAX_FAILURES = 5
@@ -82,7 +82,8 @@ class LoginFailed(Exception):
     A login failed. The message is the same for every reason, so that
     it does not tell whether the user exists. `reason` says why, for
     the log only: `"unknown"`, `"password"`, `"disabled"`, `"locked"`
-    or `"locked-now"` (this failure locked the user).
+    or `"locked-now"` (this failure locked the user), or `"service"`
+    (a service account, which has no password).
     """
     MESSAGE = "The user name or the password is not correct."
 
@@ -102,6 +103,7 @@ class UserInfo(BaseModel):
     id: int
     name: str
     role: str
+    kind: str = "person"
     disabled: bool
     must_change: bool
     session_epoch: int
@@ -109,6 +111,11 @@ class UserInfo(BaseModel):
     locked_until: datetime | None
     created_at: datetime
     last_login_at: datetime | None
+
+
+# The kinds of user
+PERSON = "person"
+SERVICE = "service"
 
 
 def _now():
@@ -169,9 +176,38 @@ def add(name, password, role):
         if session.scalars(select(User.id).where(User.name == name)).first():
             raise UserExists(name)
         user = User(
-            name=name, password_hash=hashed, role=role, disabled=False,
-            must_change=True, session_epoch=1, failed_logins=0,
-            locked_until=None, created_at=_now(), last_login_at=None)
+            name=name, password_hash=hashed, role=role, kind=PERSON,
+            disabled=False, must_change=True, session_epoch=1,
+            failed_logins=0, locked_until=None, created_at=_now(),
+            last_login_at=None)
+        session.add(user)
+        session.flush()
+        found = UserInfo.model_validate(user)
+    _sync_groups(name, role)
+    return found
+
+
+def add_service(name, role):
+    """
+    _function_: `mast.auth.users.add_service(name, role)`
+
+    Add a service account and return its `UserInfo`: an identity for
+    cron jobs, scripts and services. It has no password, cannot log in
+    to the web UI, and uses only tokens (`mast.auth.tokens`).
+    """
+    import secrets as _secrets
+    name = normalize(name)
+    _check_role(role)
+    # A hash of a password that nobody knows: no password works
+    hashed = passwords.hash_password(_secrets.token_urlsafe(48))
+    with db.session() as session:
+        if session.scalars(select(User.id).where(User.name == name)).first():
+            raise UserExists(name)
+        user = User(
+            name=name, password_hash=hashed, role=role, kind=SERVICE,
+            disabled=False, must_change=False, session_epoch=1,
+            failed_logins=0, locked_until=None, created_at=_now(),
+            last_login_at=None)
         session.add(user)
         session.flush()
         found = UserInfo.model_validate(user)
@@ -392,6 +428,8 @@ def authenticate(name, password, now=None):
         good = passwords.verify_password(password, user.password_hash)
         if user.disabled:
             raise LoginFailed("disabled")
+        if user.kind == SERVICE:
+            raise LoginFailed("service")
         if user.locked_until is not None and user.locked_until > now:
             raise LoginFailed("locked")
         if not good:

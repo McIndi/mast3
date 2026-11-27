@@ -181,10 +181,11 @@ class _Recorder(object):
         from mast import jobs, registry
         from mast.credentials import store
         from mast.jobs import config as jobs_config
-        from mast.jobs.auth import LOCAL
+        from mast.jobs.auth import cli_principal
         from mast.jobs.runner import new_worker_id
+        who = cli_principal()
         names = [a.name for a in registry.resolve(appliances)]
-        found = store.check_use(credential, names, LOCAL,
+        found = store.check_use(credential, names, who,
                                 command="datapower.terminal", effect="change")
         if found.purpose != store.CHANGE:
             raise store.Forbidden(
@@ -196,19 +197,19 @@ class _Recorder(object):
             raise store.Forbidden(
                 "A stored credential is never sent over SSH to an appliance "
                 "whose host key is not pinned: {}. Pin it with "
-                "mast targets pin -n NAME --ssh.".format(", ".join(unpinned)))
+                "mast targets pin -n NAME -e ssh.".format(", ".join(unpinned)))
         self.jobs = jobs
         self.worker_id = new_worker_id()
         self.job_id = jobs.submit(
             "datapower.terminal", {"appliances": names, "credential": credential},
-            principal=LOCAL, reserved_for=self.worker_id, passive=True)
+            principal=who, reserved_for=self.worker_id, passive=True)
         jobs.claim(self.worker_id, job_id=self.job_id)
         self.names = names
         self.passwords = []
         self.credentials = []
         for name in names:
             username, password = store._open(credential, name, self.job_id,
-                                             LOCAL.name)
+                                             who.name)
             self.passwords.append(password)
             self.credentials.append("{}:{}".format(username, password))
         self._stop = threading.Event()

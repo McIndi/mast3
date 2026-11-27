@@ -85,6 +85,15 @@ ROOTS = {
     "plugins": Root(
         "mast.plugins_cli:cli",
         "The installed plugins."),
+    "login": Root(
+        "mast.auth.session:login",
+        "Log in on the command line, as a user of MAST.", program=True),
+    "logout": Root(
+        "mast.auth.session:logout",
+        "Log out on the command line.", program=True),
+    "whoami": Root(
+        "mast.auth.session:whoami",
+        "Show who the command line acts for.", program=True),
     "web": Root(
         "mast.web.server:program",
         "Start the web server.", program=True),
