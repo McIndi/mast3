@@ -1154,8 +1154,10 @@ def resolve(names):
                     .where(func.lower(TargetRecord.address)
                            == name.strip("[]").lower())
                     .order_by(TargetRecord.name)).all()
-                if same:
-                    hint = " The target {} has this address.".format(
+                if len(same) == 1:
+                    hint = " The target {} has this address.".format(same[0])
+                elif same:
+                    hint = " The targets {} have this address.".format(
                         " and ".join(same))
                 else:
                     hint = (" Register it first: mast targets add -n NAME "

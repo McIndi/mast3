@@ -252,6 +252,8 @@ class TestRegistry(SqliteCase):
     def test_resolve(self):
         registry.add("dp1", "datapower", "10.0.0.1")
         registry.add("dp2", "datapower", "10.0.0.2")
+        registry.add("dp3", "datapower", "10.0.0.9")
+        registry.add("dp4", "datapower", "10.0.0.9")
         registry.fleet_add("lab", "datapower", members=["dp2", "dp1"])
         found = registry.resolve(["lab", "dp1", "", "dp2"])
         self.assertEqual([a.name for a in found], ["dp2", "dp1"])
@@ -259,6 +261,8 @@ class TestRegistry(SqliteCase):
         # Only registered targets
         for name, hint in (("other.example.com", "Register it first"),
                            ("10.0.0.1", "The target dp1 has this address"),
+                           ("10.0.0.9", "The targets dp3 and dp4 have this "
+                                        "address"),
                            ("not a host!", "")):
             with self.subTest(name=name):
                 with self.assertRaises(registry.UnknownName) as caught:
