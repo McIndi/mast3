@@ -163,18 +163,7 @@ class Command(object):
                  locks=None, queued=True, passive=False, internal=False,
                  group=None, provider=None, id_name=None, interactive=False,
                  effect=None, targets=()):
-        if passive and exclusive:
-            raise ValueError(
-                "{}: a passive command shares its targets "
-                "(exclusive=False)".format(name))
-        if effect is not None and effect not in EFFECTS:
-            raise ValueError("{}: the effect is one of {}, not {!r}".format(
-                name, ", ".join(EFFECTS), effect))
-        if isinstance(targets, str) or not all(
-                isinstance(kind, str) and kind for kind in targets):
-            raise ValueError(
-                "{}: targets is a tuple of kinds of target, not {!r}".format(
-                    name, targets))
+        _check_declarations(name, exclusive, passive, effect, targets)
         self.name = name
         self.key = fn.__name__
         self.category = category
@@ -249,6 +238,23 @@ class Command(object):
     def doc(self):
         """The help for the command, as markdown."""
         return _params.describe(self.model, self.fn.__doc__)
+
+
+def _check_declarations(name, exclusive, passive, effect, targets):
+    """Raise `ValueError` for declarations of a command that can never
+    be right."""
+    if passive and exclusive:
+        raise ValueError(
+            "{}: a passive command shares its targets "
+            "(exclusive=False)".format(name))
+    if effect is not None and effect not in EFFECTS:
+        raise ValueError("{}: the effect is one of {}, not {!r}".format(
+            name, ", ".join(EFFECTS), effect))
+    if isinstance(targets, str) or not all(
+            isinstance(kind, str) and kind for kind in targets):
+        raise ValueError(
+            "{}: targets is a tuple of kinds of target, not {!r}".format(
+                name, targets))
 
 
 def _accept_keywords(fn, model):
@@ -447,6 +453,8 @@ class Cli(object):
             targets = self.targets
         if name in self.commands:
             raise ValueError("the command {} is already defined".format(name))
+        # Before the parser is made: a refused command leaves nothing
+        _check_declarations(name, exclusive, passive, effect, targets)
         if id is not None and self.provider is None:
             raise ValueError("{}: only a Cli with a provider gives ids".format(
                 name))
