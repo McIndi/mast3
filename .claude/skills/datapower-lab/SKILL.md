@@ -27,10 +27,11 @@ Only the person running the lab can accept that license. If you are an agent, ne
 1. `.claude/skills/datapower-lab/scripts/lab.sh build --accept-datapower-license`: makes the development home (`mast-setup --development-mode`, so it runs whatever is checked out), creates and starts `mast-lab-dp1` (11.0.0.3) and `mast-lab-dp2` (10.6.4.0) on loopback-only ports, waits until each XML management port answers (up to 5 minutes), then:
    - registers them (`mast targets add -k datapower`) and pins their certificates (`mast targets pin --yes`),
    - makes the fleet `lab` (`mast fleets add -k datapower`),
+   - makes the first admin, the service account `labops` (`mast users add-first-admin --service`), in the group `datapower-operator` too: run MAST as it with `./mast --as labops ...` in the home,
    - stores two credentials: `lab-admin` (may change the appliances) and `lab-read` (a DataPower user that may only read), and tests `lab-read`.
 
    `build` can run again: it skips each registration step that an earlier run finished. Options can come before or after the command.
-2. `lab.sh up --accept-datapower-license` starts the appliances and mastd (web UI on http://127.0.0.1:5088). Add a web user with `mast users`: it reads the password interactively, so a person runs it.
+2. `lab.sh up --accept-datapower-license` starts the appliances and mastd (web UI on http://127.0.0.1:5088). For the web UI, a person adds a user: `./mast --as labops users add -u NAME -g viewer -g operator -g admin -g datapower-operator` (it reads the password interactively).
 3. `lab.sh status`, `lab.sh down` (nothing is lost), `lab.sh destroy` (removes the containers and the home).
 
 If an appliance does not answer, `lab.sh` stops and names the `podman logs` command to run.
@@ -39,8 +40,8 @@ If an appliance does not answer, `lab.sh` stops and names the `podman logs` comm
 
 From the lab home:
 
-- `./mast crypto inventory -a lab --credential lab-read`
-- `./mast crypto probe -a lab` (needs no credential)
+- `./mast --as labops crypto inventory -a lab --credential lab-read`
+- `./mast --as labops crypto probe -a lab` (needs no credential)
 
 The appliances start with only their default crypto objects. There is no 4.0 script yet that loads test crypto objects (weak, expiring and expired certificates, legacy TLS profiles). If a test needs them, write it as a step after `build` in `lab.sh`, not as a separate script.
 
@@ -55,6 +56,7 @@ Other tags worth testing when a change touches the management API: 10.6.6.0 (fir
 
 ## Gotchas
 
+- The command line acts for a user of MAST: without `--as labops` (or `mast login`), a command says "MAST does not know who you are".
 - `mast users` reads the password with getpass, so it cannot be piped. MAST refuses a password under 12 characters or equal to the user name.
 - CPU status is empty until Statistics is enabled in the default domain.
 - Status polling only happens once an admin sets up the `status-poll` schedule with a stored credential.

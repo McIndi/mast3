@@ -24,6 +24,9 @@
 #                    start the appliances and mastd (web, worker, cron)
 #   lab.sh down      stop mastd and the appliances (nothing is lost)
 #   lab.sh status    show what runs
+#
+# MAST runs as the service account labops (mast --as labops), the first
+# admin of the home, in the groups admin and datapower-operator.
 #   lab.sh destroy   remove the containers and the home
 #
 # Options may come before or after the command. build can run again:
@@ -77,6 +80,11 @@ REPO="${MAST_REPO:-$(cd "$SCRIPTS/../../../.." && pwd)}"
 HOME_DIR="${MAST_LAB_HOME:-$HOME/mast-lab/home}"
 MARKER="$HOME_DIR/.mast-lab"
 MAST="$HOME_DIR/mast"
+# The command line acts for a user of MAST: the lab's service account
+# labops, its first admin, which build makes (its token file is in
+# etc/local/tokens of the home)
+LAB_USER=labops
+lab_mast() { "$MAST" --as "$LAB_USER" "$@"; }
 WEB_PORT=5088
 
 # Refuse a folder that is not a lab home, so build cannot write into
@@ -177,42 +185,46 @@ case "$COMMAND" in
       printf '[server]\nport = %s\nsecure = false\n' "$WEB_PORT" \
         > "$HOME_DIR/etc/local/server.conf"
     fi
-    appliances_up
     # Each step below is skipped when an earlier build did it
+    if [ ! -f "$HOME_DIR/etc/local/tokens/$LAB_USER.token" ]; then
+      "$MAST" users add-first-admin -u "$LAB_USER" --service
+      lab_mast groups add-member -n datapower-operator -u "$LAB_USER"
+    fi
+    appliances_up
     for line in "${APPLIANCES[@]}"; do
       read -r name image soma web ssh <<<"$line"
-      if ! "$MAST" targets show -n "$name" >/dev/null 2>&1; then
-        "$MAST" targets add -n "$name" -k datapower -A 127.0.0.1 \
+      if ! lab_mast targets show -n "$name" >/dev/null 2>&1; then
+        lab_mast targets add -n "$name" -k datapower -A 127.0.0.1 \
           -s "soma_port=$soma" -s "web_port=$web" -s "ssh_port=$ssh" \
           --notes "lab: $image"
         # The containers have self-signed certificates: pin every
         # endpoint
-        "$MAST" targets pin -n "$name" --yes
+        lab_mast targets pin -n "$name" --yes
       fi
     done
-    if ! "$MAST" fleets list | grep -qE '(^|[[:space:]|])lab([[:space:]|]|$)'
+    if ! lab_mast fleets list | grep -qE '(^|[[:space:]|])lab([[:space:]|]|$)'
     then
-      "$MAST" fleets add -n lab -k datapower -m dp1 -m dp2
+      lab_mast fleets add -n lab -k datapower -m dp1 -m dp2
     fi
     # A credential that may change the appliances (the limited images
     # start with admin/admin)
-    if ! "$MAST" credentials show -n lab-admin >/dev/null 2>&1; then
-      echo admin | "$MAST" credentials add -n lab-admin -u admin \
+    if ! lab_mast credentials show -n lab-admin >/dev/null 2>&1; then
+      echo admin | lab_mast credentials add -n lab-admin -u admin \
         -p change -b lab --password-stdin -d "admin of the lab appliances"
     fi
     # A DataPower user that may only read, and a credential for it
-    if ! "$MAST" credentials show -n lab-read >/dev/null 2>&1; then
-      "$MAST" datapower add-group -a lab --credential lab-admin \
+    if ! lab_mast credentials show -n lab-read >/dev/null 2>&1; then
+      lab_mast datapower add-group -a lab --credential lab-admin \
         -N readers -A '*/*/*?Access=r' -s
-      "$MAST" datapower add-user -a lab --credential lab-admin \
+      lab_mast datapower add-user -a lab --credential lab-admin \
         -u reader -p 'LabReader-2026x' -g readers \
         --supress-force-password-change -s
-      echo 'LabReader-2026x' | "$MAST" credentials add -n lab-read \
+      echo 'LabReader-2026x' | lab_mast credentials add -n lab-read \
         -u reader -p collect -b lab --password-stdin \
         -d "a DataPower user that may only read"
     fi
-    "$MAST" credentials test -n lab-read -a dp1
-    echo "Next: lab.sh up, then add a web user (mast users)."
+    lab_mast credentials test -n lab-read -a dp1
+    echo "Next: lab.sh up. Run MAST as $LAB_USER with: $MAST --as $LAB_USER ..."
     ;;
   up)
     appliances_up
@@ -241,5 +253,5 @@ case "$COMMAND" in
     rm -rf "$HOME_DIR"
     ;;
   *)
-    sed -n '18,36p' "$0"; exit 2 ;;
+    sed -n '18,39p' "$0"; exit 2 ;;
 esac
