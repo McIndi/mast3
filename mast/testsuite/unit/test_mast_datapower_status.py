@@ -36,7 +36,7 @@ from mast.datapower.status.models import (
     DAY, HOUR, StatusLatest, StatusRollup, StatusSample)
 from mast.jobs import db, retention, schedules
 from mast.jobs.models import PARTIAL, Schedule
-from mast.testsuite.unit.test_mast_credentials import ADMIN
+from mast.testsuite.unit.test_mast_credentials import ADMIN, role_users
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import WebCase
 
@@ -423,6 +423,7 @@ class TestAppliancesPage(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         self.key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
                              return_value=self.key_file)

@@ -32,23 +32,39 @@ read: the simple way for cron jobs, scripts and services.
 account of the person (`~/.config/mast/tokens`).
 
 A token that is given but does not work is an error, never a reason to
-act as someone else. Without any token, the command line still acts
-for the account of the operating system as an admin, as in MAST 3.x;
-a later step of 4.0 removes that.
+act as someone else. Without a token, the command line acts for nobody:
+what needs an identity is refused (`NoIdentity`), with what to do.
+`mast users add-first-admin` makes the first admin of a home without
+one.
 """
 import hashlib
 import os
 import sys
 
-from mast.jobs.auth import Principal, os_principal
+from mast.jobs.auth import Principal
 
-__all__ = ["IdentityError", "cli_principal", "current_token",
+__all__ = ["IdentityError", "NoIdentity", "cli_principal", "current_token",
            "login_file", "service_token_file", "write_token", "reset"]
 
 
 class IdentityError(Exception):
     """A token was given and does not work. The message says why and
     what to do."""
+
+
+class NoIdentity(IdentityError):
+    """There is no token: the command line acts for nobody."""
+
+    def __init__(self):
+        super().__init__(
+            "MAST does not know who you are. Log in with mast login -u NAME, "
+            "or run as a service account with mast --as NAME. In a new home, "
+            "make the first admin with mast users add-first-admin -u NAME.")
+
+
+# Who the command line acts for without a token: nobody (NoIdentity).
+# The tests set it to mast.jobs.auth.SYSTEM.
+WITHOUT_TOKEN = None
 
 
 _cached = None
@@ -144,16 +160,17 @@ def cli_principal():
     _function_: `mast.auth.identity.cli_principal()`
 
     Return the `mast.jobs.auth.Principal` of the command line: the user
-    of its token, or, without one, the account of the operating system
-    as an admin. Raises `IdentityError` for a token that does not work.
+    of its token. Raises `IdentityError` for a token that does not work,
+    and `NoIdentity` without a token.
     """
     global _cached
     if _cached is not None:
         return _cached
     token, source = current_token()
     if token is None:
-        _cached = os_principal()
-        return _cached
+        if WITHOUT_TOKEN is not None:
+            return WITHOUT_TOKEN
+        raise NoIdentity()
     from mast.auth import tokens
     try:
         user = tokens.authenticate(token)
@@ -162,5 +179,5 @@ def cli_principal():
             if source == login_file() else ""
         raise IdentityError("The token of {} does not work: {}{}".format(
             source, exc, hint)) from None
-    _cached = Principal(user.name, user.role)
+    _cached = Principal(user.name)
     return _cached

@@ -38,7 +38,6 @@ from datetime import datetime, timedelta, timezone
 import flask
 from sqlalchemy import select
 
-from mast.auth import roles
 from mast.jobs.auth import Forbidden
 from mast.web.page import Page
 
@@ -67,8 +66,14 @@ def _error(status, message):
     return flask.jsonify({"error": message}), status
 
 
+def _may(action):
+    from mast.jobs import auth
+    from mast.web.auth import principal
+    return auth.may(principal(), action)
+
+
 def _may_see_credentials():
-    return roles.allowed(_user().role, "submit")
+    return _may("submit")
 
 
 def _can_write(name, cache):
@@ -151,7 +156,7 @@ def _polling():
                   if _may_see_credentials() else None}
                  for row in rows]
     return {"schedules": found,
-            "may_manage": roles.allowed(_user().role, "manage-schedule")}
+            "may_manage": _may("core.add-schedule")}
 
 
 @blueprint.get("/appliances")
@@ -271,4 +276,4 @@ def set_up_polling():
 
 
 page = Page(name="appliances", title="Appliances", order=10,
-            min_role="viewer", blueprint=blueprint)
+            requires="core.list-targets", blueprint=blueprint)

@@ -91,7 +91,11 @@ class InstalledTestCase(unittest.TestCase):
         cls.write("appliances.conf", appliances)
         cls.write("environments.conf", ["[lab]", "appliances: " + " ".join(names)])
         cls.write("jobs.conf", ["[worker]", "poll_seconds = 1"])
-        cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
+        cls.env = {k: v for k, v in os.environ.items()
+                   if k not in ("MAST_HOME", "MAST_TOKEN", "MAST_TOKEN_FILE")}
+        # The command line acts for a user of MAST: a service account,
+        # the first admin, which may also run the commands of DataPower
+        cls.setup_identity()
         # MAST keeps the appliances in its database: import the files,
         # as a user of an older MAST does once
         imported = subprocess.run(
@@ -102,6 +106,22 @@ class InstalledTestCase(unittest.TestCase):
                 not in imported.stdout:
             raise AssertionError("mast targets import failed:\n"
                                  + imported.stdout)
+
+    @classmethod
+    def setup_identity(cls):
+        mast = os.path.join(cls.home, "mast")
+        for argv in (["users", "add-first-admin", "-u", "ci", "--service"],
+                     ["--as", "ci", "groups", "add-member", "-n",
+                      "datapower-operator", "-u", "ci"]):
+            done = subprocess.run(
+                [mast] + argv, cwd=cls._tmp, env=cls.env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                timeout=TIMEOUT)
+            if done.returncode != 0:
+                raise AssertionError("mast {} failed:\n{}".format(
+                    " ".join(argv), done.stdout))
+        cls.env["MAST_TOKEN_FILE"] = os.path.join(
+            cls.home, "etc", "local", "tokens", "ci.token")
 
     @classmethod
     def tearDownClass(cls):
@@ -251,7 +271,7 @@ class TestLaunchers(InstalledTestCase):
         # Every page needs a login, and the login page needs a user
         added = self.run_mast(
             "mast-python", "-c", "from mast.auth import users; "
-            "users.add('webtest', 'a long test password', 'viewer')")
+            "users.add('webtest', 'a long test password', ['viewer'])")
         self.assertEqual(added.returncode, 0, added.stdout)
         proc = self.start("mast", "web")
 

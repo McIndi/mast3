@@ -204,4 +204,9 @@ if __name__ == "__main__":
     # The process in the copy of the home (see main)
     from mast import home as _home
     _home.enter(os.environ["MAST_HOME"])
+    # The unit tests call the commands of core without a token: they
+    # act as MAST itself, as in conftest.py
+    from mast.auth import identity as _identity
+    from mast.jobs.auth import SYSTEM as _SYSTEM
+    _identity.WITHOUT_TOKEN = _SYSTEM
     sys.exit(program(sys.argv[1:]))

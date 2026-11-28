@@ -13,6 +13,22 @@ are the changes of 3.x that 4.0 also has.
 
 ## Changes that need your attention
 
+* **No roles, and the command line needs a user.** What a user may do
+is the permission sets of their groups, everywhere: the command line,
+the web UI, the API, the queue, schedules, stored credentials and the
+terminal. `mast users add` takes groups (`-g`), not a role, and
+`set-role` is gone (`mast groups add-member`). The command line no
+longer acts as the operating system account: log in (`mast login`), or
+use a service account (`mast --as NAME`). A new home makes its first
+admin with `mast users add-first-admin -u NAME`, which also gets a home
+back when no admin is left. The groups `viewer`, `operator` and
+`admin` give no command of a plugin: put the users in
+`datapower-reader` or `datapower-operator`, and grant the stored
+credentials that they use (`x` on `mast/credentials/NAME`). Jobs and
+schedules of MAST 3.x (`local`, `os:...`) no longer run; a schedule
+acts with the permissions of the user who made it, and pauses when they
+are gone. A plugin page declares `requires=` (an action) instead of
+`min_role=`.
 * **One command: `mast`.** The launchers of 3.x (`mast-system`,
 `mast-appliances`, `mastd` ...) are gone. Each one is a root of `mast`:
 
@@ -156,8 +172,8 @@ fleets, in permission sets that groups of users have:
 `mast permissions` (`add`, `add-rule`, `check`, `effective` ...),
 `mast groups`, and the API under `/api/v1/permission-sets`,
 `/api/v1/groups` and `/api/v1/permissions/check`. MAST makes the groups
-`viewer`, `operator` and `admin` and keeps each user in those of their
-role. A plugin defines groups with their sets, which MAST makes
+`viewer`, `operator` and `admin`, with the users of each role of
+before in them. A plugin defines groups with their sets, which MAST makes
 without members: DataPower's `datapower-reader` and
 `datapower-operator`.
 * **Logins, service accounts and tokens on the command line.**
@@ -165,9 +181,7 @@ without members: DataPower's `datapower-reader` and
 jobs, scripts and services (`mast users add-service`, then
 `mast --as NAME ...`); `MAST_TOKEN` and `MAST_TOKEN_FILE`; and tokens on
 the API (`Authorization: Bearer`). `mast users tokens`, `rotate-token`
-and `revoke-token` manage them. Without a token the command line still
-acts as the operating system account, until a later step of 4.0. The roles still decide what a user may do in this release;
-`mast permissions check` shows what the rules would decide.
+and `revoke-token` manage them.
 * **Plugin API 1.** A plugin is a distribution with an entry point
 `mast_plugin` that names its manifest: its provider, version, plugin
 API, the versions of MAST that it works with, its kinds of target and

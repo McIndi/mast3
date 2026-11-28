@@ -634,7 +634,8 @@ class TestPinCommand(TLSCase):
         found = registry.get("dp1").trust_for("soma")
         self.assertEqual((found.mode, found.pin),
                          ("pin", self.certs.sha256("self")))
-        self.assertTrue(found.pinned_by.startswith("os:"))
+        # The tests act as MAST itself (conftest.py)
+        self.assertEqual(found.pinned_by, "mast")
         self.assertFalse(self.servers["self"].got_secret())
 
     def test_pin_every_endpoint_and_unpin(self):

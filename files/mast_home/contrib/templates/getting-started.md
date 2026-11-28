@@ -45,14 +45,19 @@ server that other people use, a certificate from your certificate
 authority is better.
 
 
-Every page of the web GUI needs a login. Add the first admin in
-`$MAST_HOME` (on Windows, `mast.bat users`); it asks for a password:
+Every page of the web GUI needs a login, and so does the command line.
+Add the first admin in `$MAST_HOME` (on Windows, `mast.bat users`); it
+asks for a password. Then log in on the command line, and give yourself
+the commands of DataPower:
 
     :::bash
-    ./mast users add -u NAME -r admin
+    ./mast users add-first-admin -u NAME
+    ./mast login -u NAME
+    ./mast groups add-member -n datapower-operator -u NAME
 
 Then open the web GUI and log in. The Operator's Guide explains the
-roles and the other `mast users` commands, and has a short tour of the
+permission sets and groups, service accounts for cron jobs and
+scripts, and the other `mast users` commands, and has a short tour of the
 web UI. The Installation Guide lists the steps of a first run, from the
 certificate to a stored credential.
 

@@ -17,11 +17,12 @@
 """
 _module_: `mast.auth.cli`
 
-`mast users`: manage the local users of the web UI.
+`mast users`: manage the local users of MAST.
 
-* `add`: Add a user, with a temporary password.
+* `add-first-admin`: Make the first admin of a home, or a new one when
+no user can manage the users any more.
+* `add`: Add a user, with a temporary password, in groups.
 * `set-password`: Give a user a new password.
-* `set-role`: Give a user another role.
 * `disable` and `enable`: Stop a user from logging in, or let them
 again.
 * `delete`: Remove a user.
@@ -35,14 +36,18 @@ service accounts.
 A password is never an option, so that it is not in the history of
 the shell or in the list of processes. `mast users` asks for it.
 
-Whoever can run `mast users` on the MAST host can read the database
-and the key files, so `mast users` needs no login.
+Each command needs what its path allows (`mast/core/add-user`, ...),
+like every command of core: an admin. Only `add-first-admin` works
+without an identity, and only while no enabled user may add users:
+whoever can run MAST on its host can read its database and key files,
+so this is no new power, and it is how a home gets its first admin.
+What a user may do is the permission sets of their groups: `mast
+groups` puts users in groups.
 """
 import getpass
 import sys
-from typing import Literal
-
-from mast.auth import passwords, roles, users
+from mast import permissions
+from mast.auth import passwords, users
 from mast.cli import Cli, Option, Params, Table, Text
 from mast.roots import CORE
 
@@ -51,7 +56,9 @@ __all__ = ["cli"]
 cli = Cli(description="Manage the users of MAST.", provider=CORE,
           prog="mast users", queued=False)
 
-Role = Literal[roles.VIEWER, roles.OPERATOR, roles.ADMIN]
+# The groups of the first admin: everything that core can do, and the
+# views of a viewer
+FIRST_ADMIN_GROUPS = ("viewer", "operator", "admin")
 
 
 def _when(time):
@@ -83,7 +90,7 @@ def _do(change, *args):
         return change(*args)
     except users.UserNotFound as exc:
         _fail("There is no user {}.".format(exc))
-    except (users.UserExists, users.InvalidName, users.InvalidRole,
+    except (users.UserExists, users.InvalidName, permissions.UnknownName,
             passwords.WeakPassword) as exc:
         if isinstance(exc, users.UserExists):
             _fail("There is already a user {}.".format(exc))
@@ -95,10 +102,11 @@ class UserParams(Params):
 
 
 class Add(UserParams):
-    role: Role = Option(
-        short="r", help="viewer: reads only. operator: also runs commands. "
-                        "admin: also manages users, appliances and "
-                        "credentials.")
+    group: list[str] = Option(
+        default_factory=list, short="g",
+        help="A group to put the user in (mast groups list): viewer, "
+             "operator, admin, datapower-reader, ... Give it again for "
+             "each. Without one, the user may do nothing yet.")
 
 
 class SetPassword(UserParams):
@@ -107,24 +115,82 @@ class SetPassword(UserParams):
         help="The user must choose a new password at the next login.")
 
 
-class SetRole(UserParams):
-    role: Role = Option(short="r", help="The new role.")
-
-
 @cli.command("add", effect="change", id="add-user")
 def add(params: Add):
-    """Add a user. mast users asks for the first password, which is
-    temporary: the user chooses a new one at the first login.
+    """Add a user, in groups. mast users asks for the first password,
+    which is temporary: the user chooses a new one at the first login.
 
-    To make the first admin of a new MAST home:
-
-        mast users add -u NAME -r admin"""
+    To make the first admin of a new MAST home, use add-first-admin."""
     name = _do(users.normalize, params.user)
+    for group in params.group:
+        _do(permissions.get_group, group)
     password = _ask_password(name)
-    info = _do(users.add, name, password, params.role)
-    return Text("Added the user {} with the role {}. They choose a new "
-                "password when they first log in.".format(
-                    info.name, info.role))
+    info = _do(users.add, name, password, params.group)
+    return Text("Added the user {} in {}. They choose a new password when "
+                "they first log in.".format(
+                    info.name, ", ".join(params.group) or
+                    "no group (they may do nothing yet)"))
+
+
+class FirstAdmin(UserParams):
+    service: bool = Option(
+        False, help="Make a service account instead, with a token file "
+                    "(mast --as NAME): for a home that is set up by a "
+                    "script, such as a container or a playbook.")
+
+
+def _somebody_manages_users():
+    for user in users.list_users():
+        if not user.disabled and permissions.decide(
+                user.name, "x", "mast/core/add-user").allowed:
+            return user.name
+    return None
+
+
+@cli.command("add-first-admin", effect="change", id="add-first-admin")
+def add_first_admin(params: FirstAdmin):
+    """Make the first admin of this home: a user in the groups viewer,
+    operator and admin. It needs no login, and works only while no
+    enabled user may add users, so it is also how to get back in when
+    every admin is gone. mast users asks for the password, which the
+    admin chose: they need not change it. Then log in with mast login.
+
+    With --service, it makes a service account with a token file
+    instead, for a home that a script sets up."""
+    found = _somebody_manages_users()
+    if found is not None:
+        _fail("{} can already manage the users of this home: ask them, or "
+              "log in as them (mast login).".format(found))
+    name = _do(users.normalize, params.user)
+    if params.service:
+        _do(users.add_service, name, list(FIRST_ADMIN_GROUPS))
+        return Text("\n".join(
+            ["Added the service account {} in {}.".format(
+                name, ", ".join(FIRST_ADMIN_GROUPS))] +
+            _issue_service_token(name, False, issuer=name)) +
+            _plugin_hint(name))
+    password = _ask_password(name)
+    _do(users.add, name, password, list(FIRST_ADMIN_GROUPS), False)
+    return Text("Added the first admin {} in {}. Log in with: mast login "
+                "-u {}{}".format(name, ", ".join(FIRST_ADMIN_GROUPS), name,
+                                 _plugin_hint(name)))
+
+
+def _plugin_hint(name):
+    """What to run for the commands of the plugins, which no group of
+    core grants."""
+    found = [g.name for g in permissions.list_groups()
+             if g.name not in FIRST_ADMIN_GROUPS
+             and g.sets == (g.name,) and not g.members]
+    if not found:
+        return ""
+    return ("\nThe commands of the plugins are in their own groups ({}): "
+            "mast groups add-member -n GROUP -u {}".format(", ".join(found),
+                                                          name))
+
+
+add_first_admin_command = cli.commands["add-first-admin"]
+add_first_admin_command.anonymous = True
 
 
 @cli.command("set-password", effect="change", id="set-user-password")
@@ -137,14 +203,6 @@ def set_password(params: SetPassword):
     _do(users.set_password, name, password, params.temporary)
     return Text("Set a new {}password for {}.".format(
         "temporary " if params.temporary else "", name))
-
-
-@cli.command("set-role", effect="change", id="set-user-role")
-def set_role(params: SetRole):
-    """Give a user another role, and log out every session of the
-    user."""
-    info = _do(users.set_role, params.user, params.role)
-    return Text("{} now has the role {}.".format(info.name, info.role))
 
 
 @cli.command("disable", effect="change", id="disable-user")
@@ -176,10 +234,10 @@ def list_users(params: Params):
     found = users.list_users()
     if not found:
         return Text("There are no users. Add the first admin with "
-                    "mast users add -u NAME -r admin")
+                    "mast users add-first-admin -u NAME")
     return Table(
-        ("User", "Kind", "Role", "State", "Created", "Last login"),
-        [(user.name, user.kind, user.role,
+        ("User", "Kind", "Groups", "State", "Created", "Last login"),
+        [(user.name, user.kind, ", ".join(permissions.groups_of(user.name)),
           "disabled" if user.disabled
           else "must change password" if user.must_change else "",
           _when(user.created_at), _when(user.last_login_at))
@@ -187,9 +245,6 @@ def list_users(params: Params):
 
 
 class AddService(UserParams):
-    role: Role = Option(
-        short="r", help="viewer, operator or admin (until the permission "
-                        "sets decide alone).")
     group: list[str] = Option(
         default_factory=list, short="g",
         help="A group to put it in (mast groups list), such as "
@@ -200,12 +255,12 @@ class AddService(UserParams):
                     "once.")
 
 
-def _issue_service_token(name, print_token):
+def _issue_service_token(name, print_token, issuer=None):
     """Make a token for the service account, write its file (or print
     it) and return the lines to show."""
     from mast.auth import identity, tokens
     _, token = tokens.issue(name, "service account {}".format(name),
-                            principal=_who())
+                            principal=issuer or _who())
     if print_token:
         return ["The token of {} (shown only now):".format(name), token]
     path = identity.service_token_file(name)
@@ -229,17 +284,11 @@ def add_service(params: AddService):
     etc/local/tokens/NAME.token, which only the owner of the home can
     read, and mast --as NAME uses it. Put it in the groups whose
     permissions it needs."""
-    from mast import permissions
     name = _do(users.normalize, params.user)
-    info = _do(users.add_service, name, params.role)
-    for group in params.group:
-        try:
-            permissions.add_member(group, name)
-        except permissions.PermissionError as exc:
-            _fail(exc)
-    lines = ["Added the service account {} with the role {}{}.".format(
-        info.name, info.role, " in " + ", ".join(params.group)
-        if params.group else "")]
+    info = _do(users.add_service, name, params.group)
+    lines = ["Added the service account {} in {}.".format(
+        info.name, ", ".join(params.group) or
+        "no group (it may do nothing yet)")]
     return Text("\n".join(lines + _issue_service_token(
         name, params.print_token)))
 

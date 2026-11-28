@@ -53,9 +53,23 @@ from mast.testsuite.unit.web_helpers import WebCase
 TEST_COMMAND = "datapower.check-credentials"
 
 PASSWORD = "S3cret-Passw0rd"
-ADMIN = Principal("alice", "admin")
-OPERATOR = Principal("olga", "operator")
-VIEWER = Principal("victor", "viewer")
+ADMIN = Principal("alice")
+OPERATOR = Principal("olga")
+VIEWER = Principal("victor")
+
+
+def role_users(case):
+    """Make the users of ADMIN, OPERATOR and VIEWER, in the groups of
+    their old roles (`as_role`), with cheap password hashes."""
+    from mast.auth import users
+    from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
+    fast_hashes(case)
+    for who, role in ((ADMIN, "admin"), (OPERATOR, "operator"),
+                      (VIEWER, "viewer")):
+        try:
+            users.get(who.name)
+        except users.UserNotFound:
+            users.add(who.name, "a long test password", as_role(role))
 
 # What the commands of the test namespace got as credentials
 seen = []
@@ -115,6 +129,7 @@ class CredentialsCase(SqliteCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         self.key_dir = tempfile.mkdtemp(dir=self.tmp)
         self.key_file = os.path.join(self.key_dir, "credentials.key")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
@@ -423,6 +438,17 @@ class TestUse(CredentialsCase):
         registry.pin("dp-moved", "soma", "ab" * 32, "os:me")
         registry.update("dp-moved", address="10.0.0.10")
         store.rebind("ro", ["lab", "dp-open", "dp-moved"], principal=ADMIN)
+        # The operator may run the commands, and use only the credential
+        # ro (mast/credentials/ro)
+        from mast import permissions
+        permissions.remove_member("test-operators", OPERATOR.name)
+        permissions.add_set("ro-users", [
+            {"path": "mast/credtest/*", "allow": ["r", "w", "x"],
+             "scope": {"all": True}},
+            {"path": "mast/credentials/ro", "allow": ["x"],
+             "scope": {"all": True}}])
+        permissions.add_group("ro-users", sets=["ro-users"])
+        permissions.add_member("ro-users", OPERATOR.name)
         # A name that is not registered is refused by the queue first
         for name, message in (("10.0.0.1", "The target dp1 has this address"),
                               ("bad!name", "not a registered target")):
@@ -438,9 +464,9 @@ class TestUse(CredentialsCase):
              dict(appliances=["dp-moved"])),
             ("only by commands that only read",
              dict(command="credtest.change")),
-            ("may not submit", dict(principal=VIEWER)),
-            ("Only an admin may use it", dict(credential="rw")),
-            ("Only an admin may use it",
+            ("victor may not run credtest.look", dict(principal=VIEWER)),
+            ("olga may not use the credential rw", dict(credential="rw")),
+            ("olga may not use the credential rw",
              dict(credential="rw", command="credtest.change")),
         )
         for message, kwargs in cases:
@@ -1002,6 +1028,7 @@ class TestCredentialTypes(CredentialsCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         from mast.plugins import Attribute, Endpoint, Kind
         from mast.testsuite.unit.test_mast_commands import (
             PluginsCase, fake_plugin)

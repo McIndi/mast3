@@ -74,7 +74,7 @@ checkout, so a change to the code is live:
 | The registry | `mast/registry` | The targets (a base kind, attributes, extensions, a revision) and the fleets (of one kind), and the trust of each endpoint, in the job database. `resolve` turns the names that users type into registered targets; `accepts` says whether a command takes a target. `files` imports and exports the configuration files of MAST 3.15.2. `mast targets` and `mast fleets` are `mast/registry/cli.py`. |
 | Permissions | `mast/permissions` | Permission sets (rules of a path, `r`/`w`/`x` allowed or denied, and a scope of targets or fleets, kept by id) and groups of users; `decide` and `check_command` say whether a user may do something and which rules decide. `mast permissions` and `mast groups` are `cli.py`; the API is `mast/web/permissions.py`. |
 | Stored credentials | `mast/credentials` | The credential store (`store`: encrypted with `MultiFernet`, bound to appliances and environments, with the uses and the audit trail), its keys (`keys`, a `KeyProvider`), and the test of a credential (`testing`). `mast.jobs.queue.submit` checks a job with a stored credential; `mast.jobs.runner` opens it just before the command runs, the only caller of `store._open`. `mast credentials` is `mast/credentials/cli.py`. |
-| Users and roles | `mast/auth` | The local users (`users`, in the job database), their password hashes (`passwords`, scrypt), and what each role may do (`roles`). `mast.jobs.auth.authorize` checks the roles for every action of the queue. `mast users` is `mast/auth/cli.py`. |
+| Users and identities | `mast/auth` | The local users and service accounts (`users`, in the job database), their password hashes (`passwords`, scrypt), their tokens (`tokens`), and who the command line acts for (`identity`, `session`: `mast login`, `mast --as`). There are no roles: `mast.jobs.auth.authorize` asks the permission sets (`mast/permissions`) for every action, and `mast.jobs.auth.SYSTEM` is MAST itself. `mast users` is `mast/auth/cli.py`. |
 | `mastd` | `mast/_daemon`, `mast/cron` | Hosts the web UI, a worker and the scheduler of `etc/crontab` (the cron plugin). Each worker, in `mastd` or in `mast worker`, runs `mast.jobs.schedules.QueueScheduler` for the schedules of the job queue and the daily retention. |
 | Schedules and retention | `mast/jobs/schedules.py`, `mast/jobs/retention.py` | Scheduled jobs of the queue (coalescing, pausing, one firing per due minute across processes), and the daily deletion of old jobs, uses, uploads and logs. `mast schedules ...` and `mast jobs prune`; the routes are `mast/web/schedules.py`. Passive jobs (`submit(..., passive=True)`) are in `mast/jobs/queue.py`. |
 | The installer | `tools/mast_setup`, `files/invocation_scripts` | `./mast-setup`: builds the installer and the development home from `uv.lock`, with Python from python-build-standalone. The launchers of each platform. |
@@ -309,14 +309,17 @@ are not loaded, and a page that does not load leaves its plugin out.
     def jobs():
         return flask.render_template("jobs.html")
 
-    page = Page(name="jobs", title="Jobs", order=50, min_role="viewer",
+    page = Page(name="jobs", title="Jobs", order=50, requires="read",
                 blueprint=blueprint)
 
 * The page is at `/<name>`, and its JSON routes are under
 `/api/v1/<name>/...` in the same blueprint.
-* The web UI puts it in the navigation for the users whose role is at
-least `min_role`, and refuses (403) every route of the blueprint to the
-others. Check finer rights with `mast.jobs.auth.authorize`.
+* The web UI puts it in the navigation for the users that `requires`
+lets through (an action of `mast.jobs.auth.authorize`: a command id
+such as `datapower.terminal` or `core.list-users`, or `read` for the
+jobs), and refuses (403) every route of the blueprint to the others.
+Check each action of a route with `mast.jobs.auth.authorize`, or
+`may` for what a page shows.
 * A template extends `base.html` (the navigation, the user menu, the
 theme) and loads its script with
 `<script type="module" src="...">` in the block `scripts`. The scripts

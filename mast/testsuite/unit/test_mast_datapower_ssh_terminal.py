@@ -29,7 +29,7 @@ from mast.credentials import store as credentials
 from mast.datapower.ssh import page as terminal_page
 from mast.datapower.ssh import sessions
 from mast.jobs.auth import Principal
-from mast.testsuite.unit.test_mast_credentials import ADMIN
+from mast.testsuite.unit.test_mast_credentials import ADMIN, role_users
 from mast.testsuite.unit.registry_helpers import register
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin
 from mast.testsuite.unit.web_helpers import WebCase
@@ -107,6 +107,7 @@ class TerminalCase(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         FakeShell.delays = {}
         FakeShell.made = []
         self.clock = Clock()
@@ -116,7 +117,7 @@ class TerminalCase(WebCase):
             sweep_seconds=3600)
         self.addCleanup(self.manager.close_all)
         self.operator = users.get("operator")
-        self.as_operator = Principal("operator", "operator")
+        self.as_operator = Principal("operator")
 
     def open(self, names=("dp1", "dp2"), user=None, principal=None, **kw):
         kw.setdefault("credentials", ["admin:" + PASSWORD])
@@ -327,6 +328,7 @@ class TestStoredCredential(TerminalCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
                              return_value=key_file)
@@ -357,6 +359,7 @@ class TestTerminalPage(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         FakeShell.delays = {}
         FakeShell.made = []
         key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
@@ -407,6 +410,9 @@ class TestTerminalPage(WebCase):
         self.assertNotIn('href="/terminal"', page)
 
     def test_the_page(self):
+        # An operator who may use no stored credential
+        from mast import permissions
+        permissions.remove_member("test-operators", "operator")
         operator = self.client_as("operator")
         page = operator.get("/terminal").get_data(as_text=True)
         self.assertIn('href="/terminal"', page)
@@ -421,6 +427,9 @@ class TestTerminalPage(WebCase):
                       .get_data(as_text=True))
 
     def test_an_operator_types_the_credentials(self):
+        # An operator who may use no stored credential
+        from mast import permissions
+        permissions.remove_member("test-operators", "operator")
         operator = self.client_as("operator")
         answer = self.open(operator)
         self.assertEqual(answer.status_code, 201, answer.get_json())
@@ -428,10 +437,11 @@ class TestTerminalPage(WebCase):
         self.assertEqual([a["connected"] for a in found["appliances"]],
                          [True, True])
         self.assertNotIn(PASSWORD, answer.get_data(as_text=True))
-        # A stored credential is for admins
+        # A stored credential is for whom a set lets use it
         answer = self.open(operator, credential="changer")
         self.assertEqual(answer.status_code, 403)
-        self.assertIn("Only an admin", answer.get_json()["error"])
+        self.assertIn("may not use the credential changer",
+                      answer.get_json()["error"])
         # Without credentials
         self.assertEqual(self.open(operator, credentials=[]).status_code, 422)
         self.assertEqual(self.open(operator, appliances=[]).status_code, 422)
@@ -597,6 +607,7 @@ class TestMastSsh(TerminalCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
                              return_value=key_file)

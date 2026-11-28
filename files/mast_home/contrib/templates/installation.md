@@ -84,14 +84,17 @@ settings.
 
 # The users of the web GUI
 
-Every page of the web GUI needs a login. Add the first admin in `$MAST_HOME`; it asks
-for the password:
+Every page of the web GUI needs a login, and so does the command line. Add the first
+admin in `$MAST_HOME`; it asks for the password. Then log in:
 
     :::bash
-    ./mast users add -u NAME -r admin
+    ./mast users add-first-admin -u NAME
+    ./mast login -u NAME
 
-The users are in the job database, so every MAST server that shares a PostgreSQL
-database has the same users. The Operator's Guide explains the roles.
+A home that a script sets up makes a service account instead (`--service`), and runs
+`mast --as NAME ...`. The users are in the job database, so every MAST server that
+shares a PostgreSQL database has the same users. The Operator's Guide explains the
+permission sets and groups.
 
 # First run
 
@@ -103,10 +106,13 @@ In `$MAST_HOME` (on Windows, `mast.bat` for `./mast` and `mast-python.bat` for `
         :::bash
         ./mast-python contrib/gen-cert.py --altName mast.example.com
 
-2. Add the first admin. It asks for the password:
+2. Add the first admin, log in, and give yourself the commands of DataPower. It asks
+for the password:
 
         :::bash
-        ./mast users add -u NAME -r admin
+        ./mast users add-first-admin -u NAME
+        ./mast login -u NAME
+        ./mast groups add-member -n datapower-operator -u NAME
 
 3. Add the appliances (targets of the kind `datapower`) and the fleets, or import
 them from MAST 3.15.2 or older:

@@ -52,10 +52,10 @@ def _note(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def run(command, params, detach=False, local=False, principal=queue.LOCAL):
+def run(command, params, detach=False, local=False, principal=queue.SYSTEM):
     """
     _function_: `mast.jobs.client.run(command, params, detach=False,
-    local=False, principal=LOCAL)`
+    local=False, principal=SYSTEM)`
 
     Put a job in the queue and, unless `detach` is given, show it
     until it ends (see `follow`). Return the exit status for the
@@ -89,11 +89,11 @@ def run(command, params, detach=False, local=False, principal=queue.LOCAL):
     return 0
 
 
-def follow(job_id, local=False, poll_seconds=0.25, principal=queue.LOCAL,
+def follow(job_id, local=False, poll_seconds=0.25, principal=queue.SYSTEM,
            worker_id=None):
     """
     _function_: `mast.jobs.client.follow(job_id, local=False,
-    poll_seconds=0.25, principal=LOCAL, worker_id=None)`
+    poll_seconds=0.25, principal=SYSTEM, worker_id=None)`
 
     Show a job until it ends: print its progress as it is reported,
     then its result. Return the exit status for the program: 0 if the
@@ -208,11 +208,11 @@ def _show_end(info, result, interrupted):
     return 1
 
 
-def start(command, params, principal=queue.LOCAL, job_id=None,
+def start(command, params, principal=queue.SYSTEM, job_id=None,
           passive=False):
     """
     _function_: `mast.jobs.client.start(command, params,
-    principal=LOCAL, job_id=None, passive=False)`
+    principal=SYSTEM, job_id=None, passive=False)`
 
     Put a job in the queue, make sure that it will be done, and return
     its id at once. The web GUI uses this. The caller then asks the

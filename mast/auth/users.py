@@ -20,7 +20,9 @@ _module_: `mast.auth.users`
 The local users of MAST: add, change and remove them, and check a
 login.
 
-A user has a name, a role (see `mast.auth.roles`) and a password.
+A user has a name and a password (none for a service account). What a
+user may do is the permission sets of their groups (`mast.permissions`):
+there are no roles.
 Nothing here returns the hash of a password: the functions return a
 `UserInfo`, which does not have it.
 
@@ -29,7 +31,7 @@ or not, and it fails with the same error whatever the reason. After
 `MAX_FAILURES` failed logins in a row the user is locked for
 `LOCK_MINUTES` minutes.
 
-`set_password`, `set_role` and `disable` give the user a new session
+`set_password` and `disable` give the user a new session
 epoch, which logs out every session of the user in the web UI.
 """
 import re
@@ -38,13 +40,13 @@ from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
-from mast.auth import passwords, roles
+from mast.auth import passwords
 from mast.auth.models import User
 from mast.jobs import db
 
 __all__ = [
-    "UserInfo", "UserNotFound", "UserExists", "InvalidName", "InvalidRole",
-    "LoginFailed", "add", "set_password", "change_password", "set_role",
+    "UserInfo", "UserNotFound", "UserExists", "InvalidName",
+    "LoginFailed", "add", "set_password", "change_password",
     "disable", "enable", "delete", "get", "get_by_id", "list_users",
     "any_users", "authenticate", "new_epoch", "MAX_FAILURES",
     "LOCK_MINUTES", "add_service", "PERSON", "SERVICE",
@@ -71,8 +73,6 @@ class InvalidName(ValueError):
     """The name cannot be the name of a user."""
 
 
-class InvalidRole(ValueError):
-    """The role is not one of `mast.auth.roles.ROLES`."""
 
 
 class LoginFailed(Exception):
@@ -102,7 +102,6 @@ class UserInfo(BaseModel):
 
     id: int
     name: str
-    role: str
     kind: str = "person"
     disabled: bool
     must_change: bool
@@ -138,10 +137,23 @@ def normalize(name):
     return name
 
 
-def _check_role(role):
-    if role not in roles.ROLES:
-        raise InvalidRole("A role is one of {}, not {!r}".format(
-            ", ".join(roles.ROLES), role))
+def _check_groups(groups):
+    """Return the names of the groups `groups` (a name or several),
+    which must exist. Raises `mast.permissions.UnknownName`."""
+    # Imported here: mast.permissions imports this module
+    from mast import permissions
+    if isinstance(groups, str):
+        groups = [groups]
+    groups = list(dict.fromkeys(groups or ()))
+    for group in groups:
+        permissions.get_group(group)
+    return groups
+
+
+def _join(name, groups):
+    from mast import permissions
+    for group in groups:
+        permissions.add_member(group, name)
 
 
 def _require(session, name):
@@ -152,76 +164,72 @@ def _require(session, name):
     return user
 
 
-def add(name, password, role):
+def add(name, password, groups=(), temporary=True):
     """
-    _function_: `mast.auth.users.add(name, password, role)`
+    _function_: `mast.auth.users.add(name, password, groups=(),
+    temporary=True)`
 
-    Add a user and return its `UserInfo`. The password is temporary:
-    the user must choose a new one at the first login.
+    Add a user and return its `UserInfo`. The password is temporary
+    unless `temporary` is False: the user must choose a new one at the
+    first login.
 
-    Raises `InvalidName`, `InvalidRole`, `UserExists` or
-    `mast.auth.passwords.WeakPassword`.
+    Raises `InvalidName`, `UserExists`, `mast.permissions.UnknownName`
+    or `mast.auth.passwords.WeakPassword`.
 
     Parameters:
 
     * `name`: The name of the user. It is kept in lower case.
     * `password`: The first password.
-    * `role`: `"viewer"`, `"operator"` or `"admin"`.
+    * `groups`: The groups to put the user in (`mast groups list`): a
+    name, or several.
+    * `temporary`: Whether the user must choose a new password first.
     """
     name = normalize(name)
-    _check_role(role)
+    groups = _check_groups(groups)
     passwords.check_strength(password, name)
     hashed = passwords.hash_password(password)
     with db.session() as session:
         if session.scalars(select(User.id).where(User.name == name)).first():
             raise UserExists(name)
         user = User(
-            name=name, password_hash=hashed, role=role, kind=PERSON,
-            disabled=False, must_change=True, session_epoch=1,
+            name=name, password_hash=hashed, kind=PERSON,
+            disabled=False, must_change=bool(temporary), session_epoch=1,
             failed_logins=0, locked_until=None, created_at=_now(),
             last_login_at=None)
         session.add(user)
         session.flush()
         found = UserInfo.model_validate(user)
-    _sync_groups(name, role)
+    _join(name, groups)
     return found
 
 
-def add_service(name, role):
+def add_service(name, groups=()):
     """
-    _function_: `mast.auth.users.add_service(name, role)`
+    _function_: `mast.auth.users.add_service(name, groups=())`
 
     Add a service account and return its `UserInfo`: an identity for
     cron jobs, scripts and services. It has no password, cannot log in
-    to the web UI, and uses only tokens (`mast.auth.tokens`).
+    to the web UI, and uses only tokens (`mast.auth.tokens`). It is put
+    in the groups `groups`.
     """
     import secrets as _secrets
     name = normalize(name)
-    _check_role(role)
+    groups = _check_groups(groups)
     # A hash of a password that nobody knows: no password works
     hashed = passwords.hash_password(_secrets.token_urlsafe(48))
     with db.session() as session:
         if session.scalars(select(User.id).where(User.name == name)).first():
             raise UserExists(name)
         user = User(
-            name=name, password_hash=hashed, role=role, kind=SERVICE,
+            name=name, password_hash=hashed, kind=SERVICE,
             disabled=False, must_change=False, session_epoch=1,
             failed_logins=0, locked_until=None, created_at=_now(),
             last_login_at=None)
         session.add(user)
         session.flush()
         found = UserInfo.model_validate(user)
-    _sync_groups(name, role)
+    _join(name, groups)
     return found
-
-
-def _sync_groups(name, role):
-    """Until enforcement uses the permission sets (step 6 of
-    docs/design/mast-4.0.md), the role decides what a user may do, and
-    the user is in the groups of the role."""
-    # Imported here: mast.permissions imports this module
-    from mast import permissions
-    permissions.sync_role(name, role)
 
 
 def set_password(name, password, temporary=False):
@@ -267,23 +275,6 @@ def change_password(name, current, password):
     passwords.check_strength(password, normalize(name))
     authenticate(name, current)
     return set_password(name, password)
-
-
-def set_role(name, role):
-    """
-    _function_: `mast.auth.users.set_role(name, role)`
-
-    Give a user another role. This logs out every session of the
-    user.
-    """
-    _check_role(role)
-    with db.session() as session:
-        user = _require(session, name)
-        user.role = role
-        user.session_epoch += 1
-        found = UserInfo.model_validate(user)
-    _sync_groups(name, role)
-    return found
 
 
 def disable(name):

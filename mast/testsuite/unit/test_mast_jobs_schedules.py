@@ -31,18 +31,18 @@ from unittest import mock
 
 from sqlalchemy import select, text
 
-from mast import cron, jobs, registry
+from mast import cron, jobs, permissions, registry
 from mast.auth import users
 from mast.credentials import store
 from mast.credentials.models import AuditEvent, CredentialUse
 from mast.jobs import db, queue, retention, schedules
-from mast.jobs.auth import LOCAL, Forbidden, Principal
+from mast.jobs.auth import SYSTEM, Forbidden, Principal
 from mast.jobs.cli import jobs_cli, schedules_cli
 from mast.jobs.models import Job, JobResult, Schedule
 from mast.jobs.worker import Plugin as WorkerPlugin, Worker
-from mast.testsuite.unit.test_mast_auth import fast_hashes
+from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
 from mast.testsuite.unit.test_mast_credentials import (
-    ADMIN, PASSWORD, CredentialsCase)
+    ADMIN, PASSWORD, VIEWER, CredentialsCase, role_users)
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase, wait_for
 from mast.testsuite.unit.web_helpers import WebCase
 
@@ -95,9 +95,7 @@ class ScheduleCase(CredentialsCase):
 
     def setUp(self):
         super().setUp()
-        fast_hashes(self)
-        users.add("alice", PASSWORD, "admin")
-        users.add("olga", PASSWORD, "operator")
+        # CredentialsCase made the users alice (admin) and olga (operator)
         self.add()
 
     def schedule(self, name="look", cron_text="0 2 * * *", principal=ADMIN,
@@ -151,7 +149,7 @@ class TestSchedules(ScheduleCase):
                       str(found.exception))
 
     def test_only_an_admin_manages(self):
-        operator = Principal("olga", "operator")
+        operator = Principal("olga")
         with self.assertRaises(Forbidden):
             self.schedule(principal=operator)
         self.schedule()
@@ -161,7 +159,7 @@ class TestSchedules(ScheduleCase):
             with self.assertRaises(Forbidden):
                 call()
         # Everyone who can log in may read them
-        self.assertEqual(len(schedules.list_schedules(Principal("v", "viewer"))), 1)
+        self.assertEqual(len(schedules.list_schedules(VIEWER)), 1)
 
     def test_update(self):
         self.schedule()
@@ -232,14 +230,15 @@ class TestFiring(ScheduleCase):
     def test_paused_when_the_creator_may_no_longer_submit(self):
         for change, message in (
                 (lambda: users.disable("alice"), "is disabled"),
-                (lambda: users.set_role("alice", "viewer"), "may not submit jobs"),
-                (lambda: users.delete("alice"), "no longer exists")):
+                (lambda: permissions.set_groups("alice", ["viewer"]),
+                 "alice is not allowed"),
+                (lambda: users.delete("alice"), "alice is not a user")):
             with self.subTest(message=message):
                 with contextlib.suppress(users.UserNotFound):
                     users.delete("alice")
-                users.add("alice", PASSWORD, "admin")
+                users.add("alice", PASSWORD, as_role("admin"))
                 with contextlib.suppress(schedules.UnknownSchedule):
-                    schedules.remove("look", LOCAL)
+                    schedules.remove("look", SYSTEM)
                 self.schedule()
                 change()
                 reason = schedules.fire_due([T0])["look"]
@@ -250,11 +249,11 @@ class TestFiring(ScheduleCase):
                 self.assertEqual(self.job_count(), 0)
                 # It cannot be enabled again while the creator cannot run it
                 with self.assertRaises(schedules.ScheduleError):
-                    schedules.update("look", LOCAL, enabled=True)
+                    schedules.update("look", SYSTEM, enabled=True)
 
     def test_the_command_line_is_an_admin(self):
-        self.schedule(principal=LOCAL)
-        self.assertEqual(schedules.get("look").created_by, LOCAL.name)
+        self.schedule(principal=SYSTEM)
+        self.assertEqual(schedules.get("look").created_by, SYSTEM.name)
         self.assertIn("look", schedules.fire_due([T0]))
         self.assertEqual(self.job_count(), 1)
 
@@ -497,7 +496,8 @@ class RetentionCase(ScheduleCase):
             **extra):
         job_id = jobs.submit(
             "test.work", {"appliances": ["dp1"]}, parent_id=parent,
-            principal=Principal("schedule:x", "admin") if schedule else LOCAL)
+            principal=Principal("schedule:x", user="alice") if schedule
+            else SYSTEM)
         when = self.now - timedelta(days=days_ago)
         with db.session() as session:
             row = session.get(Job, job_id)
@@ -769,7 +769,7 @@ class TestCommandLine(ScheduleCase):
             "-s", 'appliances=["lab"]', "-s", "credential=ro", "-d", "nightly")
         self.assertEqual(code, 0, out)
         self.assertIn("Next runs:", out)
-        self.assertEqual(schedules.get("look").created_by, LOCAL.name)
+        self.assertEqual(schedules.get("look").created_by, SYSTEM.name)
         code, out = self.run_cli("list")
         self.assertRegex(out, r"look +yes +0 2 \* \* \* +credtest.look")
         code, out = self.run_cli("run", "-n", "look")
@@ -828,6 +828,7 @@ class TestScheduleApi(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         self.key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "credentials.key")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",
                              return_value=self.key_file)
@@ -877,7 +878,7 @@ class TestScheduleApi(WebCase):
         # The Jobs page shows by default only what people submitted,
         # and says how many jobs of schedules it leaves out
         mine = jobs.submit("datapower.list-domains", {"appliances": ["dp1"]},
-                           principal=Principal("admin", "admin"))
+                           principal=Principal("admin"))
 
         def listed(query):
             answer = self.client.get("/api/v1/jobs" + query).get_json()

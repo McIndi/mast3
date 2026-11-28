@@ -147,8 +147,14 @@ def main(argv=None):
     try:
         return _run(home_path, root, rest)
     except Exception as exc:
-        # A token that does not work (mast.auth.identity.IdentityError)
-        if type(exc).__name__ == "IdentityError":
+        # No identity, or a token that does not work
+        # (mast.auth.identity.IdentityError). Imported only now: it
+        # needs no home, but a failure here must not hide exc
+        try:
+            from mast.auth.identity import IdentityError
+        except Exception:
+            raise exc
+        if isinstance(exc, IdentityError):
             return _fail(exc)
         raise
 

@@ -7,7 +7,7 @@
 <div class="alert alert-success d-none" role="status" data-notice></div>
 <div class="table-responsive">
     <table class="table table-sm align-middle">
-        <thead><tr><th>User</th><th>Role</th><th>State</th><th>Last login</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th>Groups</th><th>State</th><th>Last login</th><th></th></tr></thead>
         <tbody data-user-rows><tr><td colspan="5" class="text-body-secondary">Loading…</td></tr></tbody>
     </table>
 </div>
@@ -18,9 +18,9 @@
         <input class="form-control form-control-sm" id="new-name" name="name" required>
     </div>
     <div class="col-6 col-sm-3 col-lg-2">
-        <label class="form-label small" for="new-role">Role</label>
-        <select class="form-select form-select-sm" id="new-role" name="role">
-            {% for role in roles %}<option{% if role == 'operator' %} selected{% endif %}>{{ role }}</option>{% endfor %}
+        <label class="form-label small" for="new-groups">Groups</label>
+        <select class="form-select form-select-sm" id="new-groups" name="groups" multiple size="4">
+            {% for group in groups %}<option{% if group == 'viewer' %} selected{% endif %}>{{ group }}</option>{% endfor %}
         </select>
     </div>
     <div class="col-6 col-sm-5 col-lg-3">
@@ -30,6 +30,6 @@
     <div class="col-12 col-lg-2">
         <button class="btn btn-sm btn-primary" type="submit">Add</button>
     </div>
-    <p class="form-text col-12 mb-0">The user chooses their own password at the first login. At least {{ min_length }} characters.</p>
+    <p class="form-text col-12 mb-0">The user chooses their own password at the first login. At least {{ min_length }} characters. What a user may do is the permission sets of their groups (<code>mast groups</code>, <code>mast permissions</code>).</p>
 </form>
 {% endblock %}

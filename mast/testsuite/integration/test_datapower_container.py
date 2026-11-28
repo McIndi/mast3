@@ -567,7 +567,11 @@ class TestTerminal(ContainerTestCase):
         # A session runs only on registered targets
         from mast import registry
         registry.add("dp-term", "datapower", "127.0.0.1")
-        session = manager.open(owner, Principal("integration", "operator"),
+        # A user of MAST who may run the commands of DataPower
+        from mast.auth import users
+        users.add("integration", "a long test password",
+                  ["viewer", "operator", "datapower-operator"])
+        session = manager.open(owner, Principal("integration"),
                                ["dp-term"],
                                credentials=[USERNAME + ":" + PASSWORD])
         pane = session.panes["dp-term"]

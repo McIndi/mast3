@@ -33,8 +33,9 @@ takes the name of another page, the web UI leaves the whole plugin out,
 with its commands, and the Plugins page of Admin says why.
 
 The web UI registers the blueprint of each page, puts the page in its
-navigation for the users whose role is at least `min_role`, and
-refuses (403) every request to the blueprint from other users. The
+navigation for the users that `requires` lets through
+(`mast.jobs.auth.authorize`), and refuses (403) every request to the
+blueprint from other users. The
 blueprint has the templates, the static files and the routes of the
 page, including its JSON routes under `/api/v1/<name>/...`.
 """
@@ -42,7 +43,6 @@ from dataclasses import dataclass, field
 
 import flask
 
-from mast.auth import roles
 from mast.logging import make_logger
 
 __all__ = ["Page", "load_pages", "CORE_PAGES"]
@@ -66,20 +66,26 @@ class Page(object):
     (`/<name>`).
     * `title`: The name in the navigation.
     * `order`: Its place in the navigation; lower comes first.
-    * `min_role`: The lowest role that may see it (`viewer`,
-    `operator` or `admin`).
+    * `requires`: What a user must be allowed to see it: an action of
+    `mast.jobs.auth.authorize`, such as a command id
+    (`datapower.terminal`, `core.list-users`) or `read` (the jobs).
     * `blueprint`: The `flask.Blueprint` with its routes.
     * `nav`: Its sub-pages, as `(title, path)` pairs.
     """
     name: str
     title: str
     order: int
-    min_role: str
+    requires: str
     blueprint: flask.Blueprint
     nav: tuple = field(default_factory=tuple)
 
     def __post_init__(self):
         self.blueprint.before_request(_guard(self))
+
+    def visible_to(self, principal):
+        """Whether `principal` may see the page."""
+        from mast.jobs import auth
+        return principal is not None and auth.may(principal, self.requires)
 
     @property
     def path(self):
@@ -87,19 +93,18 @@ class Page(object):
 
 
 def _guard(page):
-    """A before_request for the blueprint of `page`: only a user whose
-    role is at least `page.min_role` may use it. The login check of the
+    """A before_request for the blueprint of `page`: only a user that
+    `page.requires` lets through may use it. The login check of the
     app comes first. The static files of the page are for everyone, as
     those of the app are (`mast.web.auth.require_login`)."""
     def check():
         if (flask.request.endpoint or "").endswith(".static"):
             return None
-        user = flask.g.get("mast_user")
-        if user is not None and roles.at_least(user.role, page.min_role):
+        if page.visible_to(flask.g.get("mast_principal")):
             return None
         if flask.request.path.startswith("/api/"):
-            return flask.jsonify({"error": "This needs the role {}.".format(
-                page.min_role)}), 403
+            return flask.jsonify({"error": "This page needs {}.".format(
+                page.requires)}), 403
         flask.abort(403)
     return check
 
@@ -118,9 +123,9 @@ def _load(target):
         page = page()
     if not isinstance(page, Page):
         raise TypeError("{} is not a mast.web.page.Page".format(target))
-    if page.min_role not in roles.ROLES:
-        raise ValueError("{}: min_role {!r} is not a role".format(
-            target, page.min_role))
+    if not isinstance(page.requires, str) or not page.requires:
+        raise ValueError("{}: requires {!r} is not an action".format(
+            target, page.requires))
     return page
 
 

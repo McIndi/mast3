@@ -1,4 +1,4 @@
-// Admin -> Users: list, add with a temporary password, change a role,
+// Admin -> Users: list, add with a temporary password, choose the groups,
 // disable and enable, a new temporary password, delete.
 import {api, el, showError, when} from "./api.js";
 
@@ -6,7 +6,7 @@ const rows = document.querySelector("[data-user-rows]");
 const errorBox = document.querySelector("[data-error]");
 const notice = document.querySelector("[data-notice]");
 const addForm = document.querySelector("[data-add-user]");
-const ROLES = [...document.querySelectorAll("#new-role option")].map((o) => o.value);
+const GROUPS = [...document.querySelectorAll("#new-groups option")].map((o) => o.value);
 let me = null;
 
 function say(message) {
@@ -36,12 +36,15 @@ function state(user) {
 
 function row(user) {
     const own = me && user.name === me.name;
-    const role = el("select", {className: "form-select form-select-sm w-auto", disabled: own,
-                               "aria-label": "Role of " + user.name});
-    for (const name of ROLES) role.append(el("option", {value: name, selected: name === user.role}, name));
-    role.addEventListener("change", () => act(
-        api.patch("/users/" + encodeURIComponent(user.name), {role: role.value}),
-        user.name + " now has the role " + role.value + "."));
+    const groups = el("select", {className: "form-select form-select-sm", multiple: true, disabled: own,
+                                 size: Math.min(GROUPS.length, 4), "aria-label": "Groups of " + user.name});
+    for (const name of GROUPS) groups.append(el("option", {value: name, selected: user.groups.includes(name)}, name));
+    const save = el("button", {type: "button", className: "btn btn-sm btn-outline-primary mt-1", disabled: own}, "Save groups");
+    save.addEventListener("click", () => {
+        const chosen = [...groups.selectedOptions].map((o) => o.value);
+        act(api.patch("/users/" + encodeURIComponent(user.name), {groups: chosen}),
+            user.name + " is now in " + (chosen.join(", ") || "no group") + ".");
+    });
 
     const toggle = el("button", {type: "button", className: "btn btn-sm btn-outline-secondary", disabled: own},
                       user.disabled ? "Enable" : "Disable");
@@ -76,8 +79,9 @@ function row(user) {
     });
 
     return el("tr", {},
-        el("td", {}, user.name, own ? el("span", {className: "badge text-bg-info ms-1"}, "you") : null),
-        el("td", {}, role),
+        el("td", {}, user.name, own ? el("span", {className: "badge text-bg-info ms-1"}, "you") : null,
+           user.kind === "service" ? el("span", {className: "badge text-bg-secondary ms-1"}, "service") : null),
+        el("td", {}, groups, save),
         el("td", {className: "small"}, state(user)),
         el("td", {className: "small text-nowrap"}, when(user.last_login_at)),
         el("td", {}, el("div", {className: "d-flex flex-wrap gap-1"}, toggle, reset, remove), passwordForm));
@@ -94,7 +98,8 @@ async function refresh() {
 
 addForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const data = Object.fromEntries(new FormData(addForm).entries());
+    const form = new FormData(addForm);
+    const data = {name: form.get("name"), password: form.get("password"), groups: form.getAll("groups")};
     await act(api.post("/users", data), "Added " + data.name + ". They choose their own password at the first login.");
     if (errorBox.classList.contains("d-none")) addForm.reset();
 });

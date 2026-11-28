@@ -173,7 +173,7 @@ def require_login(exempt=()):
             except tokens.BadToken as exc:
                 return _json_error(401, str(exc))
             flask.g.mast_user = user
-            flask.g.mast_principal = Principal(user.name, user.role)
+            flask.g.mast_principal = Principal(user.name)
             flask.g.mast_by_token = True
             return None
         user = session_user()
@@ -184,7 +184,7 @@ def require_login(exempt=()):
             return flask.redirect("{}?next={}".format(
                 LOGIN_PATH, quote(target, safe="/")))
         flask.g.mast_user = user
-        flask.g.mast_principal = Principal(user.name, user.role)
+        flask.g.mast_principal = Principal(user.name)
         if user.must_change and endpoint not in may_change:
             if api:
                 return _json_error(
@@ -258,8 +258,7 @@ def login_post():
     session["login_at"] = now
     session["seen_at"] = now
     security.csrf_token(new=True)
-    _log().info("Login of {} ({}) from {}".format(
-        user.name, user.role, _client()))
+    _log().info("Login of {} from {}".format(user.name, _client()))
     if user.must_change:
         return flask.redirect(PASSWORD_PATH)
     return flask.redirect(target)

@@ -23,7 +23,7 @@ import re
 
 from mast.auth import users
 from mast.config import get_configs_dict
-from mast.testsuite.unit.test_mast_auth import fast_hashes
+from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
 from mast.testsuite.unit.test_mast_jobs import SqliteCase
 from mast.web import security
 from mast.web.app import create_app
@@ -51,7 +51,7 @@ class WebCase(SqliteCase):
         super().setUp()
         fast_hashes(self)
         for role in ("admin", "operator", "viewer"):
-            users.add(role, PASSWORD, role)
+            users.add(role, PASSWORD, as_role(role))
             users.set_password(role, PASSWORD)
         self.app = create_app(server_conf())
         self.client = self.app.test_client()

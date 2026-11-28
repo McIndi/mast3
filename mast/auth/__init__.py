@@ -17,11 +17,14 @@
 """
 _module_: `mast.auth`
 
-The local users of MAST, their roles, and their passwords.
+The local users of MAST, their passwords and tokens, and who the command
+line acts for. What a user may do is in `mast.permissions`.
 
 * `mast.auth.passwords`: Hash a password and check it (scrypt).
-* `mast.auth.roles`: What each role may do.
-* `mast.auth.users`: Add, change and remove users, and check a login.
+* `mast.auth.users`: Add, change and remove users and service accounts,
+and check a login.
+* `mast.auth.tokens`: The tokens of the command line and of the API.
+* `mast.auth.identity`: Who the command line acts for.
 
 The users are kept in the job database (the table `users`), so that
 every process of a MAST home sees the same users. `mast users`

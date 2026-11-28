@@ -26,7 +26,7 @@ credential (`last_tested_at`, `last_test_ok`, `can_write`).
 from mast import plugins
 from mast.credentials import store
 from mast.jobs import queue
-from mast.jobs.auth import LOCAL, authorize
+from mast.jobs.auth import SYSTEM, authorize
 from mast.jobs.models import SUCCEEDED
 
 __all__ = ["command", "params", "record", "Outcome", "NotATest"]
@@ -119,16 +119,16 @@ def _outcome(info, found):
                    firmware=row[firmware], problem=row[problem])
 
 
-def record(name, job_id, principal=LOCAL):
+def record(name, job_id, principal=SYSTEM):
     """
     _function_: `mast.credentials.testing.record(name, job_id,
-    principal=LOCAL)`
+    principal=SYSTEM)`
 
     Store the outcome of the test job `job_id` with the credential
     `name`, and return it as an `Outcome`. Raises `NotATest` if the
     job is not a test of this credential or has not ended.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.test-credential")
     info = queue.get(job_id, principal)
     if info.command not in _tests() or info.params.get("credential") != name:
         raise NotATest("The job {} is not a test of the credential "

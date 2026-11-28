@@ -62,9 +62,8 @@ first sees it (`sync_plugin_groups`), and an admin puts users in it. A
 newer version of the plugin updates the set of a group, until an admin
 changes that set; a group that an admin removed is not made again.
 
-Until step 6 (enforcement), the role of a user still decides what they
-may do, and MAST keeps each user in the group of their role; these
-functions say what the rules would decide (`decide`, `check_command`).
+These rules decide what every user may do: `mast.jobs.auth.authorize`
+asks `decide` and `check_command` for every action of MAST.
 """
 import re
 from dataclasses import dataclass, field
@@ -84,7 +83,8 @@ __all__ = [
     "remove_set", "get_set", "list_sets", "add_group", "update_group",
     "remove_group", "get_group", "list_groups", "grant", "revoke",
     "add_member", "remove_member", "groups_of", "rules_of", "decide",
-    "check_command", "sync_role", "ROLE_GROUPS", "sync_plugin_groups",
+    "check_command", "ROLE_GROUPS", "sync_plugin_groups", "may_run_any",
+    "set_groups",
 ]
 
 CAPABILITIES = ("r", "w", "x")
@@ -118,24 +118,33 @@ SEED = {
                                 "list-targets", "show-target",
                                 "list-fleets", "list-plugins",
                                 "list-kinds", "crypto-posture",
-                                "crypto-rules", "crypto-exceptions")),
+                                "crypto-rules", "crypto-exceptions",
+                                "crypto-export")),
                    {"path": "mast/targets/*", "allow": ["r"]},
                    {"path": "mast/fleets/*", "allow": ["r"]})),
-    "operator": ("Cancel the jobs that one submitted. Running the commands "
-                 "of a plugin needs a set that names them.", _rules(
-                     {"path": "mast/core/cancel-own-job", "allow": ["x"]})),
+    "operator": ("Cancel the jobs that one submitted, and take the crypto "
+                 "inventory and probe the TLS of every target. Running the "
+                 "commands of a plugin needs a set that names them.", _rules(
+                     {"path": "mast/core/cancel-own-job", "allow": ["x"]},
+                     {"path": "mast/core/crypto-inventory", "allow": ["x"],
+                      "scope": {"all": True}},
+                     {"path": "mast/core/crypto-probe", "allow": ["x"],
+                      "scope": {"all": True}})),
     "admin": ("Manage the identities, the permissions, the targets, the "
               "fleets, the credentials, the schedules and the jobs of "
               "core.", _rules(
-                  {"path": "mast/core/*", "allow": ["r", "w", "x"]},
-                  {"path": "mast/credentials/*", "allow": ["r", "w", "x"]},
+                  {"path": "mast/core/*", "allow": ["r", "w", "x"],
+                   "scope": {"all": True}},
+                  {"path": "mast/credentials/*", "allow": ["r", "w", "x"],
+                   "scope": {"all": True}},
                   {"path": "mast/targets/*", "allow": ["r", "w", "x"],
                    "scope": {"all": True}},
                   {"path": "mast/fleets/*", "allow": ["r", "w", "x"],
                    "scope": {"all": True}})),
 }
 
-# The groups of the roles, and their sets: an operator is also a viewer
+# The groups that the roles of MAST 3.x and of the first 4.0 homes were
+# (migrations 4004 and 4006): an operator is also a viewer
 ROLE_GROUPS = {
     "viewer": ("viewer",),
     "operator": ("viewer", "operator"),
@@ -781,30 +790,6 @@ def groups_of(user):
             .order_by(UserGroup.name)))
 
 
-def sync_role(user, role):
-    """
-    _function_: `mast.permissions.sync_role(user, role)`
-
-    Put the user in the groups of `role` (`ROLE_GROUPS`) and out of
-    the other groups of roles. Until step 6, the role decides what a
-    user may do, and `mast.auth.users` calls this when it changes.
-    """
-    wanted = set(ROLE_GROUPS.get(role, ()))
-    every = set(g for groups in ROLE_GROUPS.values() for g in groups)
-    with db.session() as session:
-        user_id = _user_id(session, user)
-        for name in every:
-            record = session.scalars(select(UserGroup).where(
-                UserGroup.name == name)).first()
-            if record is None:
-                continue
-            member = session.get(GroupMember, (record.id, user_id))
-            if name in wanted and member is None:
-                session.add(GroupMember(group_id=record.id, user_id=user_id))
-            elif name not in wanted and member is not None:
-                session.delete(member)
-
-
 # The groups of the plugins
 # =========================
 
@@ -994,3 +979,42 @@ def check_command(user, command_id, targets=()):
     rules = rules_of(user)
     return [decide(user, capability, command.path, name, rules)
             for name in names for capability in needed]
+
+
+def may_run_any(user):
+    """
+    _function_: `mast.permissions.may_run_any(user)`
+
+    Return True if a rule of the user allows `x` on the commands of a
+    plugin, on some targets: whether the user may run anything at all
+    (for the web UI, before it knows the command).
+    """
+    for match in rules_of(user):
+        rule = match.rule
+        root = rule.path.split("/")[1]
+        if root == "core" or root in RESOURCE_ROOTS:
+            continue
+        if "x" in rule.allow and rule.scope is not None:
+            return True
+    return False
+
+
+def set_groups(user, groups):
+    """
+    _function_: `mast.permissions.set_groups(user, groups)`
+
+    Put the user `user` in exactly the groups `groups`. Raises
+    `UnknownName` for a group that does not exist, before it changes
+    anything.
+    """
+    sync_plugin_groups()
+    wanted = list(dict.fromkeys(groups))
+    for group in wanted:
+        get_group(group)
+    current = groups_of(user)
+    for group in current:
+        if group not in wanted:
+            remove_member(group, user)
+    for group in wanted:
+        if group not in current:
+            add_member(group, user)

@@ -103,13 +103,29 @@ def list_credentials():
 
     Exposed at: `/api/v1/credentials` via GET
     """
-    jobs_auth.authorize(principal(), "use-credential")
+    who = principal()
     appliances = flask.request.args.getlist("appliances")
     try:
         found = store.list_credentials(appliances or None)
     except store.CredentialError as exc:
         return _store_error(exc)
+    if not jobs_auth.may(who, "core.list-credentials"):
+        # Who may not manage the store sees the credentials that they
+        # may use, on all the appliances asked for, to choose one
+        found = [c for c in found if jobs_auth.may(
+            who, "use-credential", resource=c.name,
+            targets=appliances or None)]
+        if not found and not appliances and not _uses_any(who):
+            raise jobs_auth.Forbidden(
+                "{} may not use any stored credential".format(who.name))
     return flask.jsonify({"credentials": [credential_json(c) for c in found]})
+
+
+def _uses_any(who):
+    from mast import permissions
+    return any(match.rule.path.startswith("mast/credentials/")
+               and "x" in match.rule.allow
+               for match in permissions.rules_of(who.acts_for))
 
 
 @blueprint.post("/credentials")
@@ -120,7 +136,7 @@ def add_credential():
     Exposed at: `/api/v1/credentials` via POST
     """
     who = principal()
-    jobs_auth.authorize(who, "manage-credential")
+    jobs_auth.authorize(who, "core.add-credential")
     body = _body()
     try:
         found = store.create(
@@ -153,7 +169,7 @@ def change_credential(name):
     Exposed at: `/api/v1/credentials/<name>` via PATCH
     """
     who = principal()
-    jobs_auth.authorize(who, "manage-credential")
+    jobs_auth.authorize(who, "core.update-credential")
     body = _body()
     try:
         found = store.get(name)
@@ -188,7 +204,7 @@ def delete_credential(name):
     Exposed at: `/api/v1/credentials/<name>` via DELETE
     """
     who = principal()
-    jobs_auth.authorize(who, "manage-credential")
+    jobs_auth.authorize(who, "core.delete-credential")
     try:
         store.delete_credential(name, principal=who)
     except store.CredentialError as exc:
@@ -209,7 +225,7 @@ def start_test(name):
     Exposed at: `/api/v1/credentials/<name>/tests` via POST
     """
     who = principal()
-    jobs_auth.authorize(who, "manage-credential")
+    jobs_auth.authorize(who, "core.test-credential")
     appliance = _text(_body().get("appliance")).strip()
     if not appliance:
         return error(422, "Choose an appliance to test it on.",
@@ -240,7 +256,7 @@ def record_test(name, job_id):
     Exposed at: `/api/v1/credentials/<name>/tests/<job_id>` via POST
     """
     who = principal()
-    jobs_auth.authorize(who, "manage-credential")
+    jobs_auth.authorize(who, "core.test-credential")
     try:
         outcome = testing.record(name, job_id, principal=who)
         found = store.get(name)
@@ -259,7 +275,7 @@ def credential_uses(name):
 
     Exposed at: `/api/v1/credentials/<name>/uses` via GET
     """
-    jobs_auth.authorize(principal(), "manage-credential")
+    jobs_auth.authorize(principal(), "core.list-credential-uses")
     try:
         found = store.uses(name)
     except store.CredentialError as exc:
@@ -275,7 +291,7 @@ def credential_audit(name):
 
     Exposed at: `/api/v1/credentials/<name>/audit` via GET
     """
-    jobs_auth.authorize(principal(), "manage-credential")
+    jobs_auth.authorize(principal(), "core.credential-audit")
     return flask.jsonify({"events": [
         event.model_dump(mode="json")
         for event in store.audit_events(name)]})

@@ -421,7 +421,7 @@ class TestPluginApi(PluginsCase):
         entry_point, name = fake_plugin("acme", pages=("{}:page".format(
             "mast_test_plugin_acme"),))
         sys.modules[name].page = Page(
-            name="jobs", title="Not jobs", order=1, min_role="viewer",
+            name="jobs", title="Not jobs", order=1, requires="read",
             blueprint=flask.Blueprint("acme_jobs", __name__))
         self.use(entry_point)
         pages = {page.name: page for page in load_pages()}

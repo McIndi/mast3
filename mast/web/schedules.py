@@ -112,7 +112,7 @@ def preview():
     Exposed at: `/api/v1/schedules/preview` via GET
     """
     from mast.jobs import auth as jobs_auth
-    jobs_auth.authorize(principal(), "read")
+    jobs_auth.authorize(principal(), "core.list-schedules")
     try:
         runs = schedules.next_runs(flask.request.args.get("cron", ""))
     except schedules.ScheduleError as exc:
@@ -128,7 +128,7 @@ def add_schedule():
     Exposed at: `/api/v1/schedules` via POST
     """
     from mast.jobs import auth as jobs_auth
-    jobs_auth.authorize(principal(), "manage-schedule")
+    jobs_auth.authorize(principal(), "core.add-schedule")
     body = _body()
     command = str(body.get("command") or "")
     values, problems = _params(command, body.get("params") or {})
@@ -154,7 +154,7 @@ def change_schedule(name):
     Exposed at: `/api/v1/schedules/<name>` via PATCH
     """
     from mast.jobs import auth as jobs_auth
-    jobs_auth.authorize(principal(), "manage-schedule")
+    jobs_auth.authorize(principal(), "core.update-schedule")
     body = _body()
     params = None
     try:

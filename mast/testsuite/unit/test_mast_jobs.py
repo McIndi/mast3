@@ -377,8 +377,7 @@ class TestSubmit(JobsCase):
         info = jobs.get(job_id)
         self.assertEqual(info.status, jobs.QUEUED)
         self.assertEqual(info.command, "test.work")
-        self.assertEqual(info.submitted_by, jobs.LOCAL.name)
-        self.assertTrue(info.submitted_by.startswith("os:"))
+        self.assertEqual(info.submitted_by, jobs.SYSTEM.name)
         self.assertEqual(info.params["seconds"], 1.5)
         self.assertEqual(info.targets, ["dp1"])
         self.assertTrue(info.exclusive)
@@ -1889,7 +1888,7 @@ class TestMastJobs(CliCase):
         jobs.run_next("w1")
         status, out, _ = self.mast_jobs("show", "-j", job_id[:6])
         self.assertEqual(status, 0)
-        for expected in (job_id, "test.work", "succeeded", "by " + jobs.LOCAL.name,
+        for expected in (job_id, "test.work", "succeeded", "by " + jobs.SYSTEM.name,
                          "Worker:     w1", "credentials: (secret)",
                          "working on dp1", "[running on w1]",
                          "worked with ********"):
@@ -1950,12 +1949,23 @@ class TestMastJobs(CliCase):
 
 
 class TestCommandLineProcess(JobsCase):
+
+    def setUp(self):
+        super().setUp()
+        # Imported here: test_mast_auth imports this module
+        from mast.auth import tokens, users
+        from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
+        fast_hashes(self)
+        users.add("root", "a long test password", as_role("admin"))
+        _, self.token = tokens.issue("root", "test")
+
     def mast(self, *argv):
-        """Run `mast ARGV` (python -m mast)."""
+        """Run `mast ARGV` (python -m mast), as the user root."""
         return subprocess.run(
             [sys.executable, "-m", "mast"] + list(argv), text=True,
             capture_output=True, timeout=120,
-            env=dict(os.environ, MAST_JOBS_DB_URL=self.url))
+            env=dict(os.environ, MAST_JOBS_DB_URL=self.url,
+                     MAST_TOKEN=self.token))
 
     def test_a_plugin_command_is_a_job(self):
         done = self.mast("datapower", "list-users")

@@ -51,7 +51,7 @@ from mast.credentials import keys as _keys
 from mast.credentials.models import (
     AuditEvent, CredentialBinding, CredentialRecord, CredentialUse)
 from mast.jobs import db
-from mast.jobs.auth import LOCAL, Forbidden, authorize
+from mast.jobs.auth import SYSTEM, Forbidden, authorize
 
 __all__ = [
     "Credential", "Binding", "Use", "Audit", "PURPOSES", "COLLECT", "CHANGE",
@@ -408,11 +408,11 @@ def _binding_names(found):
 
 
 def create(name, username, password=None, purpose=COLLECT, bindings=(),
-           principal=LOCAL, description="", type=PASSWORD,
+           principal=SYSTEM, description="", type=PASSWORD,
            private_key=None, passphrase=None):
     """
     _function_: `mast.credentials.store.create(name, username,
-    password=None, purpose="collect", bindings=(), principal=LOCAL,
+    password=None, purpose="collect", bindings=(), principal=SYSTEM,
     description="", type="password", private_key=None, passphrase=None)`
 
     Store a new credential and return it as a `Credential`.
@@ -430,7 +430,7 @@ def create(name, username, password=None, purpose=COLLECT, bindings=(),
     * `principal`: The admin who stores it.
     * `description`: A note for the admins.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.add-credential")
     _check_name(name)
     _check_username(username)
     secret = _secret(type, password, private_key, passphrase)
@@ -457,18 +457,18 @@ def create(name, username, password=None, purpose=COLLECT, bindings=(),
         return _view(session, record)
 
 
-def replace_secret(name, password=None, principal=LOCAL, username=None,
+def replace_secret(name, password=None, principal=SYSTEM, username=None,
                    private_key=None, passphrase=None):
     """
     _function_: `mast.credentials.store.replace_secret(name,
-    password=None, principal=LOCAL, username=None, private_key=None,
+    password=None, principal=SYSTEM, username=None, private_key=None,
     passphrase=None)`
 
     Give the credential `name` a new secret of its type (a password, or
     a private key and its passphrase), and a new user name if `username`
     is given. The result of the last test is cleared.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.replace-credential")
     if username is not None:
         _check_username(username)
     fernet = _fernet()
@@ -491,14 +491,14 @@ def replace_secret(name, password=None, principal=LOCAL, username=None,
         return _view(session, record)
 
 
-def update(name, principal=LOCAL, description=None, purpose=None):
+def update(name, principal=SYSTEM, description=None, purpose=None):
     """
-    _function_: `mast.credentials.store.update(name, principal=LOCAL,
+    _function_: `mast.credentials.store.update(name, principal=SYSTEM,
     description=None, purpose=None)`
 
     Change the description or the purpose of a credential.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.update-credential")
     if purpose is not None:
         _check_purpose(purpose)
     with db.session() as session:
@@ -516,15 +516,15 @@ def update(name, principal=LOCAL, description=None, purpose=None):
         return _view(session, record)
 
 
-def rebind(name, bindings, principal=LOCAL):
+def rebind(name, bindings, principal=SYSTEM):
     """
     _function_: `mast.credentials.store.rebind(name, bindings,
-    principal=LOCAL)`
+    principal=SYSTEM)`
 
     Bind the credential `name` to `bindings` (names of appliances and
     environments) in place of what it was bound to.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.rebind-credential")
     with db.session() as session:
         record = _record(session, name)
         before = _binding_names(_bindings(session, record))
@@ -536,15 +536,15 @@ def rebind(name, bindings, principal=LOCAL):
         return _view(session, record)
 
 
-def delete_credential(name, principal=LOCAL):
+def delete_credential(name, principal=SYSTEM):
     """
     _function_: `mast.credentials.store.delete_credential(name,
-    principal=LOCAL)`
+    principal=SYSTEM)`
 
     Delete the credential `name`, its bindings and its uses. A queued
     job that names it fails when it starts.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.delete-credential")
     with db.session() as session:
         record = _record(session, name)
         session.execute(delete(CredentialUse).where(
@@ -657,9 +657,9 @@ def audit_events(name=None, limit=200):
                 for event in session.scalars(query)]
 
 
-def rotate_key(principal=LOCAL):
+def rotate_key(principal=SYSTEM):
     """
-    _function_: `mast.credentials.store.rotate_key(principal=LOCAL)`
+    _function_: `mast.credentials.store.rotate_key(principal=SYSTEM)`
 
     Make a new key and encrypt every credential again with it, in one
     transaction. Then drop the keys that are older than the one before
@@ -669,7 +669,7 @@ def rotate_key(principal=LOCAL):
     keys there are now. If one does not, nothing changes and
     `TokenMismatch` says which.
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.rotate-credential-key")
     provider = _keys.provider()
     with db.session(write=False) as session:
         old = _fernet(provider)
@@ -688,17 +688,17 @@ def rotate_key(principal=LOCAL):
     return len(records)
 
 
-def record_test(name, ok, can_write=None, principal=LOCAL, appliance=None,
+def record_test(name, ok, can_write=None, principal=SYSTEM, appliance=None,
                 job_id=None):
     """
     _function_: `mast.credentials.store.record_test(name, ok,
-    can_write=None, principal=LOCAL, appliance=None, job_id=None)`
+    can_write=None, principal=SYSTEM, appliance=None, job_id=None)`
 
     Record the result of a test of the credential `name`: whether it
     worked, and whether the user can change the appliance (None if
     that is not known).
     """
-    authorize(principal, "manage-credential")
+    authorize(principal, "core.test-credential")
     with db.session() as session:
         record = _record(session, name)
         record.last_tested_at = _now()
@@ -785,26 +785,20 @@ def check_use(name, appliances, principal, command=None, effect=None):
     * The credential exists, and every appliance is a registered
     appliance that it is bound to and whose certificate is checked
     (see `check_targets`).
-    * The principal may use stored credentials (`use-credential`).
+    * The principal may use it on every appliance: `x` on
+    `mast/credentials/NAME` (`mast.permissions`).
     * A `collect` credential is used only by a command whose `effect`
     is `read` (see `mast.cli.Command.effect`). A command that declares
     no effect counts as one that changes.
-    * A `change` credential needs `use-change-credential` (admins).
     """
     credential, _ = check_targets(name, appliances)
-    authorize(principal, "use-credential", command=command)
+    authorize(principal, "use-credential", resource=name,
+              targets=list(appliances))
     if credential.purpose == COLLECT and effect != READ_EFFECT:
         raise Forbidden(
             "The credential {} is for collecting (purpose collect). It "
             "can be used only by commands that only read; {} can change "
             "the appliances.".format(name, command or "this command"))
-    if credential.purpose == CHANGE:
-        try:
-            authorize(principal, "use-change-credential", command=command)
-        except Forbidden:
-            raise Forbidden(
-                "The credential {} can change the appliances (purpose "
-                "change). Only an admin may use it.".format(name)) from None
     return credential
 
 

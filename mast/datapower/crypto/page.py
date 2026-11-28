@@ -59,7 +59,6 @@ from datetime import datetime, timedelta, timezone
 import flask
 from sqlalchemy import func, select
 
-from mast.auth import roles
 from mast.jobs.auth import Forbidden
 from mast.web.page import Page
 
@@ -123,7 +122,9 @@ def _error(status, message):
 
 
 def _may(action):
-    return roles.allowed(_user().role, action)
+    from mast.jobs import auth
+    from mast.web.auth import principal
+    return auth.may(principal(), action)
 
 
 def _names():
@@ -350,7 +351,7 @@ def overview():
         "self_checks": posture.counts(checks),
         "schedules": _schedules(), "pqc": _readiness(appliances, latest),
         "exportable": bool(latest),
-        "may": {"run": _may("submit"), "schedule": _may("manage-schedule"),
+        "may": {"run": _may("submit"), "schedule": _may("core.add-schedule"),
                 "exceptions": _may(posture.MANAGE)}})
 
 
@@ -877,7 +878,7 @@ def probes():
     rows.sort(key=lambda r: (r["appliance"], r["host"], r["port"]))
     return flask.jsonify({
         "results": rows, "schedules": _schedules(PROBE_COMMAND),
-        "may": {"run": _may("submit"), "schedule": _may("manage-schedule")}})
+        "may": {"run": _may("submit"), "schedule": _may("core.add-schedule")}})
 
 
 @blueprint.post("/api/v1/crypto/probe")
@@ -935,5 +936,5 @@ def probe_schedule():
                           "enabled": info.enabled})
 
 
-page = Page(name="crypto", title="Crypto", order=20, min_role="viewer",
+page = Page(name="crypto", title="Crypto", order=20, requires="core.crypto-posture",
             blueprint=blueprint)

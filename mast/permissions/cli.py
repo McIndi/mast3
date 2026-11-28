@@ -246,9 +246,7 @@ class Check(Params):
 def check(params: Check):
     """Say whether a user may do something, and which rules decide: a
     capability on a path (--path, -c), or running a command (--command)
-    on targets (-a). Until step 6 of the 4.0 design, the role of the
-    user still decides what they may do; this says what the rules
-    would decide."""
+    on targets (-a)."""
     if bool(params.path) == bool(params.command):
         _fail("Give --path or --command.")
     if params.command:

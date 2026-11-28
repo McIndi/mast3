@@ -270,8 +270,8 @@ which is checked when the schedule is saved and again for each job.
 * The parameters are those of the command: `-p` takes them as a JSON
 object, and `-s NAME=VALUE` sets one (a VALUE that is JSON, such as
 `["prod"]`, is read as JSON).
-* Its jobs run as `schedule:NAME`, with the role of the admin who made
-the schedule. The Jobs page shows by default only the jobs that people
+* Its jobs run as `schedule:NAME`, with the permissions that the user
+who made the schedule has when it fires. The Jobs page shows by default only the jobs that people
 submitted; its "Submitted by" list shows the jobs of every schedule, or
 of one.
 * If the job of the last run still waits or runs when the schedule is
@@ -424,7 +424,8 @@ with an exception has the analysis `exploitable` and the response
 
 The spreadsheet also has a sheet of the findings (see below). **Export**
 on the Crypto page downloads the same files, made from the newest
-snapshots of every appliance, for any role.
+snapshots of every appliance, for every user who may export
+(`mast/core/crypto-export`, in the group `viewer`).
 
 ## The posture rules
 
@@ -783,7 +784,9 @@ Without TLS (`secure = false`), the host must be `127.0.0.1` or `::1`:
 `mast web` and `mastd` refuse to serve the web GUI without TLS on an
 address that other hosts can reach, and say why.
 
-The web UI is at `/`. It has these pages, each for a role and up (the
+The web UI is at `/`. It has these pages, each for the users whose
+permission sets allow what it needs (in parentheses, the first seeded
+group that does; the
 classic GUI of earlier releases is gone; see the release notes for what
 replaced each of its tabs):
 
@@ -832,10 +835,11 @@ command opens its job. **Test** checks the login to each appliance
 (see "Testing the login to the appliances").
 * **Terminal** (operator): the DataPower CLI of the appliances of the
 target bar, side by side (see "The Terminal page").
-* **Admin → Users** (admin): add a user with a temporary password,
-change a role, disable, enable, set a new temporary password, and
-delete. An admin cannot change their own role, disable or delete
-themselves there; `mast users` can.
+* **Admin → Users** (admin): add a user with a temporary password and
+their groups, change their groups, disable, enable, set a new
+temporary password, and delete. An admin cannot change their own
+groups, disable or delete themselves there; `mast users` and `mast
+groups` can.
 * **Admin → Targets** (admin): the targets and the fleets (see
 "Targets and fleets"), and the **Trust** button, which
 shows the certificate and the SSH host key of an appliance before it
@@ -929,38 +933,44 @@ stored credential, SSH needs a pinned host key. On the command line:
     :::bash
     ./mast datapower test-connectivity -a dp1 -a dp2 --credential collector
 
-## Users and roles
+## Users
 
-Every page needs a login. The users are local to MAST, and are kept in
-the job database. There is no sign-up page: an admin adds the users on
-the MAST server with `mast users`. Until there is a user, the web GUI
-shows only how to add the first admin:
-
-    :::bash
-    ./mast users add -u alice -r admin
-
-`mast users` asks for the password; it is never an option. A new user's
-password is temporary, and they choose their own at the first login.
-A password has at least 12 characters and is not the user name.
-
-| Role | May |
-|---|---|
-| `viewer` | See the jobs, with their progress and results. |
-| `operator` | Also run commands, and cancel their own jobs. |
-| `admin` | Also cancel any job, manage the users, the appliances and the stored credentials in the web UI (Admin), add and remove the exceptions of the posture rules, and use credentials for changing. Operators may use the stored credentials for collecting. |
-
-The other commands:
+Every page needs a login, and so does the command line. The users are
+local to MAST, and are kept in the job database. There is no sign-up
+page: an admin adds the users with `mast users`. A new home has no
+user: make its first admin on the MAST server, where only its owner
+can run MAST. It needs no login, and it works only while no enabled
+user may add users, so it is also how to get back in when every admin
+is gone:
 
     :::bash
+    ./mast users add-first-admin -u alice
+    ./mast login -u alice
+
+The first admin is in the groups `viewer`, `operator` and `admin`.
+`mast users` asks for the password; it is never an option. The first
+admin chose their own; any other new user's password is temporary, and
+they choose their own at the first login. A password has at least 12
+characters and is not the user name.
+
+There are no roles: what a user may do is the permission sets of their
+groups (see "Permission sets and groups"). Give a new user their groups
+when you add them, or later with `mast groups`:
+
+    :::bash
+    ./mast users add -u bob -g viewer -g datapower-reader
+    ./mast groups add-member -n datapower-operator -u bob
     ./mast users list
-    ./mast users set-role -u alice -r operator
-    ./mast users set-password -u alice          # add -t to make it temporary
-    ./mast users disable -u alice               # and enable
-    ./mast users delete -u alice
+    ./mast users set-password -u bob            # add -t to make it temporary
+    ./mast users disable -u bob                 # and enable
+    ./mast users delete -u bob
+
+A group change applies at the next request: the web UI and the command
+line ask the permission sets each time.
 
 ## Who the command line acts for
 
-The command line acts for a user of MAST when it has a token of one,
+The command line acts for a user of MAST, with a token of the user,
 found in this order:
 
 1. `MAST_TOKEN`: the token itself.
@@ -989,7 +999,7 @@ add-service` makes one, puts it in groups and writes its token to
 read. Then `mast --as NAME` is all it takes:
 
     :::bash
-    ./mast users add-service -u nightly -r operator -g datapower-reader
+    ./mast users add-service -u nightly -g datapower-reader -g nightly-creds
     # in the crontab of the owner of the home:
     0 2 * * * /opt/mast/mast --as nightly datapower normal-backup -a lab ...
 
@@ -1004,21 +1014,25 @@ another site.
     ./mast users tokens                     # never the secrets; -a for old ones
     ./mast users revoke-token -i 12
 
-Without a token, the command line still acts for the account of the
-operating system as an admin, as in MAST 3.x, and the jobs that it
-submits are recorded as `os:<account>`. A later step of 4.0 removes
-this: then every command line needs a token. Jobs from MAST 3.15.2 and
-older are recorded as `local`; an admin can cancel them, an operator
-cannot.
+Without a token, the command line acts for nobody: a command that
+needs a user says how to log in. Only `mast users add-first-admin`,
+`mast login`, `mast whoami`, `mast plugins list` and `kinds`, `--help`
+and the processes of MAST (`mast daemon`, `web`, `worker`) need none.
+A home that a script sets up (a container, a playbook) makes its first
+admin as a service account: `mast users add-first-admin -u ci
+--service`, then `mast --as ci ...`.
+
+The jobs of MAST 3.x are recorded as `local` or `os:<account>`: nobody
+acts for them any more, so a queued one does not run; an admin can
+cancel it. A schedule of MAST 3.x made on the command line pauses for
+the same reason: add it again as a user.
 
 ## Permission sets and groups
 
-MAST 4.0 replaces the roles with permission sets: rules over the
-*paths* of commands and resources, given to *groups* of users. In this
-release the role of a user still decides what they may do; MAST keeps
-each user in the groups of their role (`viewer`; `viewer` and
-`operator`; or all three for `admin`), and the rules say what they
-would allow. A later release enforces them and removes the roles.
+What a user may do is permission sets: rules over the *paths* of
+commands and resources, given to *groups* of users. Every check of MAST
+asks them: the command line, the web UI and its API, the job queue,
+the schedules, the stored credentials and the terminal.
 
 A path names a command or a resource, and its last segment may end in
 `*`:
@@ -1056,10 +1070,13 @@ applies to all). A renamed target or fleet stays in scope.
 `{"description": ..., "rules": [{"path": "mast/datapower/list-*",
 "allow": ["r", "x"], "scope": {"fleets": ["lab"]}}]}`. `check` says
 whether a user may do something and which rules decide it. MAST makes
-the sets and groups `viewer` (the non-secret views of core), `operator`
-(cancel one's own jobs) and `admin` (manage core: identities,
-permissions, targets, fleets, credentials, schedules, jobs); they can
-be changed. A plugin's commands are granted only by a set that names
+the sets and groups `viewer` (the non-secret views of core, and the
+CBOM export), `operator` (cancel one's own jobs, and take the crypto
+inventory and probe TLS on every target) and `admin` (all of core on
+every target: identities, permissions, targets, fleets, credentials,
+schedules, jobs); they can be changed. A command of core needs `x` on
+its path, and `w` too if it changes something: `mast users add` needs
+`mast/core/add-user`, and so does adding a user in the web UI. A plugin's commands are granted only by a set that names
 them. A plugin defines groups of its own with such sets, which MAST
 makes without members: put the users in them after setup or after
 installing the plugin. DataPower has `datapower-reader` (the commands
@@ -1072,7 +1089,17 @@ that only read, on every appliance; some read secrets, such as
 A newer version of a plugin updates the set of its group, unless an
 admin changed that set; a group that an admin removed is not made
 again. A user who runs jobs with a stored credential also needs `x` on
-it (`mast/credentials/NAME`), which a plugin's group cannot know. The API has the same under `/api/v1/permission-sets`,
+it (`mast/credentials/NAME`) for every target of the job, which a
+plugin's group cannot know:
+
+    :::bash
+    ./mast permissions add -n nightly-creds
+    ./mast permissions add-rule -n nightly-creds -p mast/credentials/dp-reader \
+        --allow x --fleet lab
+    ./mast groups add -n nightly-creds -s nightly-creds
+
+A schedule acts with the permissions of the user who made it, each time
+it fires: if that user may no longer run it, it pauses, and says why. The API has the same under `/api/v1/permission-sets`,
 `/api/v1/groups` and `/api/v1/permissions/check` (admins).
 
 ## Sessions
@@ -1081,7 +1108,7 @@ A session ends:
 
 * at a logout, which also ends the other sessions of the user (a copy
 of the session cookie does not work after it),
-* when the user gets a new password or another role, or is disabled,
+* when the user gets a new password, or is disabled,
 * `idle_minutes` (30) after it was last used, and `max_hours` (12)
 after the login, from the `[auth]` section of `server.conf`.
 

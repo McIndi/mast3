@@ -185,7 +185,7 @@ class TestLogin(WebCase):
             self.post("/logout")
         text = "\n".join(logs.output)
         self.assertIn("Failed login for 'admin'", text)
-        self.assertIn("Login of admin (admin)", text)
+        self.assertIn("Login of admin from", text)
         self.assertIn("Logout of admin", text)
         self.assertNotIn(PASSWORD, text)
         self.assertNotIn("the wrong password", text)
@@ -219,7 +219,6 @@ class TestSessionEnds(WebCase):
     def test_a_new_epoch_ends_the_session(self):
         changes = {
             "set_password": lambda: users.set_password("operator", PASSWORD),
-            "set_role": lambda: users.set_role("operator", "operator"),
             "disable": lambda: users.disable("operator"),
             "delete": lambda: users.delete("operator"),
         }

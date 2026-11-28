@@ -81,3 +81,9 @@ that extends it."""
                      ", ".join(sorted(own)), ", ".join(inherited)))
     return Table(["Kind", "Title", "Plugin", "Extends", "Capabilities",
                   "Inherited capabilities"], rows)
+
+
+# They read what is installed, not the database: like --help, they need
+# no identity of MAST
+for _name in ("list", "kinds"):
+    cli.commands[_name].anonymous = True

@@ -142,7 +142,7 @@ class TestApiAccess(ApiCase):
         self.login("operator")
         me = self.get("/me").get_json()
         self.assertEqual(me["name"], "operator")
-        self.assertEqual(me["role"], "operator")
+        self.assertIn("datapower-operator", me["groups"])
         self.assertEqual(me["csrf_token"], self.token())
         self.assertEqual([page["name"] for page in me["pages"]],
                          ["appliances", "crypto", "jobs", "commands",
@@ -168,9 +168,9 @@ class TestPages(ApiCase):
 
     def test_the_core_registers_its_pages(self):
         found = {page.name: page for page in load_pages()}
-        self.assertEqual(found["jobs"].min_role, "viewer")
-        self.assertEqual(found["commands"].min_role, "operator")
-        self.assertEqual(found["admin"].min_role, "admin")
+        self.assertEqual(found["jobs"].requires, "read")
+        self.assertEqual(found["commands"].requires, "submit")
+        self.assertEqual(found["admin"].requires, "core.list-users")
         self.assertLess(found["jobs"].order, found["admin"].order)
 
     def test_the_pages_of_the_plugins_come_from_their_manifest(self):
@@ -642,7 +642,7 @@ class TestAdminUsers(ApiCase):
 
     def test_an_admin_manages_users(self):
         self.login("admin")
-        answer = self.api_post("/users", {"name": "Dora", "role": "viewer",
+        answer = self.api_post("/users", {"name": "Dora", "groups": ["viewer"],
                                           "password": "a temporary password"})
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(answer.get_json()["name"], "dora")
@@ -656,14 +656,15 @@ class TestAdminUsers(ApiCase):
             return self.client.patch(
                 "/api/v1/users/dora", json=body,
                 headers={"X-CSRF-Token": self.token()})
-        self.assertEqual(patch({"role": "operator"}).get_json()["role"],
-                         "operator")
+        self.assertEqual(patch({"groups": ["operator", "viewer"]})
+                         .get_json()["groups"], ["operator", "viewer"])
         self.assertTrue(patch({"disabled": True}).get_json()["disabled"])
         self.assertFalse(patch({"disabled": False}).get_json()["disabled"])
         answer = patch({"password": "another temp password"})
         self.assertNotIn("another temp password", answer.get_data(as_text=True))
         users.authenticate("dora", "another temp password")
-        self.assertEqual(patch({"role": "root"}).status_code, 422)
+        self.assertEqual(patch({"groups": ["root"]}).status_code, 422)
+        self.assertEqual(users.get("dora").name, "dora")
         self.assertEqual(patch({"password": "short"}).status_code, 422)
         answer = self.client.delete("/api/v1/users/dora",
                                     headers={"X-CSRF-Token": self.token()})
@@ -674,13 +675,13 @@ class TestAdminUsers(ApiCase):
     def test_add_refusals(self):
         self.login("admin")
         for body, field in (
-                ({"name": "admin", "role": "viewer",
+                ({"name": "admin", "groups": ["viewer"],
                   "password": "a temporary password"}, "name"),
-                ({"name": "os:x", "role": "viewer",
+                ({"name": "os:x", "groups": ["viewer"],
                   "password": "a temporary password"}, "name"),
-                ({"name": "eve", "role": "root",
-                  "password": "a temporary password"}, "role"),
-                ({"name": "eve", "role": "viewer", "password": "short"},
+                ({"name": "eve", "groups": ["root"],
+                  "password": "a temporary password"}, "groups"),
+                ({"name": "eve", "groups": ["viewer"], "password": "short"},
                  "password")):
             with self.subTest(body=body):
                 answer = self.api_post("/users", body)
@@ -690,14 +691,15 @@ class TestAdminUsers(ApiCase):
     def test_an_admin_cannot_lock_themselves_out(self):
         self.login("admin")
         headers = {"X-CSRF-Token": self.token()}
-        for body in ({"role": "viewer"}, {"disabled": True}):
+        for body in ({"groups": ["viewer"]}, {"disabled": True}):
             with self.subTest(body=body):
                 self.assertEqual(self.client.patch(
                     "/api/v1/users/admin", json=body,
                     headers=headers).status_code, 400)
         self.assertEqual(self.client.delete(
             "/api/v1/users/admin", headers=headers).status_code, 400)
-        self.assertEqual(users.get("admin").role, "admin")
+        from mast import permissions
+        self.assertIn("admin", permissions.groups_of("admin"))
 
     def test_only_an_admin(self):
         self.login("operator")
@@ -707,10 +709,10 @@ class TestAdminUsers(ApiCase):
     def test_changes_are_logged_without_passwords(self):
         self.login("admin")
         with self.assertLogs("mast.web.auth", "INFO") as logs:
-            self.api_post("/users", {"name": "dora", "role": "viewer",
+            self.api_post("/users", {"name": "dora", "groups": ["viewer"],
                                      "password": "a temporary password"})
         text = "\n".join(logs.output)
-        self.assertIn("Added the user dora with the role viewer (by admin", text)
+        self.assertIn("Added the user dora in viewer (by admin", text)
         self.assertNotIn("a temporary password", text)
 
 

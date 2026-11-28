@@ -55,5 +55,5 @@ def job(job_id):
     return flask.render_template("job.html", job_id=job_id)
 
 
-page = Page(name="jobs", title="Jobs", order=50, min_role="viewer",
+page = Page(name="jobs", title="Jobs", order=50, requires="read",
             blueprint=blueprint)
