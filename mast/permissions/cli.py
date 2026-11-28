@@ -39,6 +39,7 @@ import sys
 
 from mast import permissions
 from mast.cli import Cli, Option, Params, Table, Text
+from mast.jobs.auth import cli_principal
 from mast.roots import CORE
 
 __all__ = ["permissions_cli", "groups_cli"]
@@ -129,7 +130,8 @@ def add_set(params: AddSet):
     rules, description = _read(params.file) if params.file else ([], None)
     return Text("Added " + _show_set(_do(
         permissions.add_set, params.name, rules,
-        params.description or description or "")))
+        params.description or description or "",
+        principal=cli_principal())))
 
 
 class UpdateSet(SetParams):
@@ -147,7 +149,7 @@ def update_set(params: UpdateSet):
     return Text("Updated " + _show_set(_do(
         permissions.update_set, params.name, rules,
         params.description if params.description is not None
-        else description)))
+        else description, principal=cli_principal())))
 
 
 @permissions_cli.command("remove", effect="change",
@@ -209,7 +211,8 @@ def add_rule(params: AddRule):
     elif params.fleet:
         rule["scope"] = {"fleets": params.fleet}
     return Text("Updated " + _show_set(_do(
-        permissions.add_rule, params.name, rule)))
+        permissions.add_rule, params.name, rule,
+        principal=cli_principal())))
 
 
 class RemoveRule(SetParams):
@@ -221,7 +224,8 @@ class RemoveRule(SetParams):
 def remove_rule(params: RemoveRule):
     """Remove a rule of a permission set, by its number."""
     return Text("Updated " + _show_set(_do(
-        permissions.remove_rule, params.name, params.number)))
+        permissions.remove_rule, params.name, params.number,
+        principal=cli_principal())))
 
 
 class Check(Params):

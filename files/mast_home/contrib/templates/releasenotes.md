@@ -159,7 +159,14 @@ fleets, in permission sets that groups of users have:
 `viewer`, `operator` and `admin` and keeps each user in those of their
 role. A plugin defines groups with their sets, which MAST makes
 without members: DataPower's `datapower-reader` and
-`datapower-operator`. The roles still decide what a user may do in this release;
+`datapower-operator`.
+* **Logins, service accounts and tokens on the command line.**
+`mast login`, `mast logout` and `mast whoami`; service accounts for cron
+jobs, scripts and services (`mast users add-service`, then
+`mast --as NAME ...`); `MAST_TOKEN` and `MAST_TOKEN_FILE`; and tokens on
+the API (`Authorization: Bearer`). `mast users tokens`, `rotate-token`
+and `revoke-token` manage them. Without a token the command line still
+acts as the operating system account, until a later step of 4.0. The roles still decide what a user may do in this release;
 `mast permissions check` shows what the rules would decide.
 * **Plugin API 1.** A plugin is a distribution with an entry point
 `mast_plugin` that names its manifest: its provider, version, plugin

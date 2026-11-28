@@ -139,7 +139,9 @@ def create_app(server_conf=None, pages=None):
 
     @app.before_request
     def check_csrf_token():
-        if security.csrf_ok():
+        # A request with a token carries no cookie of the web UI, so
+        # another site cannot make a browser send it
+        if security.csrf_ok() or flask.g.get("mast_by_token"):
             return None
         request = flask.request
         make_logger("gui").warning(

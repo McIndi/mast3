@@ -143,8 +143,9 @@ def require_login(exempt=()):
     _function_: `mast.web.auth.require_login(exempt=())`
 
     Return a `before_request` function that lets a request through
-    only with a valid session. Without one, it redirects to the login
-    page (302). A user who must change their password is sent to the
+    only with a valid session, or, for the API, a token in the header
+    `Authorization: Bearer TOKEN` (`mast.auth.tokens`). Without one, it
+    redirects to the login page (302). A user who must change their password is sent to the
     page for that first. The function puts the user in `flask.g.mast_user`
     and the principal in `flask.g.mast_principal`.
 
@@ -162,6 +163,19 @@ def require_login(exempt=()):
                 or endpoint in exempt:
             return None
         api = flask.request.path.startswith(API_PREFIX)
+        header = flask.request.headers.get("Authorization", "")
+        if api and header[:7].lower() == "bearer ":
+            # A token of mast login or of a service account
+            # (mast.auth.tokens), for scripts that use the API
+            from mast.auth import tokens
+            try:
+                user = tokens.authenticate(header[7:].strip())
+            except tokens.BadToken as exc:
+                return _json_error(401, str(exc))
+            flask.g.mast_user = user
+            flask.g.mast_principal = Principal(user.name, user.role)
+            flask.g.mast_by_token = True
+            return None
         user = session_user()
         if user is None:
             if api:

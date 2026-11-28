@@ -159,6 +159,12 @@ following options can be specified:"""
         copy = copy_home(home, work)
         env = dict(os.environ, MAST_HOME=copy)
         env[ISOLATED] = home
+        # The tests act for their own users, never for the token of the
+        # person who runs them (mast.auth.identity)
+        env["XDG_CONFIG_HOME"] = env["APPDATA"] = os.path.join(work,
+                                                               "config")
+        env.pop("MAST_TOKEN", None)
+        env.pop("MAST_TOKEN_FILE", None)
         args = ["-o", out_file]
         for flag, wanted in (("-u", params.unit), ("-i", params.integration),
                              ("-r", params.regression), ("-A", params.All)):

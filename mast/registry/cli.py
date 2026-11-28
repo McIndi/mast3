@@ -417,7 +417,7 @@ def pin(params: Pin):
     confirm. With --fingerprint it pins the fingerprint that you give and
     does not connect."""
     from mast import trust
-    from mast.jobs.auth import LOCAL
+    from mast.jobs.auth import cli_principal
     target = _do(registry.get, params.name)
     if params.fingerprint:
         if len(params.endpoint) != 1:
@@ -436,7 +436,7 @@ def pin(params: Pin):
                 value = trust.normalize_fingerprint(params.fingerprint)
         except ValueError as exc:
             _fail(exc)
-        _do(registry.pin, params.name, endpoint, value, LOCAL.name, scope)
+        _do(registry.pin, params.name, endpoint, value, cli_principal().name, scope)
         return Text("Pinned {} of {}: {}.".format(
             params.endpoint[0], params.name, value))
     found = trust.preview(target, params.endpoint or None)
@@ -452,7 +452,7 @@ def pin(params: Pin):
         _print_found(params.name, target, label, item)
         if _confirm("Pin it?", params.yes):
             _do(registry.pin, params.name, item["endpoint"], _pin_value(item),
-                LOCAL.name, item["scope"])
+                cli_principal().name, item["scope"])
             lines.append("Pinned {} of {}.".format(label, params.name))
         else:
             lines.append("{} of {} was not pinned.".format(label,
@@ -487,7 +487,7 @@ def review(params: Review):
     certificate or host key, it asks to keep the pin; if not, pin the new
     one with mast targets pin after you checked it."""
     from mast import trust
-    from mast.jobs.auth import LOCAL
+    from mast.jobs.auth import cli_principal
     target = _do(registry.get, params.name)
     scope, endpoint = _endpoint(params.endpoint)
     current = target.trust_for(endpoint, scope)
@@ -518,7 +518,7 @@ def review(params: Review):
     if not _confirm("It is the pinned one. Keep the pin?", params.yes):
         return Text("The pin of {} of {} is still marked for review.".format(
             params.endpoint, params.name))
-    _do(registry.review, params.name, endpoint, LOCAL.name, scope)
+    _do(registry.review, params.name, endpoint, cli_principal().name, scope)
     return Text("Kept the pin of {} of {}.".format(params.endpoint,
                                                    params.name))
 

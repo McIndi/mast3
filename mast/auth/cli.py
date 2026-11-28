@@ -26,6 +26,11 @@ _module_: `mast.auth.cli`
 again.
 * `delete`: Remove a user.
 * `list`: The users.
+* `add-service`: Add a service account, for cron jobs, scripts and
+services, with a token file (`mast --as NAME ...`).
+* `rotate-token`: Give a service account a new token file.
+* `tokens`, `revoke-token`: The tokens of `mast login` and of the
+service accounts.
 
 A password is never an option, so that it is not in the history of
 the shell or in the list of processes. `mast users` asks for it.
@@ -173,9 +178,124 @@ def list_users(params: Params):
         return Text("There are no users. Add the first admin with "
                     "mast users add -u NAME -r admin")
     return Table(
-        ("User", "Role", "State", "Created", "Last login"),
-        [(user.name, user.role,
+        ("User", "Kind", "Role", "State", "Created", "Last login"),
+        [(user.name, user.kind, user.role,
           "disabled" if user.disabled
           else "must change password" if user.must_change else "",
           _when(user.created_at), _when(user.last_login_at))
          for user in found])
+
+
+class AddService(UserParams):
+    role: Role = Option(
+        short="r", help="viewer, operator or admin (until the permission "
+                        "sets decide alone).")
+    group: list[str] = Option(
+        default_factory=list, short="g",
+        help="A group to put it in (mast groups list), such as "
+             "datapower-reader. Give it again for each.")
+    print_token: bool = Option(
+        False, help="Print the token instead of writing the token file, "
+                    "for a service on another host. It is shown only "
+                    "once.")
+
+
+def _issue_service_token(name, print_token):
+    """Make a token for the service account, write its file (or print
+    it) and return the lines to show."""
+    from mast.auth import identity, tokens
+    _, token = tokens.issue(name, "service account {}".format(name),
+                            principal=_who())
+    if print_token:
+        return ["The token of {} (shown only now):".format(name), token]
+    path = identity.service_token_file(name)
+    identity.write_token(path, token)
+    return ["Wrote its token to {}, which only you can read.".format(path),
+            "Run MAST as {} with: mast --as {} ROOT COMMAND ...".format(
+                name, name),
+            "for example in a crontab: mast --as {} datapower "
+            "normal-backup -a lab ...".format(name)]
+
+
+def _who():
+    from mast.jobs.auth import cli_principal
+    return cli_principal().name
+
+
+@cli.command("add-service", effect="change", id="add-service-account")
+def add_service(params: AddService):
+    """Add a service account: an identity for cron jobs, scripts and
+    services, with no password. Its token is written to
+    etc/local/tokens/NAME.token, which only the owner of the home can
+    read, and mast --as NAME uses it. Put it in the groups whose
+    permissions it needs."""
+    from mast import permissions
+    name = _do(users.normalize, params.user)
+    info = _do(users.add_service, name, params.role)
+    for group in params.group:
+        try:
+            permissions.add_member(group, name)
+        except permissions.PermissionError as exc:
+            _fail(exc)
+    lines = ["Added the service account {} with the role {}{}.".format(
+        info.name, info.role, " in " + ", ".join(params.group)
+        if params.group else "")]
+    return Text("\n".join(lines + _issue_service_token(
+        name, params.print_token)))
+
+
+class RotateToken(UserParams):
+    print_token: bool = Option(
+        False, help="Print the new token instead of writing the file.")
+
+
+@cli.command("rotate-token", effect="change", id="rotate-service-token")
+def rotate_token(params: RotateToken):
+    """Revoke every token of a service account and give it a new token
+    file."""
+    from mast.auth import tokens
+    info = _do(users.get, params.user)
+    if info.kind != users.SERVICE:
+        _fail("{} is not a service account: a person logs in with mast "
+              "login.".format(info.name))
+    count = tokens.revoke_all(info.name)
+    return Text("\n".join(["Revoked {} token(s) of {}.".format(
+        count, info.name)] + _issue_service_token(info.name,
+                                                  params.print_token)))
+
+
+class Tokens(Params):
+    user: str | None = Option(None, short="u", help="Only of this user.")
+    all: bool = Option(False, short="a",
+                       help="Also the revoked and expired tokens.")
+
+
+@cli.command("tokens", effect="read", id="list-tokens")
+def list_tokens(params: Tokens):
+    """List the tokens (never their secrets): of mast login, and of the
+    service accounts."""
+    from mast.auth import tokens
+    found = [t for t in tokens.list_tokens(params.user)
+             if params.all or t.active]
+    return Table(("Id", "User", "For", "Created", "Last used", "Expires",
+                  "State"),
+                 [(t.id, t.user, t.name, _when(t.created_at),
+                   _when(t.last_used_at), _when(t.expires_at),
+                   "active" if t.active else "revoked"
+                   if t.revoked_at else "expired") for t in found])
+
+
+class RevokeToken(Params):
+    id: int = Option(short="i", help="The id of the token (mast users "
+                                     "tokens).")
+
+
+@cli.command("revoke-token", effect="change", id="revoke-token")
+def revoke_token(params: RevokeToken):
+    """Revoke a token. Whoever uses it is refused from now on."""
+    from mast.auth import tokens
+    try:
+        found = tokens.revoke(params.id)
+    except tokens.BadToken as exc:
+        _fail(exc)
+    return Text("Revoked the token {} of {}.".format(found.id, found.user))

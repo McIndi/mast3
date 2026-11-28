@@ -698,7 +698,7 @@ class TestMastCommand(unittest.TestCase):
         for argv in ((), ("--help",), ("-h",)):
             code, out, _ = self.run_mast(*argv)
             self.assertEqual(code, 0)
-            self.assertIn("usage: mast [--home PATH] ROOT", out)
+            self.assertIn("usage: mast [--home PATH] [--as NAME] ROOT", out)
             for name in roots.ROOTS:
                 self.assertRegex(out, r"(?m)^  {} ".format(name))
             self.assertRegex(out, r"(?m)^  datapower +IBM DataPower")

@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from mast.auth import roles
 
 __all__ = ["Principal", "LOCAL", "Forbidden", "authorize", "os_principal",
-           "principal_of"]
+           "principal_of", "cli_principal"]
 
 
 @dataclass(frozen=True)
@@ -78,6 +78,19 @@ LOCAL = os_principal()
 
 class Forbidden(Exception):
     """The principal may not do what it asked for."""
+
+
+def cli_principal():
+    """
+    _function_: `mast.jobs.auth.cli_principal()`
+
+    Return the `Principal` of the command line: the user of its token
+    (`mast login`, `mast --as NAME`, `MAST_TOKEN`), see
+    `mast.auth.identity`.
+    """
+    # Imported here: the identity reads the tokens in the database
+    from mast.auth import identity
+    return identity.cli_principal()
 
 
 def principal_of(name):

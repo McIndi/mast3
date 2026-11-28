@@ -52,3 +52,11 @@ for _name in ("etc/local", "tmp", "var/log"):
 from mast import home
 home.enter(_home)
 atexit.register(shutil.rmtree, _tmp, ignore_errors=True)
+
+# The tests act for their own users, never for the token of the person
+# who runs them (mast login, mast --as, MAST_TOKEN): see
+# mast.auth.identity
+os.environ["XDG_CONFIG_HOME"] = os.environ["APPDATA"] = os.path.join(
+    _tmp, "config")
+os.environ.pop("MAST_TOKEN", None)
+os.environ.pop("MAST_TOKEN_FILE", None)

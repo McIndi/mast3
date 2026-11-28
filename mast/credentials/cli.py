@@ -45,7 +45,7 @@ from mast.cli import Cli, Option, Params, Table, Text
 from mast.plugins import TEST_CREDENTIALS
 from mast.roots import CORE
 from mast.credentials import keys, store, testing
-from mast.jobs.auth import LOCAL, Forbidden
+from mast.jobs.auth import Forbidden, cli_principal
 
 __all__ = ["cli"]
 
@@ -189,7 +189,7 @@ def add(params: Add):
     secret = _secret(params.type, params.key_file, params.password_stdin)
     return Text("Stored " + _show(_do(
         store.create, params.name, params.username, purpose=params.purpose,
-        bindings=params.bind, principal=LOCAL,
+        bindings=params.bind, principal=cli_principal(),
         description=params.description, type=params.type, **secret)))
 
 
@@ -211,7 +211,7 @@ def replace(params: Replace):
     credential = _do(store.get, params.name)
     secret = _secret(credential.type, params.key_file, params.password_stdin)
     return Text("Replaced the secret of " + _show(_do(
-        store.replace_secret, params.name, principal=LOCAL,
+        store.replace_secret, params.name, principal=cli_principal(),
         username=params.username, **secret)))
 
 
@@ -225,7 +225,7 @@ class Update(NameParams):
 def update(params: Update):
     """Change the description or the purpose of a credential."""
     return Text("Updated " + _show(_do(
-        store.update, params.name, principal=LOCAL,
+        store.update, params.name, principal=cli_principal(),
         description=params.description, purpose=params.purpose)))
 
 
@@ -241,7 +241,7 @@ def rebind(params: Rebind):
     """Change the targets and fleets that a credential may be used
     for."""
     return Text("Rebound " + _show(_do(
-        store.rebind, params.name, params.bind, principal=LOCAL)))
+        store.rebind, params.name, params.bind, principal=cli_principal())))
 
 
 class Delete(NameParams):
@@ -256,7 +256,7 @@ def delete(params: Delete):
         answer = input("Delete the credential {}? [y/N] ".format(params.name))
         if answer.strip().lower() not in ("y", "yes"):
             return Text("Nothing was deleted.")
-    _do(store.delete_credential, params.name, principal=LOCAL)
+    _do(store.delete_credential, params.name, principal=cli_principal())
     return Text("Deleted the credential {}.".format(params.name))
 
 
@@ -309,10 +309,10 @@ def test(params: Test):
     except testing.NotATest as exc:
         _fail(exc)
     _do(queue.submit, command,
-        testing.params(params.name, params.appliance), principal=LOCAL,
+        testing.params(params.name, params.appliance), principal=cli_principal(),
         attached=True, job_id=job_id)
-    client.follow(job_id, principal=LOCAL, worker_id=worker_id)
-    outcome = _do(testing.record, params.name, job_id, principal=LOCAL)
+    client.follow(job_id, principal=cli_principal(), worker_id=worker_id)
+    outcome = _do(testing.record, params.name, job_id, principal=cli_principal())
     credential = _do(store.get, params.name)
     lines = ["The credential {} {} on {}.".format(
         params.name, "works" if outcome.ok else "does not work",
@@ -342,7 +342,7 @@ def rotate_key(params: RotateKey):
                        "[y/N] ")
         if answer.strip().lower() not in ("y", "yes"):
             return Text("Nothing was changed.")
-    count = _do(store.rotate_key, principal=LOCAL)
+    count = _do(store.rotate_key, principal=cli_principal())
     return Text("Made a new key and encrypted {} credential(s) again. "
                 "Back up the key file now.".format(count))
 

@@ -21,7 +21,7 @@ needs is in it, and everything MAST writes goes into it.
 | `mast`, `mast-python`, `set-env` (`.bat` on Windows) | The launchers: the `mast` command, and the Python of MAST for the scripts in `contrib`. | MAST's |
 | `python/<version>` | The Python of MAST, with every library. | MAST's |
 | `etc/default` | The default configuration. Do not change it. An upgrade replaces it. | MAST's |
-| `etc/local` | Your configuration, and the keys that MAST makes (`jobs.key`, `server.key`). | Yours |
+| `etc/local` | Your configuration, the keys that MAST makes (`jobs.key`, `server.key`), and the token files of the service accounts (`tokens/NAME.token`). | Yours |
 | `etc/crypto` | The certificate and private key of the web GUI. | Yours |
 | `etc/crontab` | The scheduled tasks of `mastd`, if you made the file. | Yours |
 | `var/jobs` | The job queue, when it is the default SQLite database. | Yours |
@@ -958,11 +958,58 @@ The other commands:
     ./mast users disable -u alice               # and enable
     ./mast users delete -u alice
 
-The command line of MAST needs no login. Whoever can run it on the MAST
-server can read its database and its key files, so it is an admin. The
-jobs that it submits are recorded as `os:<account>`, the operating
-system account that ran it. Jobs from MAST 3.15.2 and older are
-recorded as `local`; an admin can cancel them, an operator cannot.
+## Who the command line acts for
+
+The command line acts for a user of MAST when it has a token of one,
+found in this order:
+
+1. `MAST_TOKEN`: the token itself.
+2. `MAST_TOKEN_FILE`: a file with the token. `mast --as NAME` sets it to
+   the token file of the service account `NAME`.
+3. The token of `mast login`.
+
+A token that is given but does not work (revoked, expired, of a
+disabled user) is an error: the command line never acts for someone
+else instead. `mast whoami` shows who it acts for and why.
+
+A person logs in once. The token is kept in their own account
+(`~/.config/mast/tokens`, `%APPDATA%\mast\tokens` on Windows), for this
+home, and expires after the `max_hours` of `[auth]` in `server.conf`,
+as a session of the web UI does:
+
+    :::bash
+    ./mast login -u alice
+    ./mast whoami
+    ./mast logout
+
+Cron jobs, `contrib` scripts and services use a service account: a user
+without a password, which cannot log in to the web UI. `mast users
+add-service` makes one, puts it in groups and writes its token to
+`etc/local/tokens/NAME.token`, which only the owner of the home can
+read. Then `mast --as NAME` is all it takes:
+
+    :::bash
+    ./mast users add-service -u nightly -r operator -g datapower-reader
+    # in the crontab of the owner of the home:
+    0 2 * * * /opt/mast/mast --as nightly datapower normal-backup -a lab ...
+
+For a script on another host, `--print-token` prints the token once
+instead of writing the file; give it to the script in `MAST_TOKEN`, or
+in `Authorization: Bearer TOKEN` on the API. A token on the API needs
+no CSRF token, because it is not a cookie that a browser sends for
+another site.
+
+    :::bash
+    ./mast users rotate-token -u nightly    # a new file; the old token stops
+    ./mast users tokens                     # never the secrets; -a for old ones
+    ./mast users revoke-token -i 12
+
+Without a token, the command line still acts for the account of the
+operating system as an admin, as in MAST 3.x, and the jobs that it
+submits are recorded as `os:<account>`. A later step of 4.0 removes
+this: then every command line needs a token. Jobs from MAST 3.15.2 and
+older are recorded as `local`; an admin can cancel them, an operator
+cannot.
 
 ## Permission sets and groups
 

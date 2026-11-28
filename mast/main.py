@@ -29,7 +29,12 @@ MAST runs in its home. The home is `--home`, else the `MAST_HOME`
 environment variable, else the current folder or the folder of the
 interpreter (see `mast.home`). `mast`, `mast --help` and
 `mast ROOT --help` for a plugin need no home.
+
+`--as NAME` acts for the service account `NAME`, with its token file
+(see `mast.auth.identity`): `mast --as nightly datapower normal-backup
+...` in a cron job.
 """
+import os
 import sys
 
 from mast import home, plugins, roots
@@ -40,7 +45,8 @@ PROG = "mast"
 
 
 def _usage():
-    lines = ["usage: mast [--home PATH] ROOT [ARGUMENTS ...]", "",
+    lines = ["usage: mast [--home PATH] [--as NAME] ROOT [ARGUMENTS ...]",
+             "",
              "McIndi's Automated Solutions Tool.", "", "core:"]
     width = max(len(name) for name in roots.ROOTS) + 2
     for name, root in roots.ROOTS.items():
@@ -66,20 +72,33 @@ def _fail(message):
     return 2
 
 
+# The service account that `--as` named, for _enter
+_as = None
+
+
 def _split(argv):
-    """Return (home or None, root or None, the rest). Raises ValueError."""
+    """Return (home or None, root or None, the rest). Raises ValueError.
+    `--as NAME` is kept for _enter."""
+    global _as
     argv = list(argv)
     home_path = None
+    _as = None
     while argv and argv[0].startswith("-"):
         option = argv.pop(0)
         if option in ("-h", "--help"):
             return home_path, None, []
-        if option == "--home":
+        if option in ("--home", "--as"):
             if not argv:
-                raise ValueError("--home needs a PATH")
-            home_path = argv.pop(0)
+                raise ValueError("{} needs a value".format(option))
+            value = argv.pop(0)
+            if option == "--home":
+                home_path = value
+            else:
+                _as = value
         elif option.startswith("--home="):
             home_path = option.partition("=")[2]
+        elif option.startswith("--as="):
+            _as = option.partition("=")[2]
         elif option == "--version":
             return home_path, "version", []
         else:
@@ -95,6 +114,18 @@ def _enter(home_path):
     except home.MastHomeNotFound as exc:
         sys.stderr.write("{}\n".format(exc))
         raise SystemExit(2)
+    if _as:
+        # The token file of the service account, which only the owner
+        # of the home can read (mast.auth.identity)
+        from mast.auth import identity
+        path = identity.service_token_file(_as)
+        if not os.path.exists(path):
+            raise SystemExit(_fail(
+                "there is no token file of the service account {} ({}). "
+                "Make one with mast users add-service or mast users "
+                "rotate-token.".format(_as, path)))
+        os.environ["MAST_TOKEN_FILE"] = path
+        os.environ.pop("MAST_TOKEN", None)
 
 
 def main(argv=None):
@@ -113,6 +144,16 @@ def main(argv=None):
         sys.stdout.write(_usage())
         return 0
 
+    try:
+        return _run(home_path, root, rest)
+    except Exception as exc:
+        # A token that does not work (mast.auth.identity.IdentityError)
+        if type(exc).__name__ == "IdentityError":
+            return _fail(exc)
+        raise
+
+
+def _run(home_path, root, rest):
     found = roots.ROOTS.get(root)
     if found is not None:
         if found.program:
