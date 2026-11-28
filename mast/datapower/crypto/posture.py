@@ -53,10 +53,12 @@ from .rules import (RULES, SEVERITIES, Setup, View, self_checks, settings,
 __all__ = ["evaluate", "latest_snapshots", "findings_of", "self_check_findings",
            "score", "counts", "summary", "add_exception", "remove_exception",
            "list_exceptions", "expiry_of", "reapply", "ExceptionError",
-           "MANAGE"]
+           "MANAGE", "REMOVE"]
 
-# The action of mast.auth.roles that adding or removing an exception needs
-MANAGE = "manage-exception"
+# What adding an exception needs (mast.jobs.auth.authorize); removing one
+# needs REMOVE
+MANAGE = "core.crypto-exception-add"
+REMOVE = "core.crypto-exception-remove"
 
 
 class ExceptionError(ValueError):
@@ -429,7 +431,7 @@ def add_exception(rule_id, object_pattern, reason, expires, principal,
     Accept the findings of the rule `rule_id` on the objects whose name
     matches `object_pattern` (a shell pattern: `*`, `lab-*`), on
     `appliance` and in `domain` if given, until `expires` (see
-    `expiry_of`). `principal` needs `manage-exception` (an admin).
+    `expiry_of`). `principal` needs `core.crypto-exception-add`.
     Returns the exception as a dict. Raises `ExceptionError`.
     """
     from mast.jobs import db
@@ -485,11 +487,11 @@ def remove_exception(exception_id, principal, now=None):
     exception_id, principal, now=None)`
 
     Remove an exception: its findings count again. `principal` needs
-    `manage-exception`.
+    `core.crypto-exception-remove`.
     """
     from mast.jobs import db
     from mast.jobs.auth import authorize
-    authorize(principal, MANAGE)
+    authorize(principal, REMOVE)
     with db.session() as session:
         row = session.get(CryptoException, exception_id)
         if row is None:
@@ -523,10 +525,10 @@ def _principal():
     """Who runs this command: who submitted its job, or the account of
     the operating system outside a job."""
     from mast.jobs import queue
-    from mast.jobs.auth import LOCAL, principal_of
+    from mast.jobs.auth import SYSTEM, principal_of
     from mast.jobs.runner import current_job
     job = current_job()
-    return principal_of(queue.get(job).submitted_by) if job else LOCAL
+    return principal_of(queue.get(job).submitted_by) if job else SYSTEM
 
 
 def _findings_table(findings):

@@ -33,13 +33,14 @@ from mast.datapower.crypto.models import (
 from mast.datapower.crypto.rules import Settings
 from mast.jobs import db
 from mast.jobs.auth import Forbidden, Principal
-from mast.testsuite.unit.test_mast_credentials import ADMIN
+from mast.testsuite.unit.test_mast_auth import as_role
+from mast.testsuite.unit.test_mast_credentials import ADMIN, role_users
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import WebCase
 
 T0 = datetime(2026, 11, 23, 18, 0, tzinfo=timezone.utc)
 D = "app1"
-OPERATOR = Principal("otto", "operator")
+OPERATOR = Principal("otto")
 
 
 def obj(cls, name, attrs=None, state="enabled", plaintext=False,
@@ -100,6 +101,7 @@ class PostureCase(SqliteCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         if not self.pqc:
             baseline_only(self)
         registry.add("dp1", "datapower", "10.0.0.1")
@@ -598,25 +600,24 @@ class TestCommands(PostureCase):
 
     def test_exceptions_through_the_queue(self):
         from mast.auth import users
-        users.add("ada", "a-long-password-1", "admin")
-        users.add("otto", "a-long-password-2", "operator")
+        users.add("ada", "a-long-password-1", as_role("admin"))
+        users.add("otto", "a-long-password-2", as_role("operator"))
+        from mast.jobs.auth import Forbidden
         posture.evaluate(self.snapshot_id)
         job = jobs.submit("core.crypto-exception-add", {
             "rule": "cert-expired", "pattern": "old", "expires": "30d",
             "reason": "Replaced in the change of next week"},
-            principal=Principal("ada", "admin"))
+            principal=Principal("ada"))
         jobs.run_next("w1")
         self.assertEqual(jobs.get(job).status, jobs.SUCCEEDED, jobs.get(job).error)
         self.assertEqual(jobs.result(job).data["rows"][0][1], "cert-expired")
         self.assertTrue(posture.findings_of([self.snapshot_id])[0]["exception"])
-        # An operator may not
-        job = jobs.submit("core.crypto-exception-add", {
-            "rule": "cert-expired", "pattern": "x", "expires": "30d",
-            "reason": "Replaced in the change of next week"},
-            principal=OPERATOR)
-        jobs.run_next("w1")
-        self.assertEqual(jobs.get(job).status, jobs.FAILED)
-        self.assertIn("manage-exception", jobs.get(job).error)
+        # An operator may not: it is refused before it is queued
+        with self.assertRaisesRegex(Forbidden, "crypto-exception-add"):
+            jobs.submit("core.crypto-exception-add", {
+                "rule": "cert-expired", "pattern": "x", "expires": "30d",
+                "reason": "Replaced in the change of next week"},
+                principal=OPERATOR)
         listed = posture.exceptions()
         self.assertEqual(len(listed.data()["rows"]), 1)
         removed = posture.exception_remove(id=int(listed.data()["rows"][0][0]))
@@ -704,6 +705,7 @@ class TestCryptoPage(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         baseline_only(self)
         self.key_file = os.path.join(tempfile.mkdtemp(dir=self.tmp), "k")
         patcher = mock.patch("mast.jobs.config.credentials_key_file",

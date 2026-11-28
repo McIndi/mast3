@@ -235,7 +235,7 @@ async function detail(appliance, cell) {
         }
     }
     const links = [el("a", {href: "/jobs?appliance=" + encodeURIComponent(appliance.name)}, "Jobs for this appliance")];
-    if (me && me.role !== "viewer") {
+    if (me && me.may.submit) {
         links.push(" · ", el("a", {href: "/commands?appliance=" + encodeURIComponent(appliance.name)}, "Run a command"));
     }
     parts.push(el("div", {className: "small"}, ...links));

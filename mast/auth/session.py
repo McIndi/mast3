@@ -121,18 +121,19 @@ def whoami(argv):
         prog="mast whoami",
         description="Show who the command line acts for, and where its "
                     "token comes from.").parse_args(argv)
+    from mast import permissions
     from mast.auth import identity
     token, source = identity.current_token()
     try:
         who = identity.cli_principal()
+    except identity.NoIdentity as exc:
+        print("Nobody: there is no token. {}".format(
+            str(exc).split(". ", 1)[1]))
+        return 0
     except identity.IdentityError as exc:
         sys.stderr.write("mast whoami: {}\n".format(exc))
         return 1
-    if token is None:
-        print("{} ({}): no token, so the command line acts for the account "
-              "of the operating system. Log in with mast login, or use a "
-              "service account (mast --as NAME).".format(who.name, who.role))
-    else:
-        print("{} ({}), with the token of {}.".format(who.name, who.role,
-                                                     source))
+    groups = permissions.groups_of(who.acts_for)
+    print("{} (groups: {}), with the token of {}.".format(
+        who.name, ", ".join(groups) or "none", source))
     return 0

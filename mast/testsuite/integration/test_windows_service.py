@@ -89,8 +89,23 @@ class TestWindowsService(unittest.TestCase):
         # in the home, with cmd.exe.
         cls.write(os.path.join(cls.home, "etc"), "crontab", [
             "* * * * * echo scheduled-42 && echo done> tmp\\scheduled.txt"])
-        cls.env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
+        cls.env = {k: v for k, v in os.environ.items()
+                   if k not in ("MAST_HOME", "MAST_TOKEN", "MAST_TOKEN_FILE")}
         cls.cwd = os.path.dirname(cls.home)
+        # The command line acts for a user of MAST: the first admin, a
+        # service account that may also run the commands of DataPower.
+        # The home is not a copy: an earlier run may have made it.
+        token_file = os.path.join(local, "tokens", "ci.token")
+        if not os.path.exists(token_file):
+            for argv in (("users", "add-first-admin", "-u", "ci",
+                          "--service"),
+                         ("--as", "ci", "groups", "add-member", "-n",
+                          "datapower-operator", "-u", "ci")):
+                out = cls.run_mast("mast.bat", *argv)
+                if out.returncode != 0:
+                    raise AssertionError("mast {} failed:\n{}".format(
+                        " ".join(argv), out.stdout))
+        cls.env["MAST_TOKEN_FILE"] = token_file
         # MAST keeps the appliances in its database
         out = cls.run_mast("mast.bat", "targets", "import")
         if "Added the environment lab" not in out.stdout:

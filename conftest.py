@@ -60,3 +60,9 @@ os.environ["XDG_CONFIG_HOME"] = os.environ["APPDATA"] = os.path.join(
     _tmp, "config")
 os.environ.pop("MAST_TOKEN", None)
 os.environ.pop("MAST_TOKEN_FILE", None)
+
+# The unit tests call the commands of core without a token: they act as
+# MAST itself. The tests of identities and enforcement set it back.
+from mast.auth import identity  # noqa: E402
+from mast.jobs.auth import SYSTEM  # noqa: E402
+identity.WITHOUT_TOKEN = SYSTEM

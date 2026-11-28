@@ -44,8 +44,6 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(64), unique=True)
     # See mast.auth.passwords
     password_hash: Mapped[str] = mapped_column(String(255))
-    # "viewer", "operator" or "admin", see mast.auth.roles
-    role: Mapped[str] = mapped_column(String(16))
     # "person", or "service": an account for scripts and services, which
     # has no password and uses only tokens (mast.auth.tokens)
     kind: Mapped[str] = mapped_column(String(16))

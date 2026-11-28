@@ -50,8 +50,8 @@ def _body():
     return body if isinstance(body, dict) else {}
 
 
-def _admin():
-    jobs_auth.authorize(principal(), "manage-user")
+def _admin(command):
+    jobs_auth.authorize(principal(), "core." + command)
 
 
 def _changed(message):
@@ -88,7 +88,7 @@ def list_sets():
 
     Exposed at: `/api/v1/permission-sets` via GET
     """
-    _admin()
+    _admin("list-permission-sets")
     return flask.jsonify({"permission_sets": [
         found.json() for found in permissions.list_sets()]})
 
@@ -100,7 +100,7 @@ def add_set():
 
     Exposed at: `/api/v1/permission-sets` via POST
     """
-    _admin()
+    _admin("add-permission-set")
     body = _body()
     try:
         rules = body.get("rules") or []
@@ -122,7 +122,7 @@ def get_set(name):
 
     Exposed at: `/api/v1/permission-sets/<name>` via GET
     """
-    _admin()
+    _admin("show-permission-set")
     try:
         return flask.jsonify(permissions.get_set(name).json())
     except Exception as exc:
@@ -136,7 +136,7 @@ def change_set(name):
 
     Exposed at: `/api/v1/permission-sets/<name>` via PATCH
     """
-    _admin()
+    _admin("update-permission-set")
     body = _body()
     try:
         rules = body.get("rules")
@@ -157,7 +157,7 @@ def remove_set(name):
 
     Exposed at: `/api/v1/permission-sets/<name>` via DELETE
     """
-    _admin()
+    _admin("remove-permission-set")
     try:
         permissions.remove_set(name)
     except Exception as exc:
@@ -173,7 +173,7 @@ def list_groups():
 
     Exposed at: `/api/v1/groups` via GET
     """
-    _admin()
+    _admin("list-groups")
     return flask.jsonify({"groups": [
         found.json() for found in permissions.list_groups()]})
 
@@ -185,7 +185,7 @@ def add_group():
 
     Exposed at: `/api/v1/groups` via POST
     """
-    _admin()
+    _admin("add-group")
     body = _body()
     try:
         found = permissions.add_group(
@@ -204,7 +204,7 @@ def get_group(name):
 
     Exposed at: `/api/v1/groups/<name>` via GET
     """
-    _admin()
+    _admin("show-group")
     try:
         return flask.jsonify(permissions.get_group(name).json())
     except Exception as exc:
@@ -220,7 +220,7 @@ def change_group(name):
 
     Exposed at: `/api/v1/groups/<name>` via PATCH
     """
-    _admin()
+    _admin("update-group")
     body = _body()
     try:
         sets = _list(body.get("sets"), "sets")
@@ -252,7 +252,7 @@ def remove_group(name):
 
     Exposed at: `/api/v1/groups/<name>` via DELETE
     """
-    _admin()
+    _admin("remove-group")
     try:
         permissions.remove_group(name)
     except Exception as exc:
@@ -270,7 +270,7 @@ def user_permissions(name):
 
     Exposed at: `/api/v1/users/<name>/permissions` via GET
     """
-    _admin()
+    _admin("show-effective-permissions")
     try:
         return flask.jsonify({
             "user": name, "groups": permissions.groups_of(name),
@@ -290,7 +290,7 @@ def check():
 
     Exposed at: `/api/v1/permissions/check` via POST
     """
-    _admin()
+    _admin("check-permission")
     body = _body()
     try:
         user = str(body.get("user") or "")

@@ -42,7 +42,7 @@ parameters. A client puts a job in the queue and a worker runs it:
 The database is SQLite in `$MAST_HOME/var/jobs` unless `jobs.conf`
 names another. See `mast.jobs.queue` for the rules of the queue.
 """
-from mast.jobs.auth import LOCAL, Forbidden, Principal
+from mast.jobs.auth import SYSTEM, Forbidden, Principal
 from mast.jobs.models import (
     CANCELLED, FAILED, FINISHED, LOST, PARTIAL, QUEUED, RUNNING, SUCCEEDED)
 from mast.jobs.queue import (
@@ -61,7 +61,7 @@ __all__ = [
     "new_worker_id", "run_job", "run_next",
     "register", "resolve",
     "JobInfo", "EventInfo", "ResultInfo", "Heartbeat", "WorkerInfo",
-    "Principal", "LOCAL", "Forbidden",
+    "Principal", "SYSTEM", "Forbidden",
     "JobNotFound", "NotOwner", "NotQueued", "UnknownCommand",
     "TargetRefused",
     "QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED",

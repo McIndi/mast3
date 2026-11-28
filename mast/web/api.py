@@ -142,24 +142,31 @@ def me():
     """
     _function_: `mast.web.api.me()`
 
-    The user of the session: `name`, `role`, `csrf_token`, the
-    `pages` that the user may see, and what the role `may` do.
+    The user of the session: `name`, `groups`, `csrf_token`, the
+    `pages` that the user may see, and what the user `may` do:
+    `submit` (run a command of a plugin), `cancel-any` (cancel the jobs
+    of others) and `cancel-own`.
 
     Exposed at: `/api/v1/me` via GET
     """
-    from mast.auth import roles
+    from mast import permissions
     user = flask.g.mast_user
+    who = principal()
     pages = flask.current_app.config.get("MAST_PAGES", [])
     return flask.jsonify({
         "name": user.name,
-        "role": user.role,
+        "groups": permissions.groups_of(user.name),
         "csrf_token": security.csrf_token(),
         "pages": [{"name": page.name, "title": page.title,
                    "path": page.path, "nav": [list(item) for item in page.nav]}
-                  for page in pages
-                  if roles.at_least(user.role, page.min_role)],
-        "may": {action: roles.allowed(user.role, action)
-                for action in roles.ACTIONS},
+                  for page in pages if page.visible_to(who)],
+        "may": {
+            "submit": jobs_auth.may(who, "submit"),
+            "cancel-any": permissions.decide(
+                user.name, "x", "mast/core/cancel-job").allowed,
+            "cancel-own": permissions.decide(
+                user.name, "x", "mast/core/cancel-own-job").allowed,
+        },
     })
 
 
@@ -222,6 +229,14 @@ def choices(widget):
         appliances = [str(a) for a in body.get("appliances") or []]
         if not appliances:
             return flask.jsonify({"choices": []})
+        from mast import registry
+        try:
+            # Asking the appliances is running the lookup on them
+            jobs_auth.authorize(principal(), "submit",
+                                command=dp_choices.LOOKUP_COMMAND,
+                                targets=appliances)
+        except registry.UnknownName as exc:
+            return error(400, str(exc))
         if body.get("credential"):
             return _lookup(widget, appliances, body)
         from mast.datapower.datapower import Environment
@@ -729,7 +744,7 @@ def kinds():
     Exposed at: `/api/v1/kinds` via GET
     """
     from mast import plugins
-    jobs_auth.authorize(principal(), "read")
+    jobs_auth.authorize(principal(), "core.list-kinds")
     return flask.jsonify({"kinds": [
         _kind_json(kind) for _, kind in sorted(plugins.kinds().items())]})
 
@@ -744,7 +759,7 @@ def targets():
     Exposed at: `/api/v1/targets` via GET
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "read")
+    jobs_auth.authorize(principal(), "core.list-targets")
     return flask.jsonify({"targets": [
         _target_json(t) for t in registry.list_targets(
             flask.request.args.get("kind") or None)]})
@@ -768,7 +783,7 @@ def add_target():
     Exposed at: `/api/v1/targets` via POST
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.add-target")
     body = _body()
     try:
         found = registry.add(
@@ -794,7 +809,7 @@ def change_target(name):
     Exposed at: `/api/v1/targets/<name>` via PATCH
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.update-target")
     body = _body()
     try:
         extra = {}
@@ -819,7 +834,7 @@ def remove_target(name):
     Exposed at: `/api/v1/targets/<name>` via DELETE
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.remove-target")
     try:
         registry.remove(name)
     except registry.RegistryError as exc:
@@ -839,7 +854,7 @@ def extend_target(name):
     Exposed at: `/api/v1/targets/<name>/extensions` via POST
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.extend-target")
     body = _body()
     change = registry.update_extension if body.get("update") \
         else registry.extend
@@ -862,7 +877,7 @@ def unextend_target(name, kind):
     Exposed at: `/api/v1/targets/<name>/extensions/<kind>` via DELETE
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.unextend-target")
     try:
         found = registry.unextend(name, kind,
                                   flask.request.args.get("entry") or "")
@@ -887,7 +902,7 @@ def trust_target(name):
     Exposed at: `/api/v1/targets/<name>/trust` via PATCH
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.trust-target")
     body = _body()
     endpoint, scope = _endpoint_of(body)
     try:
@@ -912,7 +927,7 @@ def preview_pin(name):
     Exposed at: `/api/v1/targets/<name>/pin/preview` via POST
     """
     from mast import registry, trust
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.pin-target")
     body = _body()
     try:
         record = registry.get(name)
@@ -934,7 +949,7 @@ def pin_target(name):
     Exposed at: `/api/v1/targets/<name>/pin` via POST
     """
     from mast import registry, trust
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.pin-target")
     pins = _body().get("pins") or []
     if not pins:
         return error(422, "Give pins: [{endpoint, scope, value}].")
@@ -973,7 +988,7 @@ def unpin_target(name):
     Exposed at: `/api/v1/targets/<name>/unpin` via POST
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.unpin-target")
     endpoint, scope = _endpoint_of(_body())
     try:
         found = registry.unpin(name, endpoint, scope)
@@ -995,7 +1010,7 @@ def review_target(name):
     Exposed at: `/api/v1/targets/<name>/review` via POST
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.review-target")
     endpoint, scope = _endpoint_of(_body())
     try:
         found = registry.review(name, endpoint, principal().name, scope)
@@ -1015,7 +1030,7 @@ def fleets():
     Exposed at: `/api/v1/fleets` via GET
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "read")
+    jobs_auth.authorize(principal(), "core.list-fleets")
     return flask.jsonify({"fleets": [
         f.model_dump(mode="json") for f in registry.fleet_list()]})
 
@@ -1030,7 +1045,7 @@ def add_fleet():
     Exposed at: `/api/v1/fleets` via POST
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.add-fleet")
     body = _body()
     try:
         found = registry.fleet_add(
@@ -1054,7 +1069,7 @@ def change_fleet(name):
     Exposed at: `/api/v1/fleets/<name>` via PATCH
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.update-fleet")
     body = _body()
     try:
         found = registry.fleet_update(
@@ -1077,7 +1092,7 @@ def remove_fleet(name):
     Exposed at: `/api/v1/fleets/<name>` via DELETE
     """
     from mast import registry
-    jobs_auth.authorize(principal(), "manage-appliance")
+    jobs_auth.authorize(principal(), "core.remove-fleet")
     try:
         registry.fleet_remove(name)
     except registry.RegistryError as exc:

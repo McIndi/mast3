@@ -31,7 +31,7 @@ from mast import permissions
 from mast.auth import identity, session, tokens, users
 from mast.auth.models import ApiToken
 from mast.jobs import auth, db
-from mast.testsuite.unit.test_mast_auth import fast_hashes
+from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import PASSWORD, WebCase
 
@@ -50,6 +50,10 @@ def _private(case):
             case.addCleanup(os.environ.__setitem__, name, value)
     identity.reset()
     case.addCleanup(identity.reset)
+    # Without a token the command line is nobody, as outside the tests
+    patcher = mock.patch.object(identity, "WITHOUT_TOKEN", None)
+    patcher.start()
+    case.addCleanup(patcher.stop)
     home = tempfile.mkdtemp(prefix="mast-identity-home-")
     patcher = mock.patch.object(identity, "_home", lambda: home)
     patcher.start()
@@ -67,13 +71,23 @@ def _quiet(function, *args):
     return status or 0, out.getvalue(), err.getvalue()
 
 
+def act_as(case, user):
+    """Make the command line act for `user`, with a token of it in
+    MAST_TOKEN, for the rest of the test."""
+    _, token = tokens.issue(user, "test")
+    patcher = mock.patch.dict(os.environ, {"MAST_TOKEN": token})
+    patcher.start()
+    case.addCleanup(patcher.stop)
+    identity.reset()
+
+
 class IdentityCase(SqliteCase):
 
     def setUp(self):
         super().setUp()
         fast_hashes(self)
         self.home = _private(self)
-        users.add("alice", PASSWORD, "operator")
+        users.add("alice", PASSWORD, as_role("operator"))
         users.set_password("alice", PASSWORD, False)
 
 
@@ -137,32 +151,33 @@ class TestTokensPostgres(PostgresMixin, TestTokens):
 class TestServiceAccounts(IdentityCase):
 
     def test_it_has_no_password(self):
-        found = users.add_service("nightly", "viewer")
+        found = users.add_service("nightly", ["viewer"])
         self.assertEqual((found.kind, found.must_change), ("service", False))
         self.assertEqual(users.get("alice").kind, "person")
         with self.assertRaises(users.LoginFailed) as caught:
             users.authenticate("nightly", "anything at all")
         self.assertEqual(caught.exception.reason, "service")
         with self.assertRaises(users.UserExists):
-            users.add_service("alice", "viewer")
+            users.add_service("alice", ["viewer"])
         # It is in the groups of its role, as every user
         self.assertEqual(permissions.groups_of("nightly"), ["viewer"])
 
 
 class TestCliIdentity(IdentityCase):
 
-    def test_without_a_token_it_is_the_account_of_the_os(self):
-        self.assertEqual(auth.cli_principal(), auth.os_principal())
+    def test_without_a_token_it_is_nobody(self):
+        with self.assertRaisesRegex(identity.NoIdentity, "mast login"):
+            auth.cli_principal()
 
     def test_the_order_of_the_tokens(self):
         _, mine = tokens.issue("alice", "login")
-        users.add_service("nightly", "viewer")
+        users.add_service("nightly", ["viewer"])
         _, service = tokens.issue("nightly", "file")
-        users.add_service("script", "admin")
+        users.add_service("script", ["admin"])
         _, script = tokens.issue("script", "env")
         identity.write_token(identity.login_file(), mine)
         self.assertEqual(auth.cli_principal(),
-                         auth.Principal("alice", "operator"))
+                         auth.Principal("alice"))
         path = os.path.join(self.home, "service.token")
         identity.write_token(path, service)
         with mock.patch.dict(os.environ, {"MAST_TOKEN_FILE": path}):
@@ -196,14 +211,14 @@ class TestCliIdentity(IdentityCase):
                                       .st_mode), 0o700)
 
     def test_mast_as_a_service_account(self):
-        users.add_service("nightly", "viewer")
+        users.add_service("nightly", ["viewer"])
         _, token = tokens.issue("nightly", "file")
         identity.write_token(identity.service_token_file("nightly"), token)
         with mock.patch.dict(os.environ, {}):
             status, out, err = _quiet(mast_main.main,
                                       ["--as", "nightly", "whoami"])
             self.assertEqual(status, 0, err)
-            self.assertIn("nightly (viewer), with the token of", out)
+            self.assertIn("nightly (groups: viewer), with the token of", out)
         identity.reset()
         with mock.patch.dict(os.environ, {}):
             status, _, err = _quiet(mast_main.main,
@@ -237,24 +252,25 @@ class TestLogin(IdentityCase):
                              timedelta(hours=12))
         self.assertEqual(auth.cli_principal().name, "alice")
         _, out, _ = _quiet(session.whoami, [])
-        self.assertIn("alice (operator), with the token of", out)
+        self.assertIn("alice (groups: datapower-operator, operator, test-operators, viewer), with the token of", out)
         status, out, _ = _quiet(session.logout, [])
         self.assertIn("Logged out", out)
         self.assertFalse(os.path.exists(identity.login_file()))
         self.assertFalse(tokens.list_tokens("alice")[0].active)
-        self.assertEqual(auth.cli_principal(), auth.os_principal())
+        with self.assertRaises(identity.NoIdentity):
+            auth.cli_principal()
         _, out, _ = _quiet(session.whoami, [])
-        self.assertIn("no token", out)
+        self.assertIn("Nobody: there is no token", out)
 
     def test_who_cannot_log_in(self):
         status, _, wrong = self.login("-u", "alice", password="wrong")
         self.assertEqual(status, 1)
         self.assertIn("not correct", wrong)
-        users.add_service("nightly", "viewer")
+        users.add_service("nightly", ["viewer"])
         status, _, err = self.login("-u", "nightly", password="x")
         # The same answer: it does not tell what nightly is
         self.assertEqual((status, err), (1, wrong))
-        users.add("bob", PASSWORD, "viewer")
+        users.add("bob", PASSWORD, ["viewer"])
         status, _, err = self.login("-u", "bob")
         self.assertEqual(status, 1)
         self.assertIn("new password first", err)
@@ -263,13 +279,18 @@ class TestLogin(IdentityCase):
 
 class TestMastUsersService(IdentityCase):
 
+    def setUp(self):
+        super().setUp()
+        users.add("root", PASSWORD, as_role("admin"))
+        act_as(self, "root")
+
     def run_cli(self, *args):
         from mast.auth.cli import cli
         return _quiet(cli.run, list(args))
 
     def test_add_service_rotate_and_revoke(self):
         status, out, err = self.run_cli(
-            "add-service", "-u", "nightly", "-r", "viewer",
+            "add-service", "-u", "nightly",
             "-g", "datapower-reader")
         self.assertEqual(status, 0, err)
         path = identity.service_token_file("nightly")
@@ -300,8 +321,8 @@ class TestMastUsersService(IdentityCase):
         self.assertIn("revoked", out)
 
     def test_print_the_token_and_people(self):
-        status, out, _ = self.run_cli("add-service", "-u", "remote", "-r",
-                                      "viewer", "--print-token")
+        status, out, _ = self.run_cli("add-service", "-u", "remote",
+                                      "--print-token")
         token = out.strip().splitlines()[-1]
         self.assertEqual(tokens.authenticate(token).name, "remote")
         self.assertFalse(os.path.exists(identity.service_token_file(
@@ -309,8 +330,8 @@ class TestMastUsersService(IdentityCase):
         status, _, err = self.run_cli("rotate-token", "-u", "alice")
         self.assertEqual(status, 1)
         self.assertIn("not a service account", err)
-        status, _, err = self.run_cli("add-service", "-u", "x", "-r",
-                                      "viewer", "-g", "no-such-group")
+        status, _, err = self.run_cli("add-service", "-u", "x",
+                                      "-g", "no-such-group")
         self.assertEqual(status, 1)
 
 
@@ -346,10 +367,96 @@ class TestApiTokens(WebCase):
         self.assertEqual(answer.status_code, 302)
 
     def test_a_service_account_cannot_log_in(self):
-        users.add_service("nightly", "admin")
+        users.add_service("nightly", ["admin"])
         answer = self.login("nightly", "anything")
         self.assertNotEqual(getattr(answer, "status_code", None), 200)
         self.assertEqual(self.client.get("/api/v1/groups").status_code, 401)
+
+
+class TestEnforcement(IdentityCase):
+    """Step 6b: the command line acts only for a user, and every command
+    of core needs what its path allows."""
+
+    def mast(self, *argv):
+        return _quiet(mast_main.main, list(argv))
+
+    def test_without_an_identity(self):
+        status, _, err = self.mast("jobs", "list")
+        self.assertEqual(status, 2)
+        self.assertIn("MAST does not know who you are", err)
+        self.assertIn("mast users add-first-admin", err)
+        # What reads only the installation needs none
+        status, out, err = self.mast("plugins", "list")
+        self.assertEqual(status, 0, err)
+        self.assertIn("datapower", out)
+
+    def test_each_command_of_core_needs_its_path(self):
+        users.add("vera", PASSWORD, ["viewer"], temporary=False)
+        act_as(self, "vera")
+        status, _, err = self.mast("jobs", "list")
+        self.assertEqual(status, 0, err)
+        status, _, err = self.mast("targets", "add", "-n", "dp9", "-k",
+                                  "datapower", "-A", "10.0.0.9")
+        self.assertEqual(status, 1)
+        self.assertIn("vera may not run core.add-target", err)
+        status, _, err = self.mast("users", "delete", "-u", "alice")
+        self.assertIn("vera may not run core.delete-user", err)
+        self.assertEqual(users.get("alice").name, "alice")
+        # One path is enough: a set that names it
+        permissions.add_set("target-keepers", [
+            {"path": "mast/core/add-target", "allow": ["w", "x"]}])
+        permissions.add_group("target-keepers", sets=["target-keepers"])
+        permissions.add_member("target-keepers", "vera")
+        status, _, err = self.mast("targets", "add", "-n", "dp9", "-k",
+                                  "datapower", "-A", "10.0.0.9")
+        self.assertEqual(status, 0, err)
+
+
+class TestFirstAdmin(IdentityCase):
+    """mast users add-first-admin: without an identity, and only while no
+    enabled user may add users."""
+
+    def setUp(self):
+        super().setUp()
+        users.delete("alice")
+
+    def mast(self, *argv, typed=()):
+        typed = list(typed)
+        with mock.patch("mast.auth.cli.getpass.getpass",
+                        side_effect=lambda prompt="": typed.pop(0)):
+            return _quiet(mast_main.main, list(argv))
+
+    def test_the_first_admin(self):
+        status, out, err = self.mast("users", "add-first-admin", "-u", "ada",
+                                    typed=[PASSWORD, PASSWORD])
+        self.assertEqual(status, 0, err)
+        self.assertIn("mast login -u ada", out)
+        self.assertIn("datapower-operator", out)
+        found = users.get("ada")
+        # The admin chose the password: no change at the first login
+        self.assertFalse(found.must_change)
+        self.assertEqual(permissions.groups_of("ada"),
+                         ["admin", "operator", "viewer"])
+        # Once there is one, it is refused, even with a token
+        status, _, err = self.mast("users", "add-first-admin", "-u", "eve",
+                                  typed=[PASSWORD, PASSWORD])
+        self.assertEqual(status, 1)
+        self.assertIn("ada can already manage the users", err)
+        # It gets the home back when every admin is gone
+        users.disable("ada")
+        status, _, err = self.mast("users", "add-first-admin", "-u", "eve",
+                                  typed=[PASSWORD, PASSWORD])
+        self.assertEqual(status, 0, err)
+
+    def test_a_service_account_for_a_script(self):
+        status, out, err = self.mast("users", "add-first-admin", "-u", "ci",
+                                    "--service")
+        self.assertEqual(status, 0, err)
+        self.assertEqual(users.get("ci").kind, users.SERVICE)
+        self.assertTrue(os.path.exists(identity.service_token_file("ci")))
+        status, out, err = self.mast("--as", "ci", "users", "list")
+        self.assertEqual(status, 0, err)
+        self.assertIn("ci", out)
 
 
 class TestMigration(SqliteCase):
@@ -358,9 +465,9 @@ class TestMigration(SqliteCase):
 
     def test_down_and_up(self):
         fast_hashes(self)
-        users.add("vera", PASSWORD, "viewer")
+        users.add("vera", PASSWORD, ["viewer"])
         tokens.issue("vera", "x")
-        users.add_service("nightly", "viewer")
+        users.add_service("nightly", ["viewer"])
         with self.assertRaisesRegex(RuntimeError, "nightly"):
             db.downgrade("4004")
         db.configure(self.url)
@@ -371,6 +478,36 @@ class TestMigration(SqliteCase):
         self.assertEqual(users.get("vera").kind, "person")
         self.assertEqual(db.revision(), db.HEAD)
         self.assertEqual(tokens.list_tokens(), [])
+
+    def test_4006_the_roles_go(self):
+        from sqlalchemy import text
+        fast_hashes(self)
+        users.add("vera", PASSWORD, ["viewer"])
+        users.add("otto", PASSWORD, ["viewer", "operator"])
+        users.add("ada", PASSWORD, as_role("admin"))
+        db.downgrade("4005")
+        from sqlalchemy import create_engine
+        engine = create_engine(self.url)
+        self.addCleanup(engine.dispose)
+        with engine.connect() as connection:
+            roles = dict(connection.execute(text(
+                "SELECT name, role FROM users")).fetchall())
+            # A seeded set as 4004 made it
+            connection.execute(text(
+                "UPDATE permission_sets SET rules = '[]' WHERE name = "
+                "'operator'"))
+            connection.commit()
+        self.assertEqual(roles, {"vera": "viewer", "otto": "operator",
+                                 "ada": "admin"})
+        db.configure(self.url)
+        self.assertEqual(permissions.groups_of("otto"),
+                         ["operator", "viewer"])
+        self.assertEqual(db.revision(), db.HEAD)
+        # The seeded sets that nobody changed are those of this version
+        self.assertEqual(
+            [r.path for r in permissions.get_set("operator").rules],
+            ["mast/core/cancel-own-job", "mast/core/crypto-inventory",
+             "mast/core/crypto-probe"])
 
 
 class TestMigrationPostgres(PostgresMixin, TestMigration):

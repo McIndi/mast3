@@ -45,7 +45,8 @@ from sqlalchemy import select
 from mast import cron
 from mast.cli import params as cli_params
 from mast.jobs import db, queue, registry
-from mast.jobs.auth import LOCAL, Forbidden, Principal, authorize
+from mast.jobs.auth import (
+    SYSTEM, Denied, Forbidden, Principal, authorize, user_principal)
 from mast.jobs.models import QUEUED, RUNNING, Job, Schedule
 from mast.logging import make_logger
 
@@ -114,24 +115,27 @@ def principal_for(created_by):
     """
     _function_: `mast.jobs.schedules.principal_for(created_by)`
 
-    Return `(role, None)` for the principal that made a schedule, or
-    `(None, reason)` if it may no longer submit jobs. An account of the
-    operating system (`os:<account>`, the command line) is an admin.
+    Return `(Principal, None)` for the principal that made a schedule,
+    whose permissions its jobs have, or `(None, reason)` if it may no
+    longer submit jobs: a user who was removed or disabled, or an
+    account of the operating system (a schedule of MAST 3.x).
     """
-    if created_by.startswith("os:"):
-        return LOCAL.role, None
-    # Imported here: the users are needed only for this check
-    from mast.auth import roles, users
+    if created_by == SYSTEM.name:
+        return SYSTEM, None
+    if created_by.startswith("os:") or created_by == "local":
+        return None, ("it was made by {} without an identity of MAST "
+                      "(before MAST 4.0)".format(created_by))
     try:
-        user = users.get(created_by)
-    except users.UserNotFound:
-        return None, "the user {} who made it no longer exists".format(created_by)
-    if user.disabled:
-        return None, "the user {} who made it is disabled".format(created_by)
-    if not roles.allowed(user.role, "submit"):
-        return None, "the user {} who made it may not submit jobs (role {})".format(
-            created_by, user.role)
-    return user.role, None
+        return user_principal(created_by), None
+    except Forbidden as exc:
+        return None, "{} made it, and {}".format(created_by, exc)
+
+
+def _as_schedule(name, creator):
+    """The principal of the jobs of the schedule `name`."""
+    if creator.system:
+        return Principal(PRINCIPAL_PREFIX + name, system=True)
+    return Principal(PRINCIPAL_PREFIX + name, user=creator.acts_for)
 
 
 def _check(command, params, principal, name):
@@ -168,8 +172,7 @@ def _check(command, params, principal, name):
         targets = queue._targets(cmd, model)
     except queue.TargetRefused as exc:
         raise ScheduleError(str(exc))
-    role = principal.role
-    as_schedule = Principal(PRINCIPAL_PREFIX + name, role)
+    as_schedule = _as_schedule(name, principal)
     # What the jobs of the schedule would be refused is a problem of the
     # schedule, not of who asks for it
     try:
@@ -196,17 +199,17 @@ def _info(row):
     return ScheduleInfo.model_validate(row)
 
 
-def add(name, command, params, cron_text, principal=LOCAL, description="",
+def add(name, command, params, cron_text, principal=SYSTEM, description="",
         enabled=True):
     """
     _function_: `mast.jobs.schedules.add(name, command, params, cron_text,
-    principal=LOCAL, description="", enabled=True)`
+    principal=SYSTEM, description="", enabled=True)`
 
     Add a schedule and return its `ScheduleInfo`. `principal` must be
     allowed `manage-schedule`; its jobs run with the role of
     `principal`.
     """
-    authorize(principal, "manage-schedule")
+    authorize(principal, "core.add-schedule")
     _check_name(name)
     try:
         cron.parse_schedule(cron_text)
@@ -230,10 +233,10 @@ def add(name, command, params, cron_text, principal=LOCAL, description="",
     return info
 
 
-def update(name, principal=LOCAL, cron_text=None, params=None,
+def update(name, principal=SYSTEM, cron_text=None, params=None,
            description=None, enabled=None):
     """
-    _function_: `mast.jobs.schedules.update(name, principal=LOCAL,
+    _function_: `mast.jobs.schedules.update(name, principal=SYSTEM,
     cron_text=None, params=None, description=None, enabled=None)`
 
     Change a schedule: its cron expression, its parameters (they
@@ -241,7 +244,7 @@ def update(name, principal=LOCAL, cron_text=None, params=None,
     Enabling it checks it again, as the creator may have lost a right
     since it was paused.
     """
-    authorize(principal, "manage-schedule")
+    authorize(principal, "core.update-schedule")
     with db.session(write=False) as session:
         current = _info(_require(session, name))
     changes = {}
@@ -252,11 +255,10 @@ def update(name, principal=LOCAL, cron_text=None, params=None,
             raise ScheduleError(str(exc))
         changes["cron"] = " ".join(str(cron_text).split())
     if params is not None or enabled:
-        role, reason = principal_for(current.created_by)
-        if role is None:
+        creator, reason = principal_for(current.created_by)
+        if creator is None:
             raise ScheduleError("The schedule {} cannot run: {}. Remove it and "
                                 "add it again.".format(name, reason))
-        creator = Principal(current.created_by, role)
         changes["params"] = _check(
             current.command, current.params if params is None else params,
             creator, name)
@@ -278,36 +280,36 @@ def update(name, principal=LOCAL, cron_text=None, params=None,
     return info
 
 
-def remove(name, principal=LOCAL):
+def remove(name, principal=SYSTEM):
     """
-    _function_: `mast.jobs.schedules.remove(name, principal=LOCAL)`
+    _function_: `mast.jobs.schedules.remove(name, principal=SYSTEM)`
 
     Remove a schedule. Its jobs stay.
     """
-    authorize(principal, "manage-schedule")
+    authorize(principal, "core.remove-schedule")
     with db.session() as session:
         session.delete(_require(session, name))
     _logger().info("{} removed the schedule {}".format(principal.name, name))
 
 
-def get(name, principal=LOCAL):
+def get(name, principal=SYSTEM):
     """
-    _function_: `mast.jobs.schedules.get(name, principal=LOCAL)`
+    _function_: `mast.jobs.schedules.get(name, principal=SYSTEM)`
 
     Return the `ScheduleInfo` of a schedule.
     """
-    authorize(principal, "read")
+    authorize(principal, "core.list-schedules")
     with db.session(write=False) as session:
         return _info(_require(session, name))
 
 
-def list_schedules(principal=LOCAL):
+def list_schedules(principal=SYSTEM):
     """
-    _function_: `mast.jobs.schedules.list_schedules(principal=LOCAL)`
+    _function_: `mast.jobs.schedules.list_schedules(principal=SYSTEM)`
 
     Return every schedule, by name.
     """
-    authorize(principal, "read")
+    authorize(principal, "core.list-schedules")
     with db.session(write=False) as session:
         return [_info(row) for row in session.scalars(
             select(Schedule).order_by(Schedule.name))]
@@ -380,16 +382,22 @@ def _fire(info, force=False):
             logger.warning("Schedule {}: {}".format(info.name, reason))
             _record(info.id, reason=reason)
             return None, reason
-    role, problem = principal_for(info.created_by)
-    if role is None:
+    creator, problem = principal_for(info.created_by)
+    if creator is None:
         reason = "Paused: {}.".format(problem)
         logger.warning("Schedule {}: {}".format(info.name, reason))
         _record(info.id, reason=reason, pause=True)
         return None, reason
-    principal = Principal(PRINCIPAL_PREFIX + info.name, role)
+    principal = _as_schedule(info.name, creator)
     try:
         job_id = queue.submit(info.command, info.params, principal=principal,
                               schedule_id=info.id)
+    except Denied as exc:
+        # The maker may no longer run it: it stays paused until it may
+        reason = "Paused: {}.".format(exc)
+        logger.warning("Schedule {}: {}".format(info.name, reason))
+        _record(info.id, reason=reason, pause=True)
+        return None, reason
     except Exception as exc:
         reason = "The job was not queued: {}: {}".format(type(exc).__name__, exc)
         logger.error("Schedule {}: {}".format(info.name, reason))
@@ -401,15 +409,15 @@ def _fire(info, force=False):
     return job_id, None
 
 
-def run_now(name, principal=LOCAL):
+def run_now(name, principal=SYSTEM):
     """
-    _function_: `mast.jobs.schedules.run_now(name, principal=LOCAL)`
+    _function_: `mast.jobs.schedules.run_now(name, principal=SYSTEM)`
 
     Queue the job of a schedule now, whatever its cron expression says,
     and return its id. A paused schedule runs too. The rules of a run
     still apply: `ScheduleError` says why no job was queued.
     """
-    authorize(principal, "manage-schedule")
+    authorize(principal, "core.run-schedule")
     with db.session(write=False) as session:
         schedule_id = _require(session, name).id
     info = _claim(schedule_id, _now(), force=True)

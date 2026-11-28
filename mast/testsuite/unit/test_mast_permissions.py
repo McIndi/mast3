@@ -27,7 +27,7 @@ from mast import permissions, registry
 from mast.auth import users
 from mast.jobs import db
 from mast.permissions import InvalidRule, check_path, path_matches
-from mast.testsuite.unit.test_mast_auth import fast_hashes
+from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin, SqliteCase
 from mast.testsuite.unit.web_helpers import PASSWORD, WebCase
 
@@ -81,7 +81,7 @@ class PermissionsCase(SqliteCase):
         registry.add("dp2", "datapower")
         registry.add("dp3", "datapower")
         registry.fleet_add("lab", "datapower", members=["dp1", "dp2"])
-        users.add("alice", PASSWORD, "viewer")
+        users.add("alice", PASSWORD, as_role("viewer"))
 
     def user_in(self, set_name, rules, user="alice"):
         permissions.add_set(set_name, rules)
@@ -145,17 +145,16 @@ class TestRules(PermissionsCase):
             with self.assertRaises(permissions.UnknownName):
                 change()
 
-    def test_the_seeded_groups_follow_the_role(self):
+    def test_the_seeded_groups(self):
         self.assertEqual([g.name for g in permissions.list_groups()],
                          ["admin", "datapower-operator", "datapower-reader",
                           "operator", "viewer"])
         self.assertEqual(permissions.groups_of("alice"), ["viewer"])
-        users.set_role("alice", "admin")
-        self.assertEqual(permissions.groups_of("alice"),
-                         ["admin", "operator", "viewer"])
-        users.set_role("alice", "operator")
-        self.assertEqual(permissions.groups_of("alice"),
-                         ["operator", "viewer"])
+        permissions.set_groups("alice", ["admin", "viewer"])
+        self.assertEqual(permissions.groups_of("alice"), ["admin", "viewer"])
+        with self.assertRaises(permissions.UnknownName):
+            permissions.set_groups("alice", ["operator", "nothing"])
+        self.assertEqual(permissions.groups_of("alice"), ["admin", "viewer"])
         # Installing a plugin grants nothing: no seeded set names one,
         # and the groups of the plugin have no members
         for name in ("viewer", "operator", "admin"):
@@ -263,8 +262,9 @@ class TestDecisions(PermissionsCase):
             permissions.decide("alice", "x", "mast/datapower/save", "dp9")
 
     def test_the_admin_set(self):
-        users.add("root", PASSWORD, "admin")
+        users.add("root", PASSWORD, ["admin"])
         for path, target in (("mast/core/add-target", None),
+                             ("mast/core/crypto-inventory", "dp1"),
                              ("mast/credentials/anything", None),
                              ("mast/targets/dp1", "dp1")):
             with self.subTest(path=path):
@@ -482,8 +482,9 @@ class TestApi(WebCase):
             "user": "operator", "command": "datapower.list-domains",
             "targets": ["lab"]})
         self.assertTrue(answer.get_json()["allowed"])
-        self.assertEqual(answer.get_json()["decisions"][0]["allowed_by"][0]
-                         ["set"], "lab-reader")
+        self.assertIn("lab-reader", [
+            match["set"] for match in
+            answer.get_json()["decisions"][0]["allowed_by"]])
         answer = self.get_json = self.call(
             "GET", "/users/operator/permissions").get_json()
         self.assertIn("lab-ops", answer["groups"])
@@ -516,8 +517,8 @@ class TestMigration(SqliteCase):
 
     def test_down_and_up(self):
         fast_hashes(self)
-        users.add("vera", PASSWORD, "viewer")
-        users.add("adam", PASSWORD, "admin")
+        users.add("vera", PASSWORD, as_role("viewer"))
+        users.add("adam", PASSWORD, as_role("admin"))
         db.downgrade("4003")
         self.assertEqual(db.revision(), "4003")
         db.configure(self.url)

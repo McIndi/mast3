@@ -621,13 +621,13 @@ class SessionManager(object):
               reason="closed by its owner"):
         """Close a session: disconnect, and end its job with the
         transcript. With `user`, only that user's session (or any if
-        `user` is an admin)."""
+        `user` may cancel the jobs of others, `mast/core/cancel-job`)."""
         with self._lock:
             session = self._sessions.get(session_id)
         if session is None or session.closed:
             raise NoSuchSession(session_id)
         if user is not None and session.user_id != user.id \
-                and getattr(user, "role", None) != "admin":
+                and not _may_cancel_any(user):
             raise NoSuchSession(session_id)
         self._close(session, status, reason)
 
@@ -745,3 +745,10 @@ class SessionManager(object):
 def _error(exc):
     text = "{}: {}".format(type(exc).__name__, exc).strip()
     return text.splitlines()[0][:300] if text else type(exc).__name__
+
+
+def _may_cancel_any(user):
+    """Whether `user` may cancel the jobs of others: then also their
+    sessions, which are jobs."""
+    from mast import permissions
+    return permissions.decide(user.name, "x", "mast/core/cancel-job").allowed

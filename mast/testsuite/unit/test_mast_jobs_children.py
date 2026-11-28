@@ -26,8 +26,8 @@ from mast.auth import users
 from mast.cli import Cli, Option, Text, say
 from mast.jobs import auth, db, registry, runner
 from mast.jobs.models import Schedule
-from mast.jobs.auth import LOCAL, Forbidden, Principal
-from mast.testsuite.unit.test_mast_auth import fast_hashes
+from mast.jobs.auth import SYSTEM, Forbidden, Principal
+from mast.testsuite.unit.test_mast_auth import as_role, fast_hashes
 from mast.testsuite.unit.test_mast_jobs import (
     PostgresMixin, SqliteCase, Work, wait_for)
 
@@ -93,7 +93,7 @@ class TestChildren(ChildrenCase):
         for child in children:
             self.assertEqual((child.parent_id, child.command, child.submitted_by,
                               child.passive),
-                             (parent, "kids.child", LOCAL.name, True))
+                             (parent, "kids.child", SYSTEM.name, True))
         # Each child ran as its own job, in this process
         self.assertEqual(sorted(n for n, _ in ran), [0, 1, 2])
         self.assertEqual({job for _, job in ran}, {c.id for c in children})
@@ -137,26 +137,29 @@ class TestPrincipalOf(SqliteCase):
         fast_hashes(self)
 
     def test_each_kind(self):
-        self.assertEqual(auth.principal_of("os:alice"), Principal("os:alice", "admin"))
-        self.assertEqual(auth.principal_of("local").role, "admin")
-        users.add("olga", "a long test password", "operator")
-        self.assertEqual(auth.principal_of("olga"), Principal("olga", "operator"))
-        users.add("victor", "a long test password", "viewer")
-        with self.assertRaises(Forbidden):
-            auth.principal_of("victor")
+        # The jobs of MAST 3.x: nobody acts for them any more
+        for old in ("os:alice", "local"):
+            with self.assertRaises(Forbidden):
+                auth.principal_of(old)
+        users.add("olga", "a long test password", as_role("operator"))
+        self.assertEqual(auth.principal_of("olga"), Principal("olga"))
         with self.assertRaises(Forbidden):
             auth.principal_of("nobody")
-        users.add("alice", "a long test password", "admin")
+        users.disable("olga")
+        with self.assertRaises(Forbidden):
+            auth.principal_of("olga")
+        users.add("alice", "a long test password", as_role("admin"))
         now = datetime.now(timezone.utc)
         with db.session() as session:
             session.add(Schedule(
                 name="nightly", command="test.look", params={},
                 cron="0 2 * * *", enabled=True, description="",
                 created_by="alice", created_at=now, updated_at=now))
-        # A schedule has the role of the admin who made it, now
+        # A schedule acts with the permissions of the user who made it
         self.assertEqual(auth.principal_of("schedule:nightly"),
-                         Principal("schedule:nightly", "admin"))
-        users.set_role("alice", "operator")
-        self.assertEqual(auth.principal_of("schedule:nightly").role, "operator")
+                         Principal("schedule:nightly", user="alice"))
+        users.disable("alice")
+        with self.assertRaises(Forbidden):
+            auth.principal_of("schedule:nightly")
         with self.assertRaises(Forbidden):
             auth.principal_of("schedule:gone")

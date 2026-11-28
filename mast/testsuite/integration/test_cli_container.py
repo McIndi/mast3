@@ -83,7 +83,50 @@ class CLITestCase(ContainerTestCase):
         cls._write(local, "appliances.conf", (
             "[{}]\nsoma_port: {}\nweb_port: {}\nssh_port: {}\n".format(
                 ALIAS, ports[SOMA_PORT], ports[WEB_PORT], ports[SSH_PORT])))
+        cls._identity()
         cls._import()
+
+    @classmethod
+    def _run_core(cls, *argv):
+        """Run `mast ARGV` in the home of the tests and return it."""
+        if TEST_HOME:
+            command = [os.path.join(cls.mast_home, "mast"
+                                    + (".bat" if sys.platform == "win32"
+                                       else ""))]
+            env = {k: v for k, v in os.environ.items() if k != "MAST_HOME"}
+        else:
+            command = [sys.executable, "-m", "mast"]
+            env = dict(os.environ, MAST_HOME=cls.mast_home)
+        return subprocess.run(
+            command + list(argv), cwd=cls.mast_home, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            universal_newlines=True, timeout=120)
+
+    @classmethod
+    def _identity(cls):
+        """The command line acts for a user of MAST: the first admin, a
+        service account, which may also run the commands of DataPower.
+        Every command of the tests uses its token file."""
+        cls._saved_token_file = os.environ.pop("MAST_TOKEN_FILE", None)
+        cls._saved_token = os.environ.pop("MAST_TOKEN", None)
+        for argv in (["users", "add-first-admin", "-u", "ci", "--service"],
+                     ["--as", "ci", "groups", "add-member", "-n",
+                      "datapower-operator", "-u", "ci"]):
+            proc = cls._run_core(*argv)
+            if proc.returncode != 0:
+                raise AssertionError("mast {} failed:\n{}".format(
+                    " ".join(argv), proc.stdout))
+        os.environ["MAST_TOKEN_FILE"] = os.path.join(
+            cls.mast_home, "etc", "local", "tokens", "ci.token")
+
+    @classmethod
+    def tearDownClass(cls):
+        os.environ.pop("MAST_TOKEN_FILE", None)
+        for name, value in (("MAST_TOKEN_FILE", cls._saved_token_file),
+                            ("MAST_TOKEN", cls._saved_token)):
+            if value is not None:
+                os.environ[name] = value
+        super().tearDownClass()
 
     @classmethod
     def _import(cls):

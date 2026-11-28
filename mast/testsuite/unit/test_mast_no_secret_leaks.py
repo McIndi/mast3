@@ -57,6 +57,7 @@ from mast.jobs import registry as commands
 from mast.jobs.auth import Principal
 from mast.jobs.models import FINISHED
 from mast.testsuite.integration.fake_soma import FakeSoma
+from mast.testsuite.unit.test_mast_credentials import role_users
 from mast.testsuite.unit.test_mast_credentials import (
     ADMIN, OPERATOR, make_cli)
 from mast.testsuite.unit.test_mast_jobs import PostgresMixin
@@ -98,6 +99,7 @@ class TestNoSecretLeaks(WebCase):
 
     def setUp(self):
         super().setUp()
+        role_users(self)
         self.markers = [
             "Zq9-leak-marker-{}&+".format(secrets.token_hex(8)),
             "Zq9-leak-marker-{}&+".format(secrets.token_hex(8))]
@@ -195,7 +197,7 @@ class TestNoSecretLeaks(WebCase):
         # children as the user who submitted it, who must exist)
         job_ids.append(jobs.submit("core.crypto-inventory", {
             "appliances": ["dp-fake"], "credential": "leaky",
-            "request_delay": 0}, principal=Principal("operator", "operator")))
+            "request_delay": 0}, principal=Principal("operator")))
         jobs.run_next("w-leak")
         self.assertEqual(jobs.get(job_ids[-1]).status, jobs.SUCCEEDED,
                          jobs.get(job_ids[-1]).error)

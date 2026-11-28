@@ -62,7 +62,7 @@ from sqlalchemy import and_, delete, false, func, or_, select, true, update
 from sqlalchemy.orm import aliased
 
 from mast.jobs import config, db, registry, secrets
-from mast.jobs.auth import LOCAL, authorize
+from mast.jobs.auth import SYSTEM, authorize
 from mast.jobs.models import (
     CANCELLED, FINISHED, LOST, QUEUED, RUNNING, SCHEDULED, Job, JobEvent,
     JobResult, JobTarget, Worker)
@@ -362,12 +362,12 @@ class NotPassive(ValueError):
     passive."""
 
 
-def submit(command, params=None, principal=LOCAL, exclusive=None,
+def submit(command, params=None, principal=SYSTEM, exclusive=None,
            parent_id=None, reserved_for=None, attached=False, job_id=None,
            passive=False, schedule_id=None):
     """
     _function_: `mast.jobs.queue.submit(command, params=None,
-    principal=LOCAL, exclusive=None, parent_id=None, reserved_for=None,
+    principal=SYSTEM, exclusive=None, parent_id=None, reserved_for=None,
     attached=False, job_id=None, passive=False, schedule_id=None)`
 
     Put a job in the queue and return its id.
@@ -482,9 +482,9 @@ def attach(job_id):
             .values(attached_until=_lease(_now(), None)))
 
 
-def get(job_id, principal=LOCAL):
+def get(job_id, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.get(job_id, principal=LOCAL)`
+    _function_: `mast.jobs.queue.get(job_id, principal=SYSTEM)`
 
     Return the `JobInfo` of a job. Raises `JobNotFound`.
     """
@@ -495,9 +495,9 @@ def get(job_id, principal=LOCAL):
     return info
 
 
-def find(prefix, principal=LOCAL):
+def find(prefix, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.find(prefix, principal=LOCAL)`
+    _function_: `mast.jobs.queue.find(prefix, principal=SYSTEM)`
 
     Return the id of the job whose id starts with `prefix`, so that a
     person does not have to type all of an id. Raises `JobNotFound` if
@@ -544,12 +544,12 @@ def _filtered(query, status=None, submitted_by=None, command=None,
     return query
 
 
-def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
+def list_jobs(status=None, limit=50, principal=SYSTEM, submitted_by=None,
               command=None, appliance=None, before=None, parent_id=None,
               schedule_id=None, scheduled=None):
     """
     _function_: `mast.jobs.queue.list_jobs(status=None, limit=50,
-    principal=LOCAL, submitted_by=None, command=None, appliance=None,
+    principal=SYSTEM, submitted_by=None, command=None, appliance=None,
     before=None, parent_id=None, schedule_id=None, scheduled=None)`
 
     Return the newest jobs first, as a list of `JobInfo`. `status`
@@ -576,9 +576,9 @@ def list_jobs(status=None, limit=50, principal=LOCAL, submitted_by=None,
         return [_info(session, job) for job in session.scalars(query)]
 
 
-def count_jobs(principal=LOCAL, **filters):
+def count_jobs(principal=SYSTEM, **filters):
     """
-    _function_: `mast.jobs.queue.count_jobs(principal=LOCAL, **filters)`
+    _function_: `mast.jobs.queue.count_jobs(principal=SYSTEM, **filters)`
 
     Return how many jobs `list_jobs` would find with these filters and
     no limit.
@@ -589,10 +589,10 @@ def count_jobs(principal=LOCAL, **filters):
         return session.scalar(query)
 
 
-def events(job_id, after=0, principal=LOCAL):
+def events(job_id, after=0, principal=SYSTEM):
     """
     _function_: `mast.jobs.queue.events(job_id, after=0,
-    principal=LOCAL)`
+    principal=SYSTEM)`
 
     Return the events of a job in order, as a list of `EventInfo`. To
     follow a job, give the `id` of the last event that you have as
@@ -606,9 +606,9 @@ def events(job_id, after=0, principal=LOCAL):
             .order_by(JobEvent.id))]
 
 
-def result(job_id, principal=LOCAL):
+def result(job_id, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.result(job_id, principal=LOCAL)`
+    _function_: `mast.jobs.queue.result(job_id, principal=SYSTEM)`
 
     Return the `ResultInfo` of a job, or `None` if it has no result
     (it is not finished, or it was cancelled or lost).
@@ -619,9 +619,9 @@ def result(job_id, principal=LOCAL):
         return None if row is None else ResultInfo.model_validate(row)
 
 
-def cancel(job_id, principal=LOCAL):
+def cancel(job_id, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.cancel(job_id, principal=LOCAL)`
+    _function_: `mast.jobs.queue.cancel(job_id, principal=SYSTEM)`
 
     Cancel a job and return its `JobInfo`.
 
@@ -707,9 +707,9 @@ def reap():
         return _reap(session, _now())
 
 
-def reap_if_expired(info, principal=LOCAL):
+def reap_if_expired(info, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.reap_if_expired(info, principal=LOCAL)`
+    _function_: `mast.jobs.queue.reap_if_expired(info, principal=SYSTEM)`
 
     Return `info` (a `JobInfo`), or a new `JobInfo` if the job runs and
     its lease has ended: the job is then declared `lost` (see `reap`).
@@ -1019,9 +1019,9 @@ def worker_gone(worker_id):
         session.execute(delete(Worker).where(Worker.id == worker_id))
 
 
-def workers(alive=True, principal=LOCAL):
+def workers(alive=True, principal=SYSTEM):
     """
-    _function_: `mast.jobs.queue.workers(alive=True, principal=LOCAL)`
+    _function_: `mast.jobs.queue.workers(alive=True, principal=SYSTEM)`
 
     Return the worker processes as a list of `WorkerInfo`, oldest
     first. With `alive`, only the workers that were seen within the

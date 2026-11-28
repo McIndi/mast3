@@ -613,6 +613,7 @@ class Cli(object):
                 _params.error_messages(command.model, exc)))
         if self.provider is not None and command.queued:
             return self._run_job(command, args, values, log)
+        self._authorize(command)
         log.info(f"Attempting to execute func: {command.fn}")
         try:
             result = command.fn(values)
@@ -623,6 +624,22 @@ class Cli(object):
             result.emit()
             if result.outcome != SUCCEEDED:
                 sys.exit(1)
+
+    def _authorize(self, command):
+        """A command of core that runs here, not as a job, needs what its
+        path allows (`mast.jobs.auth.authorize`): `mast users add` needs
+        `x` and `w` on `mast/core/add-user`. A command with `anonymous`
+        (`mast users add-first-admin`) checks for itself."""
+        from mast.roots import CORE
+        if self.provider != CORE or getattr(command, "anonymous", False):
+            return
+        # Imported here, because mast.jobs imports this module
+        from mast.jobs.auth import Forbidden, authorize, cli_principal
+        try:
+            authorize(cli_principal(), command.id)
+        except Forbidden as exc:
+            command.parser.exit(1, "{}: error: {}\n".format(
+                command.parser.prog, exc))
 
     def _run_job(self, command, args, values, log):
         """Put the command in the job queue and show the job, see

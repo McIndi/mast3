@@ -46,7 +46,6 @@ import atexit
 
 import flask
 
-from mast.auth import roles
 from mast.jobs.auth import Forbidden
 from mast.web.page import Page
 
@@ -101,7 +100,16 @@ def terminal_page():
     """
     return flask.render_template(
         "terminal.html",
-        may_store=roles.allowed(_user().role, "use-change-credential"))
+        may_store=_may_use_stored())
+
+
+def _may_use_stored():
+    """Whether a rule of the user lets them use a stored credential, on
+    some targets (each use is checked when the session opens)."""
+    from mast import permissions
+    return any(match.rule.path.startswith("mast/credentials/")
+               and "x" in match.rule.allow and match.rule.scope
+               for match in permissions.rules_of(_user().name))
 
 
 @blueprint.get("/api/v1/ssh/sessions")
@@ -128,12 +136,9 @@ def _targets(names):
 
 
 def _check_stored(name, targets, who):
-    """An admin, a `change` credential bound to every appliance, and a
-    pinned SSH host key on each: else `Forbidden`."""
+    """A `change` credential that `who` may use, bound to every
+    appliance, and a pinned SSH host key on each: else `Forbidden`."""
     from mast.credentials import store
-    if not roles.allowed(who.role, "use-change-credential"):
-        raise Forbidden("Only an admin may use a stored credential in a "
-                        "terminal. Type a user name and a password.")
     credential = store.check_use(name, [t.name for t in targets], who,
                                  command=COMMAND, effect="change")
     if credential.purpose != store.CHANGE:
@@ -357,7 +362,7 @@ def close(session_id):
     return flask.jsonify({"closed": session.id, "job_id": session.job_id})
 
 
-page = Page(name="terminal", title="Terminal", order=70, min_role="operator",
+page = Page(name="terminal", title="Terminal", order=70, requires="datapower.terminal",
             blueprint=blueprint)
 
 

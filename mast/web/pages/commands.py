@@ -44,4 +44,4 @@ def commands():
 
 
 page = Page(name="commands", title="Commands", order=60,
-            min_role="operator", blueprint=blueprint)
+            requires="submit", blueprint=blueprint)

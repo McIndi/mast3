@@ -29,7 +29,7 @@ is `mast.web.api`, under `/api/v1`.
 """
 import flask
 
-from mast.auth import roles
+from mast.jobs import auth as jobs_auth
 from mast.config import get_configs_dict
 from mast.logging import make_logger
 from mast.web import api, auth, security
@@ -162,13 +162,11 @@ def create_app(server_conf=None, pages=None):
 
     @app.context_processor
     def template_functions():
-        user = flask.g.get("mast_user")
+        who = flask.g.get("mast_principal")
         return {
             "csrf_token": security.csrf_token,
-            "nav_pages": [page for page in pages if user is not None
-                          and roles.at_least(user.role, page.min_role)],
-            "may_submit": user is not None
-            and roles.allowed(user.role, "submit"),
+            "nav_pages": [page for page in pages if page.visible_to(who)],
+            "may_submit": who is not None and jobs_auth.may(who, "submit"),
         }
 
     @app.route("/")
@@ -182,7 +180,7 @@ def create_app(server_conf=None, pages=None):
         """
         user = flask.g.mast_user
         for page in pages:
-            if roles.at_least(user.role, page.min_role):
+            if page.visible_to(flask.g.mast_principal):
                 return flask.redirect(page.path)
         return flask.render_template("home.html", user=user)
 

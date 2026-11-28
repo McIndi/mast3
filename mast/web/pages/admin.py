@@ -17,9 +17,9 @@
 """
 _module_: `mast.web.pages.admin`
 
-The Admin pages, for admins only: Users (list the users, add one with
-a temporary password, change a role, disable and enable, set a new
-temporary password, and delete), Appliances (the appliance registry,
+The Admin pages: Users (list the users, add one with a temporary
+password, choose their groups, disable and enable, set a new temporary
+password, and delete), Appliances (the appliance registry,
 whose JSON routes are in `mast.web.api`), Credentials (the
 credential store, whose JSON routes are in `mast.web.credentials`),
 Schedules (the scheduled jobs, whose JSON routes are in
@@ -29,24 +29,27 @@ were left out, with what to do).
 The JSON routes:
 
 * `GET /api/v1/users`: The users (never a password or a hash).
-* `POST /api/v1/users`: `{name, role, password}`. The password is
+* `POST /api/v1/users`: `{name, groups, password}`. The password is
 temporary: the user chooses a new one at the first login.
-* `PATCH /api/v1/users/<name>`: Any of `{role}`, `{disabled}` or
-`{password}` (a new temporary password).
+* `PATCH /api/v1/users/<name>`: Any of `{groups}` (every group of the
+user), `{disabled}` or `{password}` (a new temporary password).
 * `DELETE /api/v1/users/<name>`.
 * `GET /api/v1/plugins`: `{plugins, left_out, kinds}`, what `mast
 plugins list` and `mast plugins kinds` show.
 
-An admin cannot change their own role, disable or delete themselves
-here, so that the web UI always keeps an admin who can log in. On the
-command line, `mast users` can.
+Each route needs the core command that does the same on the command
+line (`core.add-user`, `core.update-group`, ...), as `mast users` and
+`mast groups` do. An admin cannot change their own groups, disable or
+delete themselves here, so that the web UI always keeps an admin who
+can log in. On the command line, `mast users` can.
 
 Every change is logged to `mast.web.auth.log`, without the password.
 """
 import flask
 
-from mast import plugins
-from mast.auth import passwords, roles, users
+from mast import permissions, plugins
+from mast.auth import passwords, users
+from mast.jobs import auth as jobs_auth
 from mast.logging import make_logger
 from mast.web.page import Page
 
@@ -70,7 +73,8 @@ def _log(message):
 def _user_json(info):
     return {
         "name": info.name,
-        "role": info.role,
+        "kind": info.kind,
+        "groups": permissions.groups_of(info.name),
         "disabled": info.disabled,
         "must_change": info.must_change,
         "locked": info.locked_until is not None,
@@ -78,6 +82,18 @@ def _user_json(info):
         "last_login_at": info.last_login_at.isoformat()
         if info.last_login_at else None,
     }
+
+
+def _authorize(command):
+    from mast.web.auth import principal
+    jobs_auth.authorize(principal(), "core." + command)
+
+
+def _groups(body):
+    groups = body.get("groups") or []
+    if isinstance(groups, str):
+        groups = [groups]
+    return [str(g) for g in groups]
 
 
 def _body():
@@ -107,7 +123,8 @@ def users_page():
     Exposed at: `/admin/users` via GET
     """
     return flask.render_template(
-        "admin_users.html", roles=roles.ROLES,
+        "admin_users.html",
+        groups=[g.name for g in permissions.list_groups()],
         min_length=passwords.MIN_LENGTH)
 
 
@@ -118,6 +135,7 @@ def list_users():
 
     Exposed at: `/api/v1/users` via GET
     """
+    _authorize("list-users")
     return flask.jsonify({"users": [_user_json(info)
                                     for info in users.list_users()]})
 
@@ -129,21 +147,22 @@ def add_user():
 
     Exposed at: `/api/v1/users` via POST
     """
+    _authorize("add-user")
     body = _body()
     try:
         info = users.add(str(body.get("name") or ""),
-                         str(body.get("password") or ""),
-                         str(body.get("role") or ""))
+                         str(body.get("password") or ""), _groups(body))
     except users.UserExists:
         return _error(409, "There is already a user with this name.",
                       {"name": "There is already a user with this name."})
     except users.InvalidName as exc:
         return _error(422, str(exc), {"name": str(exc)})
-    except users.InvalidRole as exc:
-        return _error(422, str(exc), {"role": str(exc)})
+    except permissions.UnknownName as exc:
+        return _error(422, str(exc), {"groups": str(exc)})
     except passwords.WeakPassword as exc:
         return _error(422, str(exc), {"password": str(exc)})
-    _log("Added the user {} with the role {}".format(info.name, info.role))
+    _log("Added the user {} in {}".format(
+        info.name, ", ".join(permissions.groups_of(info.name)) or "no group"))
     return flask.jsonify(_user_json(info)), 201
 
 
@@ -160,14 +179,22 @@ def change_user(name):
     except (users.UserNotFound, users.InvalidName):
         return _error(404, "There is no user {}.".format(name))
     own = target.id == flask.g.mast_user.id
-    if own and ("role" in body or body.get("disabled")):
-        return _error(400, "You cannot change your own role or disable "
-                           "yourself here. Use mast users on the MAST host.")
+    if own and ("groups" in body or body.get("disabled")):
+        return _error(400, "You cannot change your own groups or disable "
+                           "yourself here. Use mast groups or mast users "
+                           "on the MAST host.")
+    for key, command in (("groups", "update-group"),
+                         ("password", "set-user-password")):
+        if key in body:
+            _authorize(command)
+    if "disabled" in body:
+        _authorize("disable-user" if body["disabled"] else "enable-user")
     info = target
     try:
-        if "role" in body:
-            info = users.set_role(target.name, str(body["role"]))
-            _log("Gave {} the role {}".format(info.name, info.role))
+        if "groups" in body:
+            permissions.set_groups(target.name, _groups(body))
+            _log("Put {} in {}".format(target.name, ", ".join(
+                permissions.groups_of(target.name)) or "no group"))
         if "disabled" in body:
             if body["disabled"]:
                 info = users.disable(target.name)
@@ -179,8 +206,8 @@ def change_user(name):
             info = users.set_password(
                 target.name, str(body["password"] or ""), temporary=True)
             _log("Set a temporary password for {}".format(info.name))
-    except users.InvalidRole as exc:
-        return _error(422, str(exc), {"role": str(exc)})
+    except permissions.UnknownName as exc:
+        return _error(422, str(exc), {"groups": str(exc)})
     except passwords.WeakPassword as exc:
         return _error(422, str(exc), {"password": str(exc)})
     return flask.jsonify(_user_json(info))
@@ -193,6 +220,7 @@ def delete_user(name):
 
     Exposed at: `/api/v1/users/<name>` via DELETE
     """
+    _authorize("delete-user")
     try:
         target = users.get(name)
     except (users.UserNotFound, users.InvalidName):
@@ -301,12 +329,13 @@ def list_plugins():
 
     Exposed at: `/api/v1/plugins` via GET
     """
+    _authorize("list-plugins")
     used, left_out = _plugins()
     return flask.jsonify({"api": plugins.API, "plugins": used,
                           "left_out": left_out, "kinds": _kinds()})
 
 
-page = Page(name="admin", title="Admin", order=90, min_role="admin",
+page = Page(name="admin", title="Admin", order=90, requires="core.list-users",
             blueprint=blueprint, nav=(("Users", "/admin/users"),
                                       ("Targets", "/admin/targets"),
                                       ("Credentials", "/admin/credentials"),
